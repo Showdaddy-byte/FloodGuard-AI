@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FloodGuard AI</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+<div class='spinner' id='spinner'><div class='loader'></div></div>
+<nav class="navbar">
+<div class="logo">🌊 FloodGuard AI</div>
+<ul class="nav-links">
+<li><a href="#home">Home</a></li>
+<li><a href="#features">Features</a></li>
+<li><a href="#dashboard">Dashboard</a></li>
+<li><a href="#weather">How It Works</a></li>
+<li><a href="#contact">Contact</a></li>
+</ul>
+</nav>
+<section id="home" class="hero"><div class="hero-content"><h1>AI Flood Early Warning System</h1><p>FloodGuard AI combines weather forecasting, GIS mapping and intelligent analytics to provide early flood awareness.</p><a href="#dashboard"><button class="hero-button">Get Started</button></a></div></section>
+<section id="features" class="features"><h2>Our Intelligent Features</h2><div class="feature-grid"><div class="feature-card"><h3>🌦 Live Weather</h3></div><div class="feature-card"><h3>🤖 AI Prediction</h3></div><div class="feature-card"><h3>🚨 Alerts</h3></div></div></section>
+<section class="statistics"><h2>FloodGuard AI Statistics</h2><div class="stats-grid"><div class="stat-card"><h3>250+</h3><p>Communities Protected</p></div><div class="stat-card"><h3>98%</h3><p>Prediction Accuracy*</p></div><div class="stat-card"><h3>24/7</h3><p>Monitoring</p></div><div class="stat-card"><h3>100K+</h3><p>Citizens Reached</p></div></div></section>
+<section id="dashboard" class="dashboard"><div class="dashboard-card"><h2>Flood Risk Dashboard</h2><form method="POST"><input type="text" name="city" placeholder="Enter any city..." required><button type="submit">Analyze Flood Risk</button></form>{% if error %}<div class="error-message">{{ error }}</div>{% endif %}<div class="prediction-card">{% if prediction %}<h3>Prediction Result</h3><div class='weather-icon'>🌤️</div><div class='gauge'><div class='gauge-fill' style='width:{{ prediction.score }}%'></div></div><div class='ai-score'>AI Confidence: {{ 70 + (prediction.score//3) }}%</div><p><strong>City:</strong> {{ prediction.city }}</p><p><strong>Flood Risk:</strong> {{ prediction.risk }}</p><p><strong>Weather:</strong> {{ prediction.description }}</p><p><strong>Temperature:</strong> {{ prediction.temperature }} °C</p><p><strong>Humidity:</strong> {{ prediction.humidity }}%</p><div id="map"></div><hr><h3>📅 5-Day Forecast</h3>{% if forecast %}<div class="forecast-container">{% for item in forecast %}<div class="forecast-card"><h3>{{ item.day }}</h3><p>{{ item.date }}</p><p>{{ item.time }}</p><p>{{ item.weather }}</p><p>{{ item.temp }} °C</p><p>{{ item.rain }} mm</p><p>{{ item.humidity }}%</p><p>{{ item.wind }} m/s</p>{% if item.rain >= 20 %}<div class="forecast-risk high-risk">🔴 HIGH RISK</div>{% elif item.rain >= 5 %}<div class="forecast-risk medium-risk">🟠 WATCH</div>{% else %}<div class="forecast-risk low-risk">🟢 SAFE</div>{% endif %}</div>{% endfor %}</div>{% else %}<p>No forecast available.</p>{% endif %}{% else %}<p>No prediction yet. Search for a city above.</p>{% endif %}</div></div></section>
+<section id="weather" class="features"><h2>How FloodGuard AI Works</h2></section>
+<footer id="contact"><h2>🌊 FloodGuard AI</h2><p>© 2026 FloodGuard AI. All Rights Reserved.</p></footer>
+{% if prediction %}<script>document.addEventListener("DOMContentLoaded",function(){const map=L.map('map').setView([{{ prediction.latitude }},{{ prediction.longitude }}],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap contributors'}).addTo(map);L.marker([{{ prediction.latitude }},{{ prediction.longitude }}]).addTo(map).bindPopup('<b>{{ prediction.city }}</b>').openPopup();setTimeout(function(){map.invalidateSize();},300);});</script>{% endif %}
+<script>
+const f=document.querySelector('form');
+if(f){f.addEventListener('submit',()=>document.getElementById('spinner').classList.add('active'));}
+</script></body></html>
