@@ -1,33 +1,231 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FloodGuard AI</title>
-<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FloodGuard AI</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
-<div class='spinner' id='spinner'><div class='loader'></div></div>
-<nav class="navbar">
-<div class="logo">🌊 FloodGuard AI</div>
-<ul class="nav-links">
-<li><a href="#home">Home</a></li>
-<li><a href="#features">Features</a></li>
-<li><a href="#dashboard">Dashboard</a></li>
-<li><a href="#weather">How It Works</a></li>
-<li><a href="#contact">Contact</a></li>
-</ul>
-</nav>
-<section id="home" class="hero"><div class="hero-content"><h1>AI Flood Early Warning System</h1><p>FloodGuard AI combines weather forecasting, GIS mapping and intelligent analytics to provide early flood awareness.</p><a href="#dashboard"><button class="hero-button">Get Started</button></a></div></section>
-<section id="features" class="features"><h2>Our Intelligent Features</h2><div class="feature-grid"><div class="feature-card"><h3>🌦 Live Weather</h3></div><div class="feature-card"><h3>🤖 AI Prediction</h3></div><div class="feature-card"><h3>🚨 Alerts</h3></div></div></section>
-<section class="statistics"><h2>FloodGuard AI Statistics</h2><div class="stats-grid"><div class="stat-card"><h3>250+</h3><p>Communities Protected</p></div><div class="stat-card"><h3>98%</h3><p>Prediction Accuracy*</p></div><div class="stat-card"><h3>24/7</h3><p>Monitoring</p></div><div class="stat-card"><h3>100K+</h3><p>Citizens Reached</p></div></div></section>
-<section id="dashboard" class="dashboard"><div class="dashboard-card"><h2>Flood Risk Dashboard</h2><form method="POST"><input type="text" name="city" placeholder="Enter any city..." required><button type="submit">Analyze Flood Risk</button></form>{% if error %}<div class="error-message">{{ error }}</div>{% endif %}<div class="prediction-card">{% if prediction %}<h3>Prediction Result</h3><div class='weather-icon'>🌤️</div><div class='gauge'><div class='gauge-fill' style='width:{{ prediction.score }}%'></div></div><div class='ai-score'>AI Confidence: {{ 70 + (prediction.score//3) }}%</div><p><strong>City:</strong> {{ prediction.city }}</p><p><strong>Flood Risk:</strong> {{ prediction.risk }}</p><p><strong>Weather:</strong> {{ prediction.description }}</p><p><strong>Temperature:</strong> {{ prediction.temperature }} °C</p><p><strong>Humidity:</strong> {{ prediction.humidity }}%</p><div id="map"></div><hr><h3>📅 5-Day Forecast</h3>{% if forecast %}<div class="forecast-container">{% for item in forecast %}<div class="forecast-card"><h3>{{ item.day }}</h3><p>{{ item.date }}</p><p>{{ item.time }}</p><p>{{ item.weather }}</p><p>{{ item.temp }} °C</p><p>{{ item.rain }} mm</p><p>{{ item.humidity }}%</p><p>{{ item.wind }} m/s</p>{% if item.rain >= 20 %}<div class="forecast-risk high-risk">🔴 HIGH RISK</div>{% elif item.rain >= 5 %}<div class="forecast-risk medium-risk">🟠 WATCH</div>{% else %}<div class="forecast-risk low-risk">🟢 SAFE</div>{% endif %}</div>{% endfor %}</div>{% else %}<p>No forecast available.</p>{% endif %}{% else %}<p>No prediction yet. Search for a city above.</p>{% endif %}</div></div></section>
-<section id="weather" class="features"><h2>How FloodGuard AI Works</h2></section>
-<footer id="contact"><h2>🌊 FloodGuard AI</h2><p>© 2026 FloodGuard AI. All Rights Reserved.</p></footer>
-{% if prediction %}<script>document.addEventListener("DOMContentLoaded",function(){const map=L.map('map').setView([{{ prediction.latitude }},{{ prediction.longitude }}],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap contributors'}).addTo(map);L.marker([{{ prediction.latitude }},{{ prediction.longitude }}]).addTo(map).bindPopup('<b>{{ prediction.city }}</b>').openPopup();setTimeout(function(){map.invalidateSize();},300);});</script>{% endif %}
-<script>
-const f=document.querySelector('form');
-if(f){f.addEventListener('submit',()=>document.getElementById('spinner').classList.add('active'));}
-</script></body></html>
+    <div class="spinner" id="spinner"><div class="loader"></div></div>
+
+    <nav class="navbar">
+        <div class="logo">FloodGuard AI</div>
+        <ul class="nav-links">
+            <li><a href="#home">Home</a></li>
+            <li><a href="#features">Features</a></li>
+            <li><a href="#dashboard">Dashboard</a></li>
+            <li><a href="#intelligence">Intelligence</a></li>
+            <li><a href="#contact">Contact</a></li>
+        </ul>
+    </nav>
+
+    <section id="home" class="hero">
+        <div class="hero-content">
+            <p class="eyebrow">Flood early warning, live mapping, and risk intelligence</p>
+            <h1>AI Flood Early Warning System</h1>
+            <p>FloodGuard AI combines weather forecasting, rainfall signals, map visualization, and environmental risk scoring to warn communities before dangerous flooding develops.</p>
+            <a href="#dashboard"><button class="hero-button">Analyze a Location</button></a>
+        </div>
+    </section>
+
+    <section id="features" class="features">
+        <h2>Core Capabilities</h2>
+        <div class="feature-grid">
+            <div class="feature-card">
+                <h3>Live Weather</h3>
+                <p>Current rainfall, humidity, wind, pressure, and temperature signals.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Flood Risk Scoring</h3>
+                <p>A weighted model estimates low, medium, high, or critical flood risk.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Interactive Map</h3>
+                <p>Location markers and future layers for affected areas, demography, and magnitude.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Traffic Readiness</h3>
+                <p>The app is prepared for live traffic feeds to warn users about unsafe roads.</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="statistics">
+        <h2>FloodGuard AI Statistics</h2>
+        <div class="stats-grid">
+            <div class="stat-card"><h3 id="locations">1</h3><p>Locations Monitored</p></div>
+            <div class="stat-card"><h3 id="searches">0</h3><p>Weather Searches</p></div>
+            <div class="stat-card"><h3 id="alerts">0</h3><p>Flood Alerts Issued</p></div>
+            <div class="stat-card"><h3>24/7</h3><p>Monitoring Ready</p></div>
+        </div>
+    </section>
+
+    <section id="dashboard" class="dashboard">
+        <div class="dashboard-card">
+            <h2>Flood Risk Dashboard</h2>
+            <p>Search any city to analyze present weather, forecast rainfall, and early flood risk.</p>
+
+            <form method="POST" onsubmit="recordSearch()">
+                <input type="text" name="city" placeholder="Enter a city, for example Lagos" required>
+                <button type="submit">Analyze Flood Risk</button>
+            </form>
+
+            {% if error %}
+            <div class="error-message">{{ error }}</div>
+            {% endif %}
+
+            <div class="prediction-card">
+                {% if prediction %}
+                <div class="result-header">
+                    <div>
+                        <h3>{{ prediction.city }}{% if prediction.country %}, {{ prediction.country }}{% endif %}</h3>
+                        <p>{{ prediction.description }}</p>
+                    </div>
+                    <div class="risk-pill risk-{{ prediction.risk_color }}">{{ prediction.risk }}</div>
+                </div>
+
+                <div class="gauge" aria-label="Flood risk score">
+                    <div class="gauge-fill" style="width:{{ prediction.score }}%"></div>
+                </div>
+                <div class="ai-score">AI confidence: {{ prediction.confidence }}% | Flood score: {{ prediction.score }}/100</div>
+
+                <div class="metrics-grid">
+                    <div><span>Temperature</span><strong>{{ prediction.temperature }} C</strong></div>
+                    <div><span>Feels like</span><strong>{{ prediction.feels_like }} C</strong></div>
+                    <div><span>Humidity</span><strong>{{ prediction.humidity }}%</strong></div>
+                    <div><span>Pressure</span><strong>{{ prediction.pressure }} hPa</strong></div>
+                    <div><span>Wind</span><strong>{{ prediction.wind }} m/s</strong></div>
+                    <div><span>Rainfall</span><strong>{{ prediction.rainfall }} mm</strong></div>
+                </div>
+
+                <div class="advice-box">{{ prediction.advice }}</div>
+
+                <div id="map"></div>
+
+                <div class="insight-grid">
+                    <section>
+                        <h3>Risk Factors</h3>
+                        <ul class="factor-list">
+                            {% for factor in prediction.factors %}
+                            <li>{{ factor }}</li>
+                            {% endfor %}
+                        </ul>
+                    </section>
+                    <section>
+                        <h3>Environment Intelligence</h3>
+                        <p>{{ prediction.environment.summary }}</p>
+                    </section>
+                </div>
+
+                <div class="layer-grid" id="intelligence">
+                    {% for key, layer in prediction.environment.items() %}
+                    {% if key != "summary" %}
+                    <div class="layer-card">
+                        <span>{{ layer.label }}</span>
+                        <strong>{{ layer.score }}/10</strong>
+                        <p>{{ layer.status }}</p>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+
+                <h3>5-Day Forecast</h3>
+                {% if forecast %}
+                <div class="forecast-container">
+                    {% for item in forecast %}
+                    <div class="forecast-card">
+                        <h3>{{ item.day }}</h3>
+                        <p>{{ item.date }} at {{ item.time }}</p>
+                        <p>{{ item.weather }}</p>
+                        <p>{{ item.temp }} C</p>
+                        <p>{{ item.rain }} mm rain</p>
+                        <p>{{ item.humidity }}% humidity</p>
+                        <p>{{ item.wind }} m/s wind</p>
+                        <div class="forecast-risk {{ item.risk_color }}">{{ item.risk }}</div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p>No forecast available.</p>
+                {% endif %}
+                {% else %}
+                <p>No prediction yet. Search for a city above.</p>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+
+    <section class="features">
+        <h2>Next Data Layers</h2>
+        <div class="feature-grid">
+            <div class="feature-card"><h3>Topography</h3><p>Elevation, slope, catchment, and lowland exposure.</p></div>
+            <div class="feature-card"><h3>Demography</h3><p>Population density and vulnerable community mapping.</p></div>
+            <div class="feature-card"><h3>Construction</h3><p>Drainage, bridges, dams, roads, and land-use change.</p></div>
+            <div class="feature-card"><h3>Live Traffic</h3><p>Blocked routes, road speed, and evacuation path guidance.</p></div>
+        </div>
+    </section>
+
+    <footer id="contact">
+        <h2>FloodGuard AI</h2>
+        <p>Copyright 2026 FloodGuard AI. All Rights Reserved.</p>
+    </footer>
+
+    <script>
+    let weatherSearches = parseInt(localStorage.getItem("weatherSearches")) || 0;
+
+    function updateStatistics() {
+        document.getElementById("locations").innerHTML = 1;
+        document.getElementById("searches").innerHTML = weatherSearches;
+        document.getElementById("alerts").innerHTML = 0;
+    }
+
+    function recordSearch() {
+        weatherSearches++;
+        localStorage.setItem("weatherSearches", weatherSearches);
+        updateStatistics();
+    }
+
+    document.addEventListener("DOMContentLoaded", updateStatistics);
+
+    const form = document.querySelector("form");
+    if (form) {
+        form.addEventListener("submit", () => {
+            document.getElementById("spinner").classList.add("active");
+        });
+    }
+    </script>
+
+    {% if prediction %}
+    <script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const latitude = {{ prediction.latitude }};
+        const longitude = {{ prediction.longitude }};
+        const map = L.map("map").setView([latitude, longitude], 11);
+
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            attribution: "&copy; OpenStreetMap contributors"
+        }).addTo(map);
+
+        L.circle([latitude, longitude], {
+            color: "{{ prediction.map_color }}",
+            fillColor: "{{ prediction.map_color }}",
+            fillOpacity: 0.22,
+            radius: 4500 + ({{ prediction.score }} * 80)
+        }).addTo(map).bindPopup("Estimated flood risk zone");
+
+        L.marker([latitude, longitude])
+            .addTo(map)
+            .bindPopup("<b>{{ prediction.city }}</b><br>{{ prediction.risk }} flood risk")
+            .openPopup();
+
+        setTimeout(function () {
+            map.invalidateSize();
+        }, 300);
+    });
+    </script>
+    {% endif %}
+</body>
+</html>
