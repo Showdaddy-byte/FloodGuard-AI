@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
-<body>
+<body class="{% if prediction %}weather-{{ prediction.scene.code }}{% else %}weather-clouds{% endif %}">
     <div class="spinner" id="spinner"><div class="loader"></div></div>
 
     <nav class="navbar">
@@ -24,9 +24,9 @@
 
     <section id="home" class="hero">
         <div class="hero-content">
-            <p class="eyebrow">Flood early warning, live mapping, and risk intelligence</p>
+            <p class="eyebrow">Live weather animation, flood warnings, and map intelligence</p>
             <h1>AI Flood Early Warning System</h1>
-            <p>FloodGuard AI combines weather forecasting, rainfall signals, map visualization, and environmental risk scoring to warn communities before dangerous flooding develops.</p>
+            <p>FloodGuard AI monitors weather, rainfall, pressure, wind, location risk, and forecast patterns to warn users before flooding becomes dangerous.</p>
             <a href="#dashboard"><button class="hero-button">Analyze a Location</button></a>
         </div>
     </section>
@@ -34,22 +34,10 @@
     <section id="features" class="features">
         <h2>Core Capabilities</h2>
         <div class="feature-grid">
-            <div class="feature-card">
-                <h3>Live Weather</h3>
-                <p>Current rainfall, humidity, wind, pressure, and temperature signals.</p>
-            </div>
-            <div class="feature-card">
-                <h3>Flood Risk Scoring</h3>
-                <p>A weighted model estimates low, medium, high, or critical flood risk.</p>
-            </div>
-            <div class="feature-card">
-                <h3>Interactive Map</h3>
-                <p>Location markers and future layers for affected areas, demography, and magnitude.</p>
-            </div>
-            <div class="feature-card">
-                <h3>Traffic Readiness</h3>
-                <p>The app is prepared for live traffic feeds to warn users about unsafe roads.</p>
-            </div>
+            <div class="feature-card"><h3>Live Weather</h3><p>Animated condition display for the searched location.</p></div>
+            <div class="feature-card"><h3>Flood Risk Scoring</h3><p>Weighted analysis for rainfall, forecast, humidity, pressure, and wind.</p></div>
+            <div class="feature-card"><h3>Flood Map</h3><p>Interactive map with an estimated risk radius and future live flood layers.</p></div>
+            <div class="feature-card"><h3>Traffic Ready</h3><p>Prepared for road closure, traffic speed, and evacuation-route integrations.</p></div>
         </div>
     </section>
 
@@ -66,7 +54,7 @@
     <section id="dashboard" class="dashboard">
         <div class="dashboard-card">
             <h2>Flood Risk Dashboard</h2>
-            <p>Search any city to analyze present weather, forecast rainfall, and early flood risk.</p>
+            <p>Search a city to see live weather, animated conditions, forecast rainfall, flood score, and map risk area.</p>
 
             <form method="POST" onsubmit="recordSearch()">
                 <input type="text" name="city" placeholder="Enter a city, for example Lagos" required>
@@ -79,6 +67,30 @@
 
             <div class="prediction-card">
                 {% if prediction %}
+                <div class="weather-panel scene-{{ prediction.scene.code }}">
+                    <div class="sky">
+                        <div class="sun"></div>
+                        <div class="moon"></div>
+                        <div class="cloud cloud-one"></div>
+                        <div class="cloud cloud-two"></div>
+                        <div class="cloud cloud-three"></div>
+                        <div class="rain rain-one"></div>
+                        <div class="rain rain-two"></div>
+                        <div class="rain rain-three"></div>
+                        <div class="bolt"></div>
+                        <div class="mist mist-one"></div>
+                        <div class="mist mist-two"></div>
+                        <div class="snow snow-one"></div>
+                        <div class="snow snow-two"></div>
+                    </div>
+                    <div class="weather-readout">
+                        <span>{{ prediction.scene.label }}</span>
+                        <strong>{{ prediction.temperature }} C</strong>
+                        <p>{{ prediction.description }} in {{ prediction.city }}{% if prediction.country %}, {{ prediction.country }}{% endif %}</p>
+                        <small>{{ prediction.scene.summary }}</small>
+                    </div>
+                </div>
+
                 <div class="result-header">
                     <div>
                         <h3>{{ prediction.city }}{% if prediction.country %}, {{ prediction.country }}{% endif %}</h3>
@@ -102,7 +114,6 @@
                 </div>
 
                 <div class="advice-box">{{ prediction.advice }}</div>
-
                 <div id="map"></div>
 
                 <div class="insight-grid">
@@ -136,7 +147,7 @@
                 {% if forecast %}
                 <div class="forecast-container">
                     {% for item in forecast %}
-                    <div class="forecast-card">
+                    <div class="forecast-card mini-{{ item.scene }}">
                         <h3>{{ item.day }}</h3>
                         <p>{{ item.date }} at {{ item.time }}</p>
                         <p>{{ item.weather }}</p>
@@ -159,12 +170,12 @@
     </section>
 
     <section class="features">
-        <h2>Next Data Layers</h2>
+        <h2>Next Live Data Layers</h2>
         <div class="feature-grid">
             <div class="feature-card"><h3>Topography</h3><p>Elevation, slope, catchment, and lowland exposure.</p></div>
             <div class="feature-card"><h3>Demography</h3><p>Population density and vulnerable community mapping.</p></div>
             <div class="feature-card"><h3>Construction</h3><p>Drainage, bridges, dams, roads, and land-use change.</p></div>
-            <div class="feature-card"><h3>Live Traffic</h3><p>Blocked routes, road speed, and evacuation path guidance.</p></div>
+            <div class="feature-card"><h3>Live Traffic</h3><p>Blocked roads, route speed, and evacuation path guidance.</p></div>
         </div>
     </section>
 

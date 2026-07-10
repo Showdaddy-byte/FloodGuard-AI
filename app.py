@@ -11,7 +11,7 @@ API_KEY = os.getenv("OPENWEATHER_API_KEY")
 OPENWEATHER_URL = "https://api.openweathermap.org/data/2.5"
 
 
-def fetch_json(endpoint, params):
+def fetch_openweather(endpoint, params):
     if not API_KEY:
         print("Missing OPENWEATHER_API_KEY environment variable.")
         return None
@@ -25,13 +25,53 @@ def fetch_json(endpoint, params):
         return None
 
 
+def weather_scene(weather_id, description):
+    description = (description or "").lower()
+
+    if 200 <= weather_id < 300 or "thunder" in description:
+        return {
+            "code": "storm",
+            "label": "Thunderstorm conditions",
+            "summary": "Electrical storm signals detected. Avoid exposed routes and flooded roads.",
+        }
+    if 300 <= weather_id < 600 or "rain" in description or "drizzle" in description:
+        return {
+            "code": "rain",
+            "label": "Rainfall conditions",
+            "summary": "Rainfall is active or expected. Watch drainage channels and low-lying roads.",
+        }
+    if 600 <= weather_id < 700 or "snow" in description:
+        return {
+            "code": "snow",
+            "label": "Cold precipitation",
+            "summary": "Cold precipitation can reduce visibility and increase travel risk.",
+        }
+    if 700 <= weather_id < 800 or "mist" in description or "fog" in description or "haze" in description:
+        return {
+            "code": "mist",
+            "label": "Low visibility",
+            "summary": "Visibility may be reduced. Flood monitoring remains active.",
+        }
+    if weather_id == 800 or "clear" in description:
+        return {
+            "code": "clear",
+            "label": "Clear conditions",
+            "summary": "Current sky condition is clear. FloodGuard continues monitoring forecast changes.",
+        }
+    return {
+        "code": "clouds",
+        "label": "Cloudy conditions",
+        "summary": "Cloud cover is present. Forecast rainfall is included in the flood score.",
+    }
+
+
 def classify_risk(score):
     if score >= 70:
         return {
             "level": "CRITICAL",
             "color": "critical",
             "map_color": "#7f1d1d",
-            "advice": "Severe flood conditions are possible. Move valuables upward, avoid low bridges, and prepare to evacuate.",
+            "advice": "Severe flood conditions are possible. Avoid low bridges, move valuables upward, and prepare to evacuate.",
         }
     if score >= 50:
         return {
@@ -67,26 +107,26 @@ def estimate_environment(city, weather):
 
     return {
         "terrain": {
-            "label": "Urban/lowland sensitivity estimate",
+            "label": "Urban and lowland sensitivity",
             "score": terrain_score,
-            "status": "Needs GIS elevation dataset for precision",
+            "status": "Ready for GIS elevation and topography data.",
         },
         "drainage": {
             "label": "Drainage overload estimate",
             "score": drainage_score,
-            "status": "Based on current rainfall intensity",
+            "status": "Estimated from current rainfall intensity.",
         },
         "construction": {
             "label": "Construction and land-use impact",
             "score": construction_score,
-            "status": "Ready for local construction/GIS data",
+            "status": "Ready for roads, bridges, dams, and construction datasets.",
         },
         "traffic": {
             "label": "Traffic disruption estimate",
             "score": traffic_score,
-            "status": "Ready for live traffic API integration",
+            "status": "Ready for live traffic API integration.",
         },
-        "summary": f"{city} is being evaluated using weather signals now, with GIS, construction, demography, and traffic layers prepared for the next data integrations.",
+        "summary": f"{city} is being evaluated with weather signals now. GIS, demography, construction, and traffic layers are prepared for future data feeds.",
     }
 
 
@@ -98,7 +138,6 @@ def calculate_flood_score(weather, forecast):
     humidity = weather["humidity"]
     pressure = weather["pressure"]
     wind_speed = weather["wind"]
-    temperature = weather["temperature"]
     forecast_rain_total = sum(day["rain"] for day in forecast)
     max_forecast_rain = max([day["rain"] for day in forecast], default=0)
 
@@ -143,9 +182,6 @@ def calculate_flood_score(weather, forecast):
         score += 4
         factors.append("Moderate wind")
 
-    if temperature < 22:
-        score += 3
-
     score = min(score, 100)
     risk = classify_risk(score)
 
@@ -161,7 +197,7 @@ def calculate_flood_score(weather, forecast):
 
 
 def get_forecast(city):
-    data = fetch_json(
+    data = fetch_openweather(
         "forecast",
         {"q": city, "appid": API_KEY, "units": "metric"},
     )
@@ -180,6 +216,9 @@ def get_forecast(city):
 
         seen_dates.add(date_key)
         rainfall = item.get("rain", {}).get("3h", 0)
+        weather_id = item["weather"][0]["id"]
+        description = item["weather"][0]["description"].title()
+        scene = weather_scene(weather_id, description)
 
         if rainfall >= 20:
             day_risk = "HIGH RISK"
@@ -198,11 +237,12 @@ def get_forecast(city):
                 "time": forecast_time.strftime("%I:%M %p"),
                 "temp": round(item["main"]["temp"], 1),
                 "rain": rainfall,
-                "weather": item["weather"][0]["description"].title(),
+                "weather": description,
                 "humidity": item["main"]["humidity"],
                 "wind": item["wind"]["speed"],
                 "risk": day_risk,
                 "risk_color": day_color,
+                "scene": scene["code"],
             }
         )
 
@@ -213,19 +253,24 @@ def get_forecast(city):
 
 
 def get_weather(city):
-    data = fetch_json(
+    data = fetch_openweather(
         "weather",
         {"q": city, "appid": API_KEY, "units": "metric"},
     )
     if not data:
         return None
 
+    description = data["weather"][0]["description"].title()
+    weather_id = data["weather"][0]["id"]
     rainfall = data.get("rain", {}).get("1h", data.get("rain", {}).get("3h", 0))
+    scene = weather_scene(weather_id, description)
 
     return {
         "city": data["name"],
         "country": data.get("sys", {}).get("country", ""),
-        "description": data["weather"][0]["description"].title(),
+        "description": description,
+        "weather_id": weather_id,
+        "scene": scene,
         "temperature": round(data["main"]["temp"], 1),
         "feels_like": round(data["main"]["feels_like"], 1),
         "humidity": data["main"]["humidity"],
@@ -246,13 +291,7 @@ def build_prediction(city):
     flood_model = calculate_flood_score(weather, forecast)
     environment = estimate_environment(weather["city"], weather)
 
-    prediction = {
-        **weather,
-        **flood_model,
-        "environment": environment,
-    }
-
-    return prediction, forecast
+    return {**weather, **flood_model, "environment": environment}, forecast
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -265,6 +304,8 @@ def home():
         city = request.form.get("city", "").strip()
         if not city:
             error = "Please enter a city name."
+        elif not API_KEY:
+            error = "Weather API key is missing. Add OPENWEATHER_API_KEY to your hosting environment variables."
         else:
             prediction, forecast = build_prediction(city)
             if not prediction:

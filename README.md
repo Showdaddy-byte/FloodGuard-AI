@@ -1,59 +1,53 @@
 # FloodGuard AI
 
-FloodGuard AI is a Flask-based flood early warning web app. It combines live weather data, rainfall forecasts, an interactive map, and a first-pass flood risk scoring model.
+FloodGuard AI is a Flask web app for weather-aware flood early warning. It shows live weather, animated condition scenes, flood risk scoring, a map risk zone, forecast cards, and future-ready layers for topography, demography, construction, drainage, and traffic monitoring.
 
-## Current Features
+## Features
 
-- Search any city and fetch live weather data.
-- Analyze rainfall, humidity, pressure, wind, and forecast patterns.
-- Produce a flood risk level: LOW, MEDIUM, HIGH, or CRITICAL.
-- Show risk confidence and a 0-100 flood score.
-- Display a Leaflet/OpenStreetMap location map with an estimated risk zone.
-- Show 5-day forecast cards with daily rain-risk labels.
-- Include placeholders for topography, construction, demography, drainage, and live traffic layers.
+- Live weather lookup by city.
+- Google-weather-style animated condition panel.
+- 5-day forecast with rain risk labels.
+- Flood score from rainfall, humidity, pressure, wind, and forecast rain.
+- Interactive Leaflet/OpenStreetMap risk map.
+- GitHub-safe API key handling through environment variables.
+- Ready for live traffic, GIS, topography, demography, and construction data integrations.
 
-## Project Structure
-
-```text
-app.py
-requirements.txt
-Procfile
-.env.example
-templates/
-  index.html
-static/
-  css/
-    style.css
-```
-
-## Run Locally
+## Local Setup
 
 ```bash
 pip install -r requirements.txt
+```
+
+Set your OpenWeather key:
+
+```bash
+set OPENWEATHER_API_KEY=your_openweather_key
+```
+
+Run the app:
+
+```bash
 python app.py
 ```
 
-Then open:
+Open:
 
 ```text
 http://127.0.0.1:5000
 ```
 
-## API Key
+## Live Deployment
 
-The app reads the OpenWeather key from:
+Add this environment variable on your host:
 
 ```text
-OPENWEATHER_API_KEY
+OPENWEATHER_API_KEY=your_openweather_key
 ```
 
-For development, you can set it as an environment variable. The current code still includes your uploaded key as a fallback, but for production you should remove that fallback and keep the key private.
+Use this start command:
 
-## Next Development Steps
+```bash
+gunicorn app:app
+```
 
-1. Add a GIS elevation/topography API or local DEM dataset.
-2. Add demography and vulnerable-population layers.
-3. Add construction and drainage infrastructure datasets.
-4. Add a live traffic provider for blocked roads and evacuation guidance.
-5. Add user accounts, saved locations, SMS/email/push alerts, and admin monitoring.
-6. Store searches and alert history in a database instead of browser local storage.
+Do not commit your real API key to GitHub. Keep it only in your hosting platform environment variables.
