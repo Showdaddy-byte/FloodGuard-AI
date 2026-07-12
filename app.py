@@ -1,14 +1,117 @@
 import os
+import sqlite3
 from datetime import datetime
 
 import requests
-from flask import Flask, render_template, request
+from flask import Flask, g, jsonify, render_template, request
 
 
 app = Flask(__name__)
 
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "community.db")
+
+CATEGORY_LABELS = {
+    "flooding": "Flooding Observed",
+    "construction": "Construction / Drainage Blockage",
+    "road": "Road Closure or Damage",
+    "infrastructure": "Bridge / Dam / Infrastructure Concern",
+    "other": "Other Local Observation",
+}
+
 API_KEY = os.getenv("OPENWEATHER_API_KEY")
 OPENWEATHER_URL = "https://api.openweathermap.org/data/2.5"
+
+
+def get_db():
+    if "db" not in g:
+        g.db = sqlite3.connect(DB_PATH)
+        g.db.row_factory = sqlite3.Row
+    return g.db
+
+
+@app.teardown_appcontext
+def close_db(exception=None):
+    db = g.pop("db", None)
+    if db is not None:
+        db.close()
+
+
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS contributions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            city_key TEXT NOT NULL,
+            city_label TEXT NOT NULL,
+            category TEXT NOT NULL,
+            rating INTEGER NOT NULL,
+            comment TEXT,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+def normalize_city(city):
+    return " ".join(city.strip().lower().split())
+
+
+def save_contribution(city, category, rating, comment):
+    db = get_db()
+    db.execute(
+        "INSERT INTO contributions (city_key, city_label, category, rating, comment, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (normalize_city(city), city.strip(), category, rating, comment.strip(), datetime.utcnow().isoformat()),
+    )
+    db.commit()
+
+
+def get_city_contributions(city, limit=12):
+    db = get_db()
+    rows = db.execute(
+        "SELECT city_label, category, rating, comment, created_at FROM contributions "
+        "WHERE city_key = ? ORDER BY id DESC LIMIT ?",
+        (normalize_city(city), limit),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_city_stats(city):
+    db = get_db()
+    row = db.execute(
+        "SELECT COUNT(*) AS total, AVG(rating) AS avg_rating FROM contributions WHERE city_key = ?",
+        (normalize_city(city),),
+    ).fetchone()
+
+    category_rows = db.execute(
+        "SELECT category, COUNT(*) AS count FROM contributions WHERE city_key = ? GROUP BY category",
+        (normalize_city(city),),
+    ).fetchall()
+
+    total = row["total"] or 0
+    avg_rating = round(row["avg_rating"], 1) if row["avg_rating"] else 0
+    category_counts = {r["category"]: r["count"] for r in category_rows}
+
+    return {
+        "total": total,
+        "average_rating": avg_rating,
+        "category_counts": category_counts,
+        "construction_reports": category_counts.get("construction", 0) + category_counts.get("infrastructure", 0),
+        "flooding_reports": category_counts.get("flooding", 0),
+    }
+
+
+def total_contributions_count():
+    conn = sqlite3.connect(DB_PATH)
+    total = conn.execute("SELECT COUNT(*) FROM contributions").fetchone()[0]
+    conn.close()
+    return total
+
+
+init_db()
 
 
 def fetch_openweather(endpoint, params):
@@ -95,15 +198,33 @@ def classify_risk(score):
     }
 
 
-def estimate_environment(city, weather):
+def estimate_environment(city, weather, community=None):
     rainfall = weather["rainfall"]
     humidity = weather["humidity"]
     wind = weather["wind"]
+    community = community or {"total": 0, "average_rating": 0, "construction_reports": 0, "flooding_reports": 0}
 
     terrain_score = 8 if rainfall >= 20 else 5 if humidity >= 80 else 2
     drainage_score = 8 if rainfall >= 30 else 6 if rainfall >= 10 else 3
-    construction_score = 5
     traffic_score = 7 if rainfall >= 20 or wind >= 8 else 4 if rainfall >= 5 else 2
+
+    # Base construction/land-use score from weather, boosted by live community reports
+    construction_score = 5
+    construction_score += min(4, community["construction_reports"])
+    construction_score = min(10, construction_score)
+
+    # Community-perceived risk nudges drainage estimate slightly, since residents
+    # often notice blocked drains and standing water before sensors or models do
+    if community["total"] >= 3:
+        drainage_score = min(10, round(drainage_score * 0.7 + community["average_rating"] / 5 * 10 * 0.3))
+
+    if community["total"] > 0:
+        community_note = (
+            f" {community['total']} community report(s) submitted so far, averaging "
+            f"{community['average_rating']}/5 perceived risk."
+        )
+    else:
+        community_note = " No community reports yet for this city — be the first to contribute."
 
     return {
         "terrain": {
@@ -114,19 +235,24 @@ def estimate_environment(city, weather):
         "drainage": {
             "label": "Drainage overload estimate",
             "score": drainage_score,
-            "status": "Estimated from current rainfall intensity.",
+            "status": "Estimated from rainfall intensity and live community reports."
+            if community["total"] >= 3
+            else "Estimated from current rainfall intensity.",
         },
         "construction": {
             "label": "Construction and land-use impact",
             "score": construction_score,
-            "status": "Ready for roads, bridges, dams, and construction datasets.",
+            "status": f"{community['construction_reports']} live construction/drainage report(s) from visitors."
+            if community["construction_reports"]
+            else "Ready for roads, bridges, dams, and construction datasets.",
         },
         "traffic": {
             "label": "Traffic disruption estimate",
             "score": traffic_score,
             "status": "Ready for live traffic API integration.",
         },
-        "summary": f"{city} is being evaluated with weather signals now. GIS, demography, construction, and traffic layers are prepared for future data feeds.",
+        "summary": f"{city} is being evaluated with weather signals and live visitor contributions."
+        f"{community_note}",
     }
 
 
@@ -289,9 +415,10 @@ def build_prediction(city):
 
     forecast = get_forecast(city)
     flood_model = calculate_flood_score(weather, forecast)
-    environment = estimate_environment(weather["city"], weather)
+    community = get_city_stats(weather["city"])
+    environment = estimate_environment(weather["city"], weather, community)
 
-    return {**weather, **flood_model, "environment": environment}, forecast
+    return {**weather, **flood_model, "environment": environment, "community": community}, forecast
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -299,6 +426,7 @@ def home():
     prediction = None
     forecast = []
     error = None
+    reports = []
 
     if request.method == "POST":
         city = request.form.get("city", "").strip()
@@ -310,8 +438,64 @@ def home():
             prediction, forecast = build_prediction(city)
             if not prediction:
                 error = "City not found or weather service unavailable."
+            else:
+                reports = get_city_contributions(prediction["city"])
 
-    return render_template("index.html", prediction=prediction, forecast=forecast, error=error)
+    return render_template(
+        "index.html",
+        prediction=prediction,
+        forecast=forecast,
+        error=error,
+        reports=reports,
+        category_labels=CATEGORY_LABELS,
+        total_contributions=total_contributions_count(),
+    )
+
+
+@app.route("/api/contribute", methods=["POST"])
+def api_contribute():
+    payload = request.get_json(silent=True) or request.form
+
+    city = (payload.get("city") or "").strip()
+    category = (payload.get("category") or "other").strip()
+    comment = (payload.get("comment") or "").strip()
+
+    try:
+        rating = int(payload.get("rating", 0))
+    except (TypeError, ValueError):
+        rating = 0
+
+    if not city:
+        return jsonify({"ok": False, "error": "A city is required."}), 400
+    if category not in CATEGORY_LABELS:
+        return jsonify({"ok": False, "error": "Unknown report category."}), 400
+    if rating < 1 or rating > 5:
+        return jsonify({"ok": False, "error": "Rating must be between 1 and 5."}), 400
+    if len(comment) > 400:
+        return jsonify({"ok": False, "error": "Comment is too long (400 characters max)."}), 400
+
+    save_contribution(city, category, rating, comment)
+
+    return jsonify(
+        {
+            "ok": True,
+            "stats": get_city_stats(city),
+            "reports": get_city_contributions(city),
+            "total_contributions": total_contributions_count(),
+        }
+    )
+
+
+@app.route("/api/contributions/<city>")
+def api_contributions(city):
+    return jsonify(
+        {
+            "ok": True,
+            "stats": get_city_stats(city),
+            "reports": get_city_contributions(city),
+            "total_contributions": total_contributions_count(),
+        }
+    )
 
 
 @app.route("/health")

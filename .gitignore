@@ -7,3 +7,4 @@ venv/
 instance/
 .pytest_cache/
 .DS_Store
+community.db

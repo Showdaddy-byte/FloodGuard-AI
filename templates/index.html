@@ -47,7 +47,7 @@
             <div class="stat-card"><h3 id="locations">1</h3><p>Locations Monitored</p></div>
             <div class="stat-card"><h3 id="searches">0</h3><p>Weather Searches</p></div>
             <div class="stat-card"><h3 id="alerts">0</h3><p>Flood Alerts Issued</p></div>
-            <div class="stat-card"><h3>24/7</h3><p>Monitoring Ready</p></div>
+            <div class="stat-card"><h3 id="community-total">{{ total_contributions }}</h3><p>Community Contributions</p></div>
         </div>
     </section>
 
@@ -143,6 +143,76 @@
                     {% endfor %}
                 </div>
 
+                <section id="community" class="community-panel" data-city="{{ prediction.city }}">
+                    <div class="community-header">
+                        <h3>Community Intelligence</h3>
+                        <p>Live, visitor-contributed reports help sharpen this forecast. Rate the conditions you're seeing on the ground and flag construction or drainage issues in {{ prediction.city }}.</p>
+                    </div>
+
+                    <div class="community-stats-grid">
+                        <div class="community-stat">
+                            <span>Community reports</span>
+                            <strong id="community-count">{{ prediction.community.total }}</strong>
+                        </div>
+                        <div class="community-stat">
+                            <span>Avg. perceived risk</span>
+                            <strong id="community-avg">{{ prediction.community.average_rating }}/5</strong>
+                        </div>
+                        <div class="community-stat">
+                            <span>Construction/drainage flags</span>
+                            <strong id="community-construction">{{ prediction.community.construction_reports }}</strong>
+                        </div>
+                    </div>
+
+                    <form id="contribute-form" class="contribute-form">
+                        <div class="field-row">
+                            <label for="category">Report type</label>
+                            <select id="category" name="category">
+                                {% for key, label in category_labels.items() %}
+                                <option value="{{ key }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="field-row">
+                            <label>Your risk rating</label>
+                            <div class="star-rating" id="star-rating" data-value="0">
+                                <button type="button" class="star" data-star="1" aria-label="1 star">&#9733;</button>
+                                <button type="button" class="star" data-star="2" aria-label="2 stars">&#9733;</button>
+                                <button type="button" class="star" data-star="3" aria-label="3 stars">&#9733;</button>
+                                <button type="button" class="star" data-star="4" aria-label="4 stars">&#9733;</button>
+                                <button type="button" class="star" data-star="5" aria-label="5 stars">&#9733;</button>
+                            </div>
+                            <input type="hidden" id="rating" name="rating" value="0">
+                        </div>
+
+                        <div class="field-row">
+                            <label for="comment">What are you seeing? (optional)</label>
+                            <textarea id="comment" name="comment" maxlength="400" placeholder="e.g. Drainage channel blocked near the market road, water rising fast."></textarea>
+                        </div>
+
+                        <button type="submit" id="contribute-submit">Submit Live Report</button>
+                        <div id="contribute-feedback" class="contribute-feedback"></div>
+                    </form>
+
+                    <div class="community-feed">
+                        <h4>Latest visitor reports</h4>
+                        <ul id="reports-list" class="reports-list">
+                            {% for report in reports %}
+                            <li class="report-item">
+                                <div class="report-top">
+                                    <span class="report-category">{{ category_labels.get(report.category, report.category) }}</span>
+                                    <span class="report-rating">{{ report.rating }}/5</span>
+                                </div>
+                                {% if report.comment %}<p class="report-comment">{{ report.comment }}</p>{% endif %}
+                            </li>
+                            {% else %}
+                            <li class="report-empty" id="reports-empty">No community reports yet for {{ prediction.city }}. Be the first to contribute.</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </section>
+
                 <h3>5-Day Forecast</h3>
                 {% if forecast %}
                 <div class="forecast-container">
@@ -201,7 +271,7 @@
 
     document.addEventListener("DOMContentLoaded", updateStatistics);
 
-    const form = document.querySelector("form");
+    const form = document.querySelector("form[method='POST']");
     if (form) {
         form.addEventListener("submit", () => {
             document.getElementById("spinner").classList.add("active");
@@ -236,6 +306,162 @@
             map.invalidateSize();
         }, 300);
     });
+    </script>
+
+    <script>
+    (function () {
+        const CATEGORY_LABELS = {{ category_labels | tojson }};
+        const panel = document.getElementById("community");
+        if (!panel) return;
+
+        const city = panel.dataset.city;
+        const starWrap = document.getElementById("star-rating");
+        const ratingInput = document.getElementById("rating");
+        const stars = Array.from(starWrap.querySelectorAll(".star"));
+        const contributeForm = document.getElementById("contribute-form");
+        const feedback = document.getElementById("contribute-feedback");
+        const submitBtn = document.getElementById("contribute-submit");
+        const reportsList = document.getElementById("reports-list");
+        const countEl = document.getElementById("community-count");
+        const avgEl = document.getElementById("community-avg");
+        const constructionEl = document.getElementById("community-construction");
+        const totalEl = document.getElementById("community-total");
+
+        function paintStars(value) {
+            stars.forEach((star) => {
+                const starValue = parseInt(star.dataset.star, 10);
+                star.classList.toggle("active", starValue <= value);
+            });
+        }
+
+        stars.forEach((star) => {
+            star.addEventListener("click", () => {
+                const value = parseInt(star.dataset.star, 10);
+                ratingInput.value = value;
+                starWrap.dataset.value = value;
+                paintStars(value);
+            });
+            star.addEventListener("mouseenter", () => paintStars(parseInt(star.dataset.star, 10)));
+        });
+        starWrap.addEventListener("mouseleave", () => paintStars(parseInt(ratingInput.value, 10)));
+
+        function renderReports(reports) {
+            reportsList.innerHTML = "";
+            if (!reports.length) {
+                const empty = document.createElement("li");
+                empty.className = "report-empty";
+                empty.textContent = "No community reports yet for " + city + ". Be the first to contribute.";
+                reportsList.appendChild(empty);
+                return;
+            }
+
+            reports.forEach((report) => {
+                const li = document.createElement("li");
+                li.className = "report-item";
+
+                const top = document.createElement("div");
+                top.className = "report-top";
+
+                const category = document.createElement("span");
+                category.className = "report-category";
+                category.textContent = CATEGORY_LABELS[report.category] || report.category;
+
+                const rating = document.createElement("span");
+                rating.className = "report-rating";
+                rating.textContent = report.rating + "/5";
+
+                top.appendChild(category);
+                top.appendChild(rating);
+                li.appendChild(top);
+
+                if (report.comment) {
+                    const comment = document.createElement("p");
+                    comment.className = "report-comment";
+                    comment.textContent = report.comment;
+                    li.appendChild(comment);
+                }
+
+                reportsList.appendChild(li);
+            });
+        }
+
+        function applyStats(stats, totalContributions) {
+            countEl.textContent = stats.total;
+            avgEl.textContent = stats.average_rating + "/5";
+            constructionEl.textContent = stats.construction_reports;
+            if (totalEl && typeof totalContributions === "number") {
+                totalEl.textContent = totalContributions;
+            }
+        }
+
+        async function refreshFeed() {
+            try {
+                const response = await fetch("/api/contributions/" + encodeURIComponent(city));
+                const data = await response.json();
+                if (data.ok) {
+                    applyStats(data.stats, data.total_contributions);
+                    renderReports(data.reports);
+                }
+            } catch (err) {
+                // Silent fail on background polling
+            }
+        }
+
+        contributeForm.addEventListener("submit", async function (event) {
+            event.preventDefault();
+            const rating = parseInt(ratingInput.value, 10);
+
+            if (!rating) {
+                feedback.textContent = "Please select a star rating before submitting.";
+                feedback.className = "contribute-feedback error";
+                return;
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = "Submitting...";
+            feedback.textContent = "";
+            feedback.className = "contribute-feedback";
+
+            const payload = {
+                city: city,
+                category: document.getElementById("category").value,
+                rating: rating,
+                comment: document.getElementById("comment").value
+            };
+
+            try {
+                const response = await fetch("/api/contribute", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+
+                if (data.ok) {
+                    applyStats(data.stats, data.total_contributions);
+                    renderReports(data.reports);
+                    feedback.textContent = "Thanks! Your live report has been added.";
+                    feedback.className = "contribute-feedback success";
+                    document.getElementById("comment").value = "";
+                    ratingInput.value = 0;
+                    starWrap.dataset.value = 0;
+                    paintStars(0);
+                } else {
+                    feedback.textContent = data.error || "Something went wrong. Please try again.";
+                    feedback.className = "contribute-feedback error";
+                }
+            } catch (err) {
+                feedback.textContent = "Network error. Please try again.";
+                feedback.className = "contribute-feedback error";
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = "Submit Live Report";
+            }
+        });
+
+        // Keep the feed live for anyone watching this page
+        setInterval(refreshFeed, 20000);
+    })();
     </script>
     {% endif %}
 </body>
