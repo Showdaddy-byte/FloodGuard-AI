@@ -231,6 +231,33 @@ a {
     width: 100%;
 }
 
+.search-hint {
+    color: #94a3b8;
+    font-size: 13px;
+    margin-top: 10px;
+    text-align: center;
+}
+
+.ground-alert {
+    background: rgba(220, 38, 38, 0.18);
+    border: 1px solid rgba(248, 113, 113, 0.55);
+    border-radius: 8px;
+    margin-bottom: 20px;
+    padding: 16px 18px;
+}
+
+.ground-alert strong {
+    color: #fecaca;
+    display: block;
+    font-size: 16px;
+    margin-bottom: 6px;
+}
+
+.ground-alert p {
+    color: #fee2e2;
+    font-size: 14px;
+}
+
 .error-message {
     background: rgba(220, 38, 38, 0.16);
     border: 1px solid rgba(248, 113, 113, 0.4);
@@ -511,6 +538,10 @@ a {
     background: #16a34a;
 }
 
+.risk-watch {
+    background: #f59e0b;
+}
+
 .risk-medium,
 .medium-risk {
     background: #f59e0b;
@@ -519,6 +550,10 @@ a {
 .risk-high,
 .high-risk {
     background: #dc2626;
+}
+
+.risk-severe {
+    background: #b91c1c;
 }
 
 .risk-critical {

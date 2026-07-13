@@ -35,7 +35,7 @@
         <h2>Core Capabilities</h2>
         <div class="feature-grid">
             <div class="feature-card"><h3>Live Weather</h3><p>Animated condition display for the searched location.</p></div>
-            <div class="feature-card"><h3>Flood Risk Scoring</h3><p>Weighted analysis for rainfall, forecast, humidity, pressure, and wind.</p></div>
+            <div class="feature-card"><h3>Flood Risk Scoring</h3><p>Weighted analysis combining rainfall, forecast, elevation, slope, water proximity, soil, and urbanization.</p></div>
             <div class="feature-card"><h3>Flood Map</h3><p>Interactive map with an estimated risk radius and future live flood layers.</p></div>
             <div class="feature-card"><h3>Traffic Ready</h3><p>Prepared for road closure, traffic speed, and evacuation-route integrations.</p></div>
         </div>
@@ -57,9 +57,10 @@
             <p>Search a city to see live weather, animated conditions, forecast rainfall, flood score, and map risk area.</p>
 
             <form method="POST" onsubmit="recordSearch()">
-                <input type="text" name="city" placeholder="Enter a city, for example Lagos" required>
+                <input type="text" name="city" placeholder="Enter a city or neighborhood, e.g. Lekki, Lagos" required>
                 <button type="submit">Analyze Flood Risk</button>
             </form>
+            <p class="search-hint">Search a specific neighborhood for the most accurate result — flood risk can vary block to block within the same city, so "Lagos" alone is far less precise than "Lekki, Lagos" or "Maryland, Lagos".</p>
 
             {% if error %}
             <div class="error-message">{{ error }}</div>
@@ -67,6 +68,12 @@
 
             <div class="prediction-card">
                 {% if prediction %}
+                {% if prediction.ground_alert %}
+                <div class="ground-alert">
+                    <strong>⚠ Live ground reports</strong>
+                    <p>{{ prediction.ground_alert.message }} This has raised the risk level below to reflect what people are seeing on the ground right now.</p>
+                </div>
+                {% endif %}
                 <div class="weather-panel scene-{{ prediction.scene.code }}">
                     <div class="sky">
                         <div class="sun"></div>
@@ -111,6 +118,9 @@
                     <div><span>Pressure</span><strong>{{ prediction.pressure }} hPa</strong></div>
                     <div><span>Wind</span><strong>{{ prediction.wind }} m/s</strong></div>
                     <div><span>Rainfall</span><strong>{{ prediction.rainfall }} mm</strong></div>
+                    <div><span>Elevation</span><strong>{% if prediction.elevation is not none %}{{ prediction.elevation }} m{% else %}Unavailable{% endif %}</strong></div>
+                    <div><span>Slope</span><strong>{% if prediction.slope_percent is not none %}{{ prediction.slope_percent }}%{% else %}Unavailable{% endif %}</strong></div>
+                    <div><span>Nearest water</span><strong>{% if prediction.nearest_water_m is not none %}{{ prediction.nearest_water_m }} m{% else %}Unavailable{% endif %}</strong></div>
                 </div>
 
                 <div class="advice-box">{{ prediction.advice }}</div>
@@ -240,11 +250,21 @@
     </section>
 
     <section class="features">
+        <h2>Now Live in the Risk Model</h2>
+        <div class="feature-grid">
+            <div class="feature-card"><h3>Topography</h3><p>Real elevation and slope, computed per search — not just city-wide averages.</p></div>
+            <div class="feature-card"><h3>Water Proximity</h3><p>Live distance to the nearest river, lake, or coastline via OpenStreetMap.</p></div>
+            <div class="feature-card"><h3>Soil & Urbanization</h3><p>Clay content from SoilGrids and building density from OpenStreetMap, both factored into the score.</p></div>
+            <div class="feature-card"><h3>Community Ground Truth</h3><p>Live visitor reports can override the model when people on the ground say it's flooding.</p></div>
+        </div>
+    </section>
+
+    <section class="features">
         <h2>Next Live Data Layers</h2>
         <div class="feature-grid">
-            <div class="feature-card"><h3>Topography</h3><p>Elevation, slope, catchment, and lowland exposure.</p></div>
+            <div class="feature-card"><h3>Live River Gauges</h3><p>Real-time river level data where national agencies publish it.</p></div>
             <div class="feature-card"><h3>Demography</h3><p>Population density and vulnerable community mapping.</p></div>
-            <div class="feature-card"><h3>Construction</h3><p>Drainage, bridges, dams, roads, and land-use change.</p></div>
+            <div class="feature-card"><h3>Satellite Flood Detection</h3><p>Remote-sensing confirmation of active flooding.</p></div>
             <div class="feature-card"><h3>Live Traffic</h3><p>Blocked roads, route speed, and evacuation path guidance.</p></div>
         </div>
     </section>
