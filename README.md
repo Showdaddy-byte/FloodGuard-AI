@@ -8,7 +8,8 @@ FloodGuard AI is a Flask web app for location-aware flood early warning. Instead
 Rainfall + Forecast Rain + Humidity + Pressure + Wind
         + Elevation + Slope
         + Distance to Water (river/lake/coast)
-        + Soil Type (clay content)
+        + Soil Type (clay content) + Real-Time Soil Moisture
+        + River Discharge (GloFAS hydrological model)
         + Urbanization (building density)
         + Tide (optional, coastal)
         + Community-Reported Flood History
@@ -19,6 +20,61 @@ Rainfall + Forecast Rain + Humidity + Pressure + Wind
         LOW → WATCH → HIGH → SEVERE → CRITICAL
 ```
 
+## Worldwide live coverage
+
+The homepage now has two independent, always-on monitoring layers, so visitors see real flood risk immediately on load — no search required:
+
+### 1. Live Global Flood Alerts (GDACS)
+
+A direct feed from [GDACS](https://www.gdacs.org) (Global Disaster Alert and Coordination System) — the same system used by UN OCHA and humanitarian agencies to track active flood events worldwide. This is genuine, real-time, anywhere-on-Earth coverage, because running FloodGuard AI's own terrain model against every location on the planet isn't possible with free, rate-limited REST APIs — real global coverage has to come from a source built for exactly that.
+
+- Needs **no API key** — works even before `OPENWEATHER_API_KEY` is configured.
+- Refreshes automatically every `GLOBAL_ALERTS_REFRESH_MINUTES` (default 10) on page load.
+- `GET /api/global-alerts` — current cached GDACS alerts, polled live every 60 seconds.
+- `POST /api/refresh-global-alerts` — for an external cron scheduler, same pattern as the watchlist refresh below.
+
+### 2. Monitored Locations (FloodGuard AI's own model)
+
+The homepage also watches a curated list continuously with the full terrain-aware model (elevation, slope, water proximity, soil, urbanization, coastal thresholds) — this is deeper analysis than GDACS provides, but limited to the locations in the list plus anywhere visitors search.
+
+- **Edit the static watchlist**: change `MONITORED_LOCATIONS` near the top of `app.py`. It ships with major flood-vulnerable cities across Africa, Asia, Europe, North America, South America, and Oceania, plus the original Lagos neighborhoods.
+- **Auto-expanding**: any location a visitor searches is automatically added to permanent monitoring afterward — and its cache entry updates immediately at search time, not just on the next scheduled sweep. Checking a place once means it stays watched going forward.
+- **Best-effort auto refresh**: every homepage load checks if the cached data is older than `WATCHLIST_REFRESH_MINUTES` (default 15) and, if so, kicks off a non-blocking background refresh.
+- **True always-fresh (recommended for production)**: set up a free external scheduler to hit `POST /api/refresh-watchlist` every 10-15 minutes even with zero traffic — for example a scheduled GitHub Actions workflow or a free cron-job.org account.
+- **Staleness is shown, never hidden**: if the cache hasn't refreshed in over 2x the refresh interval, the banner says so explicitly instead of confidently claiming "no active alerts." Real cached alerts still display (with an "this data may be outdated" note attached) rather than being replaced by a generic message.
+- `GET /api/watchlist-status` — current cached alert state, polled live every 45 seconds.
+
+**A note on scale**: each location in `MONITORED_LOCATIONS` costs roughly 5-6 external API calls per refresh (geocoding, weather, forecast, elevation, Overpass, SoilGrids). A long list means a slower, heavier sweep and a higher chance of hitting Overpass's public rate limits. Keep the list to the places that matter most, and lean on GDACS for broader worldwide awareness.
+
+## Coastal-adjusted alert thresholds
+
+Coastal regions flood at rainfall levels that wouldn't trouble inland terrain — storm surge, tidal backflow, and lagoon/estuary effects mean the same numeric score should read as more urgent near a coastline. A location is detected as coastal (anywhere in the world, via live OpenStreetMap coastline data — not a hardcoded list) when it's within `COASTAL_ZONE_KM` (default 10 km) of an ocean/sea coastline.
+
+For coastal locations, every risk threshold shifts down by 20 points:
+
+| Score | Inland | Coastal |
+|---|---|---|
+| 0-4 | LOW | — |
+| 5-24 | LOW / WATCH | WATCH |
+| 25-44 | WATCH | **HIGH** |
+| 45-64 | HIGH | SEVERE |
+| 65-84 | SEVERE | CRITICAL |
+| 85-100 | CRITICAL | CRITICAL |
+
+This applies identically to the 5-day forecast: each forecast day is scored with the same terrain/slope/water-proximity/soil/urbanization/coastal model as "right now," not rainfall alone — so a coastal, low-lying location can show HIGH or CRITICAL days ahead of time even when the forecast rainfall number alone looks unremarkable.
+
+## Map features
+
+The location map (shown after a search) now includes:
+
+- **Flood-prone risk zone** — a shaded circle sized by the flood score, labeled with a tooltip.
+- **Nearest water body marker** — the actual river/lake/coastline point closest to the searched location (from the same Overpass lookup used for scoring), connected with a dashed line and labeled with the real distance. This is what visually shows *why* a location is flood-prone, not just a risk color.
+- **Community-reported flooding marker** — appears when visitors have submitted "flooding observed" reports for that location. Its position is an approximation near the location center; this app doesn't collect precise per-report coordinates, so the marker is intentionally not presented as a pinpoint address.
+- **Live traffic layer (optional)** — a real, live traffic tile overlay (Mapbox Traffic), toggleable via the layer control in the map's top-right corner. Requires a free `MAPBOX_ACCESS_TOKEN` (see `.env.example`); without one, the map shows a note instead of silently omitting the feature.
+- **Legend** — bottom-right control labeling every marker/color so the map is self-explanatory for visitors, not just for whoever built it.
+
+**Honest scope note on "flood-induced traffic":** no free API reports traffic congestion *caused by* flooding specifically — that causal link doesn't exist as a queryable data feed anywhere, paid or free. What this app shows is a real, live, general traffic layer that a visitor can visually cross-reference against the flood risk zone and community reports next to it, not a certified "this jam was caused by this flood" signal.
+
 ## Data sources used (all live, free)
 
 | Factor | Source | Notes |
@@ -27,20 +83,37 @@ Rainfall + Forecast Rain + Humidity + Pressure + Wind
 | Location geocoding | OpenWeatherMap Geocoding | Resolves neighborhoods, not just cities |
 | Elevation | Open-Meteo Elevation API | No key required |
 | Slope | Derived from a 5-point elevation grid (~300 m N/S/E/W) | No key required |
-| Distance to river/lake/coast | OpenStreetMap (Overpass API) | No key required; coverage depends on OSM data density |
+| Distance to river/lake/coast (+ name) | OpenStreetMap (Overpass API) | No key required; coverage depends on OSM data density |
 | Building density (urbanization proxy) | OpenStreetMap (Overpass API) | Counts buildings within 600 m |
 | Soil type (clay content) | ISRIC SoilGrids v2.0 | No key required |
+| **River discharge (real hydrological model)** | **Open-Meteo Flood API — GloFAS** | No key required; only returns data on a modeled river reach |
+| **Soil moisture (real-time saturation)** | **Open-Meteo Forecast API (ERA5-based)** | No key required |
 | Tide level | WorldTides | **Optional** — only runs if `TIDE_API_KEY` is set |
+| Live traffic layer | Mapbox Traffic tiles | **Optional** — only shown if `MAPBOX_ACCESS_TOKEN` is set |
+| Global flood alerts | GDACS (UN OCHA feed) | No key required; independent of location search |
 | Historical flood frequency | This app's own community reports table | A proxy, not a certified archive (see limitations) |
 | Live ground truth | This app's own community reports table | Recent "flooding observed" reports can override the model's verdict |
 
 Every external lookup fails independently and gracefully — if Overpass or SoilGrids is briefly down, that one factor is just marked "unavailable" and the rest of the score still comes through.
 
+## Hydrological modeling
+
+Two factors now come from real hydrology rather than weather alone:
+
+- **River discharge (GloFAS)** — the Global Flood Awareness System is the same Copernicus/ECMWF hydrological model used by professional flood forecasters. It routes rainfall through upstream catchments and river networks to model actual discharge (m3/s), which this app compares against the 30-year historical average for that day of year. A river running at 3x its normal flow scores very differently from one at a normal level, even under identical local rainfall — this is genuine upstream catchment behavior, not something inferred from today's weather at a single point. Not every coordinate sits on a modeled river reach; a clean "no data" is an expected, normal result at many points, not a failure.
+- **Soil moisture (real-time saturation)** — distinct from the static soil-type/clay-content factor above. This measures how saturated the ground actually is right now. Already-saturated soil can't absorb more rain regardless of its clay content, so this catches a risk factor static soil type alone would miss.
+
+**A note on what "hydrological modeling" does and doesn't mean here**: this app *consumes* a real hydrological model (GloFAS) rather than running its own rainfall-runoff simulation, watershed delineation, or flow routing. Building an independent hydrological model from scratch would require raster DEM processing, catchment delineation, and calibration against historical discharge — infrastructure well beyond a REST-call-based Flask app. Plugging into GloFAS is the honest way to get real hydrological science into the score without overstating what's computed in-house.
+
+**A testing caveat, in the interest of transparency**: the sandbox this app was built in has restricted network egress, so the GloFAS and soil moisture integrations could not be verified against live responses during development — they were built carefully against Open-Meteo's documented, stable API schema, with defensive error handling so a schema mismatch fails safely (shows "data unavailable," never crashes or shows wrong data). Worth a quick check against real output once deployed.
+
 ## Known limitations (please read before relying on this for safety decisions)
 
 - **Geocoding accuracy**: works well for well-known neighborhoods (e.g. "Lekki, Lagos") but may not resolve every informal or unofficial place name. If a search fails, try the nearest larger, more commonly mapped area name.
-- **Historical flood frequency is a proxy, not an archive.** True historical datasets (GDACS, Dartmouth Flood Observatory, EM-DAT) are static files that need to be downloaded and hosted, not queried live per-coordinate — that's real infrastructure work beyond what a REST-call-based app can do out of the box. Until that's built, the "historical" layer reflects only what visitors have reported through this app, which starts at zero for every new location and grows over time.
-- **Not yet included** (genuinely needs heavier infrastructure than a live REST call can provide): live river gauge levels, satellite-based flood detection, soil moisture, population/building-density rasters (WorldPop/GHSL), and true digital-twin/ML prediction. These remain a Phase 3 roadmap, not a Phase 2 claim.
+- **Weather forecasting has real limits.** This app uses the same free public forecast data available to anyone — it cannot guarantee catching a genuinely unprecedented, highly localized convective storm before it happens. What it can do, and now does: read the *same* forecast number very differently depending on terrain, coastline proximity, and historical pattern, so a modest-looking forecast rainfall figure for a vulnerable coastal spot triggers a real warning instead of being read the same as it would be for solid inland terrain.
+- **GDACS covers significant/large-scale flood events, not hyperlocal ones.** It's a real, live, worldwide feed — but it's built to track disaster-scale flooding, so a flash flood in one neighborhood that hasn't been classified as a GDACS "event" yet won't appear there. It's a complement to FloodGuard AI's own per-location model, not a replacement for it — this is exactly why both layers run independently on the homepage.
+- **Historical flood frequency (for a specific searched location) is a proxy, not an archive.** True historical datasets (Dartmouth Flood Observatory, EM-DAT, GDACS's own historical archive) are static files that need to be downloaded and hosted, not queried live per-coordinate — that's real infrastructure work beyond what a REST-call-based app can do out of the box. Until that's built, the per-location "historical" layer reflects only what visitors have reported through this app, which starts at zero for every new location and grows over time.
+- **Not yet included** (genuinely needs heavier infrastructure than a live REST call can provide): direct country-level river gauge telemetry (GloFAS discharge above is a modeled estimate, not a physical gauge reading), satellite-based flood detection, population/building-density rasters (WorldPop/GHSL), and true digital-twin/ML prediction trained on historical outcomes. These remain a Phase 3 roadmap, not a Phase 2 claim.
 - **Drainage quality** has no free automated global data source, so it's estimated from rainfall intensity and nudged by community reports rather than measured directly.
 - **This is a decision-support tool, not an emergency alert system.** Always follow official emergency services and local authority guidance over any single app.
 
@@ -101,6 +174,13 @@ gunicorn app:app
 ```
 
 Do not commit your real API keys to GitHub. Keep them only in your hosting platform environment variables.
+
+For true always-fresh monitoring with zero visitor traffic, set up a free external scheduler (GitHub Actions cron, cron-job.org, etc.) to call both:
+
+```text
+POST https://your-app.onrender.com/api/refresh-global-alerts   # every 10 min, no key needed
+POST https://your-app.onrender.com/api/refresh-watchlist        # every 10-15 min, needs OPENWEATHER_API_KEY set
+```
 
 ## Roadmap
 

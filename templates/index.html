@@ -31,32 +31,117 @@
         </div>
     </section>
 
+    <section id="global-alerts" class="watchlist-panel">
+        <div class="watchlist-header">
+            <h2>{% if global_alerts.entries %}<span class="live-dot" aria-hidden="true"></span>{% endif %}🌍 Live Global Flood Alerts</h2>
+            <span id="global-alerts-updated" class="watchlist-updated">{% if global_alerts.last_updated %}Last checked {{ global_alerts.last_updated }} UTC{% endif %}</span>
+        </div>
+        <p class="watchlist-subtitle">Real-time worldwide flood alerts from GDACS (Global Disaster Alert and Coordination System) — the same feed used by UN OCHA and humanitarian agencies. Independent of any location search.</p>
+
+        <div id="global-alerts-body">
+            {% if not global_alerts.initialized %}
+            <div class="watchlist-state watchlist-pending">
+                <p>Connecting to the global flood monitor — the first check runs automatically on page load.</p>
+                <button type="button" id="global-refresh-btn">Check now</button>
+            </div>
+            {% elif global_alerts.entries %}
+            <div class="watchlist-state watchlist-active" id="global-alerts-list">
+                {% if global_alerts.is_stale %}
+                <p class="watchlist-stale-note">⚠ This data is {{ global_alerts.age_minutes }} minute(s) old and refreshing now.</p>
+                {% endif %}
+                {% for alert in global_alerts.entries %}
+                <div class="watchlist-alert-card risk-border-{{ alert.risk_color }}">
+                    <div class="watchlist-alert-top">
+                        <strong>{{ alert.country or "Unknown location" }}</strong>
+                        <span class="risk-pill risk-{{ alert.risk_color }}">{{ alert.risk_level }}</span>
+                    </div>
+                    <p>{{ alert.title }}</p>
+                    {% if alert.event_url %}
+                    <a href="{{ alert.event_url }}" target="_blank" rel="noopener" class="watchlist-check-btn" style="display:inline-block;text-decoration:none;">GDACS report ↗</a>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="watchlist-state watchlist-clear" id="global-alerts-list">
+                <p>✅ No active flood events reported by GDACS worldwide right now. Last checked {{ global_alerts.age_minutes }} minute(s) ago.</p>
+            </div>
+            {% endif %}
+        </div>
+    </section>
+
+    <section id="active-alerts" class="watchlist-panel">
+        <div class="watchlist-header">
+            <h2>{% if watchlist.active_alerts %}<span class="live-dot" aria-hidden="true"></span>{% endif %}📍 Monitored Locations</h2>
+            <span id="watchlist-updated" class="watchlist-updated">{% if watchlist.last_updated %}Last checked {{ watchlist.last_updated }} UTC{% endif %}</span>
+        </div>
+        <p class="watchlist-subtitle">FloodGuard AI's own terrain-aware model — elevation, slope, water proximity, soil, urbanization, and coastal thresholds — applied continuously to {{ watchlist.entries | length }} tracked locations across every continent, plus anywhere visitors search.</p>
+
+        <div id="watchlist-body">
+            {% if not watchlist.initialized %}
+            <div class="watchlist-state watchlist-pending">
+                <p>Monitoring is starting up — the first sweep runs automatically on page load and refreshes every {{ watchlist_refresh_minutes }} minutes.</p>
+                <button type="button" id="manual-refresh-btn">Check now</button>
+            </div>
+            {% elif watchlist.active_alerts %}
+            <div class="watchlist-state watchlist-active" id="watchlist-alert-list">
+                {% if watchlist.is_stale %}
+                <p class="watchlist-stale-note">⚠ This data is {{ watchlist.age_minutes }} minute(s) old and refreshing now — conditions may have changed since.</p>
+                {% endif %}
+                {% for alert in watchlist.active_alerts %}
+                <div class="watchlist-alert-card risk-border-{{ alert.risk_color }}">
+                    <div class="watchlist-alert-top">
+                        <strong>{{ alert.city_label }}{% if alert.coastal %}<span class="coastal-badge">🌊 Coastal</span>{% endif %}</strong>
+                        <span class="risk-pill risk-{{ alert.risk_color }}">{{ alert.risk_level }}</span>
+                    </div>
+                    {% if alert.priority_action %}
+                    <p class="watchlist-action">⚠ {{ alert.priority_action }}</p>
+                    {% endif %}
+                    <p>{{ alert.ground_alert_message or alert.top_factor }}</p>
+                    <button type="button" class="watchlist-check-btn" data-city="{{ alert.city_label }}">View full analysis</button>
+                </div>
+                {% endfor %}
+            </div>
+            {% elif watchlist.is_stale %}
+            <div class="watchlist-state watchlist-stale" id="watchlist-alert-list">
+                <p>⚠ Monitoring data is {{ watchlist.age_minutes }} minutes old and may be outdated — conditions could have changed. Refreshing now.</p>
+                <button type="button" id="manual-refresh-btn">Check now</button>
+            </div>
+            {% else %}
+            <div class="watchlist-state watchlist-clear" id="watchlist-alert-list">
+                <p>✅ No active flood alerts across {{ watchlist.entries | length }} monitored locations right now. Last checked {{ watchlist.age_minutes }} minute(s) ago.</p>
+            </div>
+            {% endif %}
+        </div>
+    </section>
+
     <section id="features" class="features">
         <h2>Core Capabilities</h2>
         <div class="feature-grid">
             <div class="feature-card"><h3>Live Weather</h3><p>Animated condition display for the searched location.</p></div>
             <div class="feature-card"><h3>Flood Risk Scoring</h3><p>Weighted analysis combining rainfall, forecast, elevation, slope, water proximity, soil, and urbanization.</p></div>
-            <div class="feature-card"><h3>Flood Map</h3><p>Interactive map with an estimated risk radius and future live flood layers.</p></div>
-            <div class="feature-card"><h3>Traffic Ready</h3><p>Prepared for road closure, traffic speed, and evacuation-route integrations.</p></div>
+            <div class="feature-card"><h3>Flood Map</h3><p>Interactive map showing an estimated risk radius around the searched location.</p></div>
+            <div class="feature-card"><h3>Community Reporting</h3><p>Visitors rate live conditions and flag issues that feed directly into the risk score.</p></div>
         </div>
     </section>
 
     <section class="statistics">
         <h2>FloodGuard AI Statistics</h2>
         <div class="stats-grid">
-            <div class="stat-card"><h3 id="locations">1</h3><p>Locations Monitored</p></div>
-            <div class="stat-card"><h3 id="searches">0</h3><p>Weather Searches</p></div>
-            <div class="stat-card"><h3 id="alerts">0</h3><p>Flood Alerts Issued</p></div>
+            <div class="stat-card"><h3 id="locations">{{ site_stats.locations_monitored }}</h3><p>Locations Monitored</p></div>
+            <div class="stat-card"><h3 id="searches">{{ site_stats.total_searches }}</h3><p>Weather Searches</p></div>
+            <div class="stat-card"><h3 id="alerts">{{ site_stats.alerts_issued }}</h3><p>Flood Alerts Issued</p></div>
             <div class="stat-card"><h3 id="community-total">{{ total_contributions }}</h3><p>Community Contributions</p></div>
         </div>
     </section>
+
 
     <section id="dashboard" class="dashboard">
         <div class="dashboard-card">
             <h2>Flood Risk Dashboard</h2>
             <p>Search a city to see live weather, animated conditions, forecast rainfall, flood score, and map risk area.</p>
 
-            <form method="POST" onsubmit="recordSearch()">
+            <form method="POST">
                 <input type="text" name="city" placeholder="Enter a city or neighborhood, e.g. Lekki, Lagos" required>
                 <button type="submit">Analyze Flood Risk</button>
             </form>
@@ -70,7 +155,7 @@
                 {% if prediction %}
                 {% if prediction.ground_alert %}
                 <div class="ground-alert">
-                    <strong>⚠ Live ground reports</strong>
+                    <strong><span class="live-dot" aria-hidden="true"></span>⚠ Live ground reports</strong>
                     <p>{{ prediction.ground_alert.message }} This has raised the risk level below to reflect what people are seeing on the ground right now.</p>
                 </div>
                 {% endif %}
@@ -100,7 +185,7 @@
 
                 <div class="result-header">
                     <div>
-                        <h3>{{ prediction.city }}{% if prediction.country %}, {{ prediction.country }}{% endif %}</h3>
+                        <h3>{{ prediction.city }}{% if prediction.country %}, {{ prediction.country }}{% endif %}{% if prediction.coastal %}<span class="coastal-badge">🌊 Coastal — alert threshold lowered</span>{% endif %}</h3>
                         <p>{{ prediction.description }}</p>
                     </div>
                     <div class="risk-pill risk-{{ prediction.risk_color }}">{{ prediction.risk }}</div>
@@ -123,6 +208,11 @@
                     <div><span>Nearest water</span><strong>{% if prediction.nearest_water_m is not none %}{{ prediction.nearest_water_m }} m{% else %}Unavailable{% endif %}</strong></div>
                 </div>
 
+                {% if prediction.priority_action %}
+                <div class="safety-action-box risk-border-{{ prediction.risk_color }}">
+                    <strong>⚠ Safety action:</strong> {{ prediction.priority_action }}
+                </div>
+                {% endif %}
                 <div class="advice-box">{{ prediction.advice }}</div>
                 <div id="map"></div>
 
@@ -235,7 +325,10 @@
                         <p>{{ item.rain }} mm rain</p>
                         <p>{{ item.humidity }}% humidity</p>
                         <p>{{ item.wind }} m/s wind</p>
-                        <div class="forecast-risk {{ item.risk_color }}">{{ item.risk }}</div>
+                        <div class="forecast-risk risk-{{ item.risk_color }}">{{ item.risk }}</div>
+                        {% if item.priority_action %}
+                        <p class="forecast-action">⚠ {{ item.priority_action }}</p>
+                        {% endif %}
                     </div>
                     {% endfor %}
                 </div>
@@ -275,21 +368,24 @@
     </footer>
 
     <script>
-    let weatherSearches = parseInt(localStorage.getItem("weatherSearches")) || 0;
-
-    function updateStatistics() {
-        document.getElementById("locations").innerHTML = 1;
-        document.getElementById("searches").innerHTML = weatherSearches;
-        document.getElementById("alerts").innerHTML = 0;
+    async function refreshSiteStats() {
+        try {
+            const response = await fetch("/api/stats");
+            const data = await response.json();
+            if (data.ok) {
+                document.getElementById("locations").innerHTML = data.locations_monitored;
+                document.getElementById("searches").innerHTML = data.total_searches;
+                document.getElementById("alerts").innerHTML = data.alerts_issued;
+                document.getElementById("community-total").innerHTML = data.total_contributions;
+            }
+        } catch (err) {
+            // Numbers stay at their server-rendered values on failure
+        }
     }
 
-    function recordSearch() {
-        weatherSearches++;
-        localStorage.setItem("weatherSearches", weatherSearches);
-        updateStatistics();
-    }
-
-    document.addEventListener("DOMContentLoaded", updateStatistics);
+    // Server-rendered values are already correct on load; poll periodically
+    // so numbers stay live for anyone leaving the page open.
+    setInterval(refreshSiteStats, 30000);
 
     const form = document.querySelector("form[method='POST']");
     if (form) {
@@ -297,6 +393,221 @@
             document.getElementById("spinner").classList.add("active");
         });
     }
+
+    function searchLocation(city) {
+        const input = form.querySelector("input[name='city']");
+        input.value = city;
+        document.getElementById("spinner").classList.add("active");
+        form.submit();
+    }
+
+    function attachWatchlistButtons() {
+        document.querySelectorAll(".watchlist-check-btn").forEach((btn) => {
+            btn.addEventListener("click", () => searchLocation(btn.dataset.city));
+        });
+    }
+    attachWatchlistButtons();
+
+    function riskColorClass(level) {
+        const map = { LOW: "low", WATCH: "watch", HIGH: "high", SEVERE: "severe", CRITICAL: "critical" };
+        return map[level] || "low";
+    }
+
+    function renderWatchlist(data) {
+        const body = document.getElementById("watchlist-body");
+        const updatedEl = document.getElementById("watchlist-updated");
+
+        if (data.last_updated) {
+            updatedEl.textContent = "Last checked " + data.last_updated + " UTC";
+        }
+
+        if (!data.initialized) {
+            return; // leave the pending state as-is; a poll will re-render once ready
+        }
+
+        if (data.active_alerts && data.active_alerts.length) {
+            const staleNote = data.is_stale
+                ? '<p class="watchlist-stale-note">⚠ This data is ' + data.age_minutes + " minute(s) old and refreshing now — conditions may have changed since.</p>"
+                : "";
+            const cards = data.active_alerts.map((alert) => {
+                const color = riskColorClass(alert.risk_level);
+                const message = alert.ground_alert_message || alert.top_factor || "";
+                const actionLine = alert.priority_action
+                    ? '<p class="watchlist-action">⚠ ' + alert.priority_action + "</p>"
+                    : "";
+                const coastalBadge = alert.coastal
+                    ? '<span class="coastal-badge">🌊 Coastal</span>'
+                    : "";
+                return (
+                    '<div class="watchlist-alert-card risk-border-' + color + '">' +
+                        '<div class="watchlist-alert-top">' +
+                            "<strong>" + alert.city_label + coastalBadge + "</strong>" +
+                            '<span class="risk-pill risk-' + color + '">' + alert.risk_level + "</span>" +
+                        "</div>" +
+                        actionLine +
+                        "<p>" + message + "</p>" +
+                        '<button type="button" class="watchlist-check-btn" data-city="' + alert.city_label + '">View full analysis</button>' +
+                    "</div>"
+                );
+            }).join("");
+            body.innerHTML = '<div class="watchlist-state watchlist-active" id="watchlist-alert-list">' + staleNote + cards + "</div>";
+
+            const heading = document.querySelector("#active-alerts h2");
+            if (heading && !heading.querySelector(".live-dot")) {
+                heading.insertAdjacentHTML("afterbegin", '<span class="live-dot" aria-hidden="true"></span>');
+            }
+        } else if (data.is_stale) {
+            body.innerHTML =
+                '<div class="watchlist-state watchlist-stale" id="watchlist-alert-list">' +
+                "<p>⚠ Monitoring data is " + data.age_minutes + " minutes old and may be outdated — conditions could have changed. Refreshing now.</p>" +
+                '<button type="button" id="manual-refresh-btn">Check now</button>' +
+                "</div>";
+            attachManualRefreshHandler();
+
+            const heading = document.querySelector("#active-alerts h2");
+            const dot = heading ? heading.querySelector(".live-dot") : null;
+            if (dot) dot.remove();
+        } else {
+            body.innerHTML =
+                '<div class="watchlist-state watchlist-clear" id="watchlist-alert-list">' +
+                "<p>✅ No active flood alerts across " + data.entries.length + " monitored locations right now. Last checked " + data.age_minutes + " minute(s) ago.</p>" +
+                "</div>";
+
+            const heading = document.querySelector("#active-alerts h2");
+            const dot = heading ? heading.querySelector(".live-dot") : null;
+            if (dot) dot.remove();
+        }
+
+        attachWatchlistButtons();
+    }
+
+    async function pollWatchlist() {
+        try {
+            const response = await fetch("/api/watchlist-status");
+            const data = await response.json();
+            if (data.ok) {
+                renderWatchlist(data);
+            }
+        } catch (err) {
+            // Keep showing the last known state on failure
+        }
+    }
+
+    setInterval(pollWatchlist, 45000);
+
+    function riskColorClassFromColor(color) {
+        return color || "watch";
+    }
+
+    function renderGlobalAlerts(data) {
+        const body = document.getElementById("global-alerts-body");
+        const updatedEl = document.getElementById("global-alerts-updated");
+
+        if (data.last_updated) {
+            updatedEl.textContent = "Last checked " + data.last_updated + " UTC";
+        }
+
+        if (!data.initialized) {
+            return;
+        }
+
+        const heading = document.querySelector("#global-alerts h2");
+
+        if (data.entries && data.entries.length) {
+            const staleNote = data.is_stale
+                ? '<p class="watchlist-stale-note">⚠ This data is ' + data.age_minutes + " minute(s) old and refreshing now.</p>"
+                : "";
+            const cards = data.entries.map((alert) => {
+                const color = riskColorClassFromColor(alert.risk_color);
+                const link = alert.event_url
+                    ? '<a href="' + alert.event_url + '" target="_blank" rel="noopener" class="watchlist-check-btn" style="display:inline-block;text-decoration:none;">GDACS report ↗</a>'
+                    : "";
+                return (
+                    '<div class="watchlist-alert-card risk-border-' + color + '">' +
+                        '<div class="watchlist-alert-top">' +
+                            "<strong>" + (alert.country || "Unknown location") + "</strong>" +
+                            '<span class="risk-pill risk-' + color + '">' + alert.risk_level + "</span>" +
+                        "</div>" +
+                        "<p>" + alert.title + "</p>" +
+                        link +
+                    "</div>"
+                );
+            }).join("");
+            body.innerHTML = '<div class="watchlist-state watchlist-active" id="global-alerts-list">' + staleNote + cards + "</div>";
+            if (heading && !heading.querySelector(".live-dot")) {
+                heading.insertAdjacentHTML("afterbegin", '<span class="live-dot" aria-hidden="true"></span>');
+            }
+        } else {
+            body.innerHTML =
+                '<div class="watchlist-state watchlist-clear" id="global-alerts-list">' +
+                "<p>✅ No active flood events reported by GDACS worldwide right now. Last checked " + data.age_minutes + " minute(s) ago.</p>" +
+                "</div>";
+            const dot = heading ? heading.querySelector(".live-dot") : null;
+            if (dot) dot.remove();
+        }
+
+        attachGlobalRefreshHandler();
+    }
+
+    async function pollGlobalAlerts() {
+        try {
+            const response = await fetch("/api/global-alerts");
+            const data = await response.json();
+            if (data.ok) {
+                renderGlobalAlerts(data);
+            }
+        } catch (err) {
+            // Keep showing the last known state on failure
+        }
+    }
+
+    setInterval(pollGlobalAlerts, 60000);
+
+    function attachGlobalRefreshHandler() {
+        const btn = document.getElementById("global-refresh-btn");
+        if (!btn || btn.dataset.wired) return;
+        btn.dataset.wired = "1";
+        btn.addEventListener("click", async () => {
+            btn.disabled = true;
+            btn.textContent = "Checking...";
+            try {
+                const response = await fetch("/api/refresh-global-alerts", { method: "POST" });
+                const data = await response.json();
+                if (data.ok) {
+                    renderGlobalAlerts(data);
+                }
+            } catch (err) {
+                // no-op
+            } finally {
+                btn.disabled = false;
+                btn.textContent = "Check now";
+            }
+        });
+    }
+    attachGlobalRefreshHandler();
+
+    function attachManualRefreshHandler() {
+        const manualRefreshBtn = document.getElementById("manual-refresh-btn");
+        if (!manualRefreshBtn || manualRefreshBtn.dataset.wired) return;
+        manualRefreshBtn.dataset.wired = "1";
+        manualRefreshBtn.addEventListener("click", async () => {
+            manualRefreshBtn.disabled = true;
+            manualRefreshBtn.textContent = "Checking...";
+            try {
+                const response = await fetch("/api/refresh-watchlist", { method: "POST" });
+                const data = await response.json();
+                if (data.ok) {
+                    renderWatchlist(data);
+                }
+            } catch (err) {
+                // no-op; button re-enables below
+            } finally {
+                manualRefreshBtn.disabled = false;
+                manualRefreshBtn.textContent = "Check now";
+            }
+        });
+    }
+    attachManualRefreshHandler();
     </script>
 
     {% if prediction %}
@@ -304,23 +615,98 @@
     document.addEventListener("DOMContentLoaded", function () {
         const latitude = {{ prediction.latitude }};
         const longitude = {{ prediction.longitude }};
-        const map = L.map("map").setView([latitude, longitude], 11);
+        const riskColor = "{{ prediction.map_color }}";
+        const mapboxToken = {{ mapbox_token | tojson }};
 
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        const map = L.map("map").setView([latitude, longitude], 12);
+
+        const baseLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
             attribution: "&copy; OpenStreetMap contributors"
         }).addTo(map);
 
-        L.circle([latitude, longitude], {
-            color: "{{ prediction.map_color }}",
-            fillColor: "{{ prediction.map_color }}",
+        // --- Flood risk zone: the core "flood-prone area" indicator ---
+        const riskCircle = L.circle([latitude, longitude], {
+            color: riskColor,
+            fillColor: riskColor,
             fillOpacity: 0.22,
             radius: 4500 + ({{ prediction.score }} * 80)
-        }).addTo(map).bindPopup("Estimated flood risk zone");
+        }).addTo(map);
+        riskCircle.bindTooltip("Estimated flood-prone zone — {{ prediction.risk }} risk", { sticky: true });
+        riskCircle.bindPopup("<b>Flood-prone area</b><br>Estimated risk radius based on rainfall, terrain, and local conditions.");
 
-        L.marker([latitude, longitude])
-            .addTo(map)
-            .bindPopup("<b>{{ prediction.city }}</b><br>{{ prediction.risk }} flood risk")
-            .openPopup();
+        // --- Main location marker, labeled ---
+        const mainMarker = L.marker([latitude, longitude]).addTo(map);
+        mainMarker.bindTooltip("{{ prediction.city }} — {{ prediction.risk }}", { permanent: true, direction: "top", offset: [0, -10], className: "map-label map-label-main" });
+        mainMarker.bindPopup("<b>{{ prediction.city }}</b><br>{{ prediction.risk }} flood risk (score {{ prediction.score }}/100){% if prediction.coastal %}<br>🌊 Coastal region — lower alert threshold applied{% endif %}");
+        mainMarker.openPopup();
+
+        // --- Nearest water body: shows why a location is flood-prone ---
+        {% if prediction.nearest_water_lat is not none and prediction.nearest_water_lon is not none %}
+        const waterPoint = [{{ prediction.nearest_water_lat }}, {{ prediction.nearest_water_lon }}];
+        const waterMarker = L.circleMarker(waterPoint, {
+            radius: 7,
+            color: "#38bdf8",
+            fillColor: "#38bdf8",
+            fillOpacity: 0.85,
+            weight: 2
+        }).addTo(map);
+        waterMarker.bindTooltip("{{ prediction.nearest_water_label or 'Nearest water body' }} (~{{ prediction.nearest_water_m }} m)", { direction: "top" });
+        waterMarker.bindPopup("<b>{{ prediction.nearest_water_label or 'Nearest water body' }}</b><br>Roughly {{ prediction.nearest_water_m }} m away. Proximity to water is a major flood-risk factor.");
+
+        L.polyline([[latitude, longitude], waterPoint], {
+            color: "#38bdf8",
+            weight: 2,
+            dashArray: "6, 8",
+            opacity: 0.7
+        }).addTo(map);
+        {% endif %}
+
+        // --- Community-reported flooding: real visitor ground truth ---
+        {% if prediction.community.flooding_reports > 0 %}
+        const communityPoint = [latitude + 0.0025, longitude + 0.0025];
+        const communityMarker = L.circleMarker(communityPoint, {
+            radius: 9,
+            color: "#f87171",
+            fillColor: "#dc2626",
+            fillOpacity: 0.9,
+            weight: 2
+        }).addTo(map);
+        communityMarker.bindTooltip("{{ prediction.community.flooding_reports }} community flood report(s)", { direction: "top" });
+        communityMarker.bindPopup("<b>Community-reported flooding</b><br>{{ prediction.community.flooding_reports }} visitor report(s) of flooding near {{ prediction.city }}. Marker position is approximate — exact pinpoints aren't collected.");
+        {% endif %}
+
+        // --- Live traffic layer (optional — needs a free Mapbox token) ---
+        let trafficLayer = null;
+        if (mapboxToken) {
+            trafficLayer = L.tileLayer(
+                "https://api.mapbox.com/styles/v1/mapbox/traffic-day-v2/tiles/{z}/{x}/{y}?access_token=" + mapboxToken,
+                { attribution: "Traffic &copy; Mapbox", opacity: 0.85 }
+            );
+            trafficLayer.addTo(map);
+
+            const overlays = { "Live traffic": trafficLayer };
+            L.control.layers({ "Map": baseLayer }, overlays, { collapsed: false, position: "topright" }).addTo(map);
+        }
+
+        // --- Legend: labels every marker/color for visitors ---
+        const legend = L.control({ position: "bottomright" });
+        legend.onAdd = function () {
+            const div = L.DomUtil.create("div", "map-legend");
+            let rows = "";
+            rows += '<div class="map-legend-row"><span class="map-legend-swatch" style="background:' + riskColor + '"></span> Flood-prone risk zone</div>';
+            rows += '<div class="map-legend-row"><span class="map-legend-dot" style="background:#38bdf8"></span> Nearest water body</div>';
+            {% if prediction.community.flooding_reports > 0 %}
+            rows += '<div class="map-legend-row"><span class="map-legend-dot" style="background:#dc2626"></span> Community flood reports</div>';
+            {% endif %}
+            if (mapboxToken) {
+                rows += '<div class="map-legend-row"><span class="map-legend-line"></span> Live traffic (toggle top-right)</div>';
+            } else {
+                rows += '<div class="map-legend-row map-legend-note">Live traffic: add a free Mapbox token to enable</div>';
+            }
+            div.innerHTML = rows;
+            return div;
+        };
+        legend.addTo(map);
 
         setTimeout(function () {
             map.invalidateSize();
