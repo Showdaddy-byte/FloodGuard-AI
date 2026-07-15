@@ -2,6 +2,7 @@ import math
 import os
 import sqlite3
 import threading
+import time
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
@@ -51,6 +52,13 @@ GROUND_TRUTH_WINDOW_HOURS = 12
 # (like heavy rain hitting several Lagos neighborhoods at once) shows up for
 # visitors without anyone needing to search that exact place first.
 WATCHLIST_REFRESH_MINUTES = 15
+
+# Elevation, slope, water proximity, soil type, and urbanization barely
+# change hour to hour — there's no reason to re-hit Overpass/SoilGrids for
+# them on every watchlist sweep. Caching this static geospatial context for
+# a full day cuts external call volume by ~95%+, which is what actually
+# fixes Overpass rate-limiting (406s) rather than just retrying harder.
+GEO_CONTEXT_TTL_HOURS = 24
 
 # Locations actively monitored for the homepage alert banner, independent of
 # whether any visitor has searched them. Edit this list to match the areas
@@ -180,6 +188,23 @@ def init_db():
             longitude REAL,
             event_url TEXT,
             published_at TEXT,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS geo_context_cache (
+            city_key TEXT PRIMARY KEY,
+            elevation REAL,
+            slope_percent REAL,
+            nearest_water_m REAL,
+            nearest_coast_m REAL,
+            nearest_water_lat REAL,
+            nearest_water_lon REAL,
+            nearest_water_label TEXT,
+            building_count INTEGER,
+            clay_percent REAL,
             updated_at TEXT NOT NULL
         )
         """
@@ -391,8 +416,9 @@ def refresh_watchlist_cache():
     not just someone who already knew to search that exact place."""
     conn = sqlite3.connect(DB_PATH)
     now = datetime.utcnow().isoformat()
+    locations = get_all_monitored_locations()
 
-    for location in get_all_monitored_locations():
+    for index, location in enumerate(locations):
         try:
             with app.app_context():
                 prediction, _ = build_prediction(location)
@@ -404,6 +430,12 @@ def refresh_watchlist_cache():
             continue
 
         _upsert_watchlist_row(conn, prediction, now)
+
+        # Stagger requests so a cold-cache sweep across many locations
+        # doesn't burst-hit Overpass/SoilGrids all at once (that burst is
+        # what triggers their rate limiting in the first place).
+        if index < len(locations) - 1:
+            time.sleep(1.5)
 
     conn.close()
 
@@ -838,7 +870,12 @@ def fetch_water_and_urban_context(lat, lon, radius_m=3000):
     out count;
     """
     try:
-        response = requests.post(OVERPASS_URL, data={"data": query}, timeout=14)
+        response = requests.post(
+            OVERPASS_URL,
+            data={"data": query},
+            timeout=14,
+            headers={"User-Agent": "FloodGuardAI/1.0 (flood risk web app; contact via app owner)"},
+        )
         response.raise_for_status()
         data = response.json()
     except (requests.RequestException, ValueError) as error:
@@ -982,12 +1019,15 @@ def classify_urbanization(building_count):
 
 def fetch_soil_clay(lat, lon):
     """Topsoil clay content (0-5cm) from ISRIC SoilGrids. Higher clay content
-    absorbs water more slowly, worsening waterlogging and runoff."""
+    absorbs water more slowly, worsening waterlogging and runoff. SoilGrids
+    is a known-slow public API, so this uses a longer timeout than most
+    other lookups here."""
     try:
         response = requests.get(
             SOILGRIDS_URL,
             params={"lon": lon, "lat": lat, "property": "clay", "depth": "0-5cm", "value": "mean"},
-            timeout=10,
+            timeout=20,
+            headers={"User-Agent": "FloodGuardAI/1.0 (flood risk web app; contact via app owner)"},
         )
         response.raise_for_status()
         data = response.json()
@@ -1692,6 +1732,93 @@ def get_weather(lat, lon, display_name=None):
     }
 
 
+def get_geo_context(city_key, lat, lon):
+    """Elevation, slope, water proximity, soil type, and urbanization for a
+    location, cached for GEO_CONTEXT_TTL_HOURS. This is the fix for
+    Overpass/SoilGrids rate-limiting: a 29-location watchlist refreshing
+    every 15 minutes was re-fetching static terrain data ~100 times/hour
+    that hadn't changed since the last sweep. Now each location only hits
+    those APIs once per day; weather, tide, and river discharge (which
+    genuinely change) are still fetched fresh every time by the caller."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT * FROM geo_context_cache WHERE city_key = ?", (city_key,)).fetchone()
+
+    if row:
+        age_hours = (datetime.utcnow() - datetime.fromisoformat(row["updated_at"])).total_seconds() / 3600
+        if age_hours < GEO_CONTEXT_TTL_HOURS:
+            conn.close()
+            water_point = (
+                (row["nearest_water_lat"], row["nearest_water_lon"])
+                if row["nearest_water_lat"] is not None
+                else None
+            )
+            return {
+                "elevation": row["elevation"],
+                "slope_percent": row["slope_percent"],
+                "nearest_water_m": row["nearest_water_m"],
+                "nearest_coast_m": row["nearest_coast_m"],
+                "nearest_water_point": water_point,
+                "nearest_water_label": row["nearest_water_label"],
+                "building_count": row["building_count"] or 0,
+                "clay_percent": row["clay_percent"],
+            }
+
+    # Cache miss or stale — fetch live from Overpass/Open-Meteo/SoilGrids.
+    elevation, slope_percent = fetch_elevation_grid(lat, lon)
+    nearest_water_m, nearest_coast_m, building_count, nearest_water_point, nearest_water_label = (
+        fetch_water_and_urban_context(lat, lon)
+    )
+    clay_percent = fetch_soil_clay(lat, lon)
+
+    now = datetime.utcnow().isoformat()
+    conn.execute(
+        """
+        INSERT INTO geo_context_cache
+            (city_key, elevation, slope_percent, nearest_water_m, nearest_coast_m,
+             nearest_water_lat, nearest_water_lon, nearest_water_label, building_count, clay_percent, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(city_key) DO UPDATE SET
+            elevation=excluded.elevation,
+            slope_percent=excluded.slope_percent,
+            nearest_water_m=excluded.nearest_water_m,
+            nearest_coast_m=excluded.nearest_coast_m,
+            nearest_water_lat=excluded.nearest_water_lat,
+            nearest_water_lon=excluded.nearest_water_lon,
+            nearest_water_label=excluded.nearest_water_label,
+            building_count=excluded.building_count,
+            clay_percent=excluded.clay_percent,
+            updated_at=excluded.updated_at
+        """,
+        (
+            city_key,
+            elevation,
+            slope_percent,
+            nearest_water_m,
+            nearest_coast_m,
+            nearest_water_point[0] if nearest_water_point else None,
+            nearest_water_point[1] if nearest_water_point else None,
+            nearest_water_label,
+            building_count,
+            clay_percent,
+            now,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    return {
+        "elevation": elevation,
+        "slope_percent": slope_percent,
+        "nearest_water_m": nearest_water_m,
+        "nearest_coast_m": nearest_coast_m,
+        "nearest_water_point": nearest_water_point,
+        "nearest_water_label": nearest_water_label,
+        "building_count": building_count,
+        "clay_percent": clay_percent,
+    }
+
+
 def build_prediction(query):
     place = geocode_location(query)
 
@@ -1709,20 +1836,30 @@ def build_prediction(query):
     if not weather:
         return None, []
 
-    # Each external lookup is independent and fails gracefully on its own,
-    # so one flaky service (e.g. Overpass) can't take down the whole result.
-    elevation, slope_percent = fetch_elevation_grid(lat, lon)
+    # Elevation, slope, water proximity, soil, and urbanization are cached
+    # for a day (GEO_CONTEXT_TTL_HOURS) since they don't meaningfully change
+    # hour to hour — this is what keeps Overpass/SoilGrids call volume low
+    # enough to avoid rate-limiting on repeated watchlist sweeps.
+    geo = get_geo_context(normalize_city(weather["city"]), lat, lon)
+    elevation = geo["elevation"]
+    slope_percent = geo["slope_percent"]
     terrain = classify_terrain(elevation)
     slope = classify_slope(slope_percent)
 
-    nearest_water_m, nearest_coast_m, building_count, nearest_water_point, nearest_water_label = fetch_water_and_urban_context(lat, lon)
+    nearest_water_m = geo["nearest_water_m"]
+    nearest_coast_m = geo["nearest_coast_m"]
+    building_count = geo["building_count"]
+    nearest_water_point = geo["nearest_water_point"]
+    nearest_water_label = geo["nearest_water_label"]
     water = classify_water_proximity(nearest_water_m, nearest_water_label)
     urban = classify_urbanization(building_count)
     coastal = is_coastal_region(nearest_coast_m)
 
-    clay_percent = fetch_soil_clay(lat, lon)
+    clay_percent = geo["clay_percent"]
     soil = classify_soil(clay_percent)
 
+    # Weather, tide, and river discharge genuinely change over time, so
+    # these are still fetched fresh on every call.
     tide_height = fetch_tide_status(lat, lon)
     tide = classify_tide(tide_height)
 
@@ -1930,7 +2067,15 @@ def api_stats():
 
 @app.route("/health")
 def health():
-    return {"status": "ok", "service": "FloodGuard AI"}
+    return {
+        "status": "ok",
+        "service": "FloodGuard AI",
+        "config": {
+            "openweather_configured": bool(API_KEY),
+            "tide_configured": bool(TIDE_API_KEY),
+            "mapbox_configured": bool(MAPBOX_ACCESS_TOKEN),
+        },
+    }
 
 
 if __name__ == "__main__":
