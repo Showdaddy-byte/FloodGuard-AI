@@ -4,7 +4,7 @@ import sqlite3
 import threading
 import time
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import requests
 from flask import Flask, g, jsonify, render_template, request
@@ -209,6 +209,47 @@ def init_db():
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS refresh_locks (
+            lock_name TEXT PRIMARY KEY,
+            started_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+def try_acquire_lock(lock_name, max_age_minutes=10):
+    """A mutex that actually works across separate gunicorn worker
+    processes, unlike an in-memory Python flag (which only guards within a
+    single process — the real cause of duplicate simultaneous sweeps when
+    a rolling deploy briefly runs two instances, or multiple workers each
+    handle an early request at once). Stale locks (e.g. from a worker that
+    crashed mid-refresh) are automatically reclaimed after max_age_minutes."""
+    conn = sqlite3.connect(DB_PATH)
+    now = datetime.utcnow()
+    cutoff = (now - timedelta(minutes=max_age_minutes)).isoformat()
+    conn.execute("DELETE FROM refresh_locks WHERE lock_name = ? AND started_at < ?", (lock_name, cutoff))
+    conn.commit()
+
+    acquired = False
+    try:
+        conn.execute("INSERT INTO refresh_locks (lock_name, started_at) VALUES (?, ?)", (lock_name, now.isoformat()))
+        conn.commit()
+        acquired = True
+    except sqlite3.IntegrityError:
+        acquired = False
+    finally:
+        conn.close()
+
+    return acquired
+
+
+def release_lock(lock_name):
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("DELETE FROM refresh_locks WHERE lock_name = ?", (lock_name,))
     conn.commit()
     conn.close()
 
@@ -265,8 +306,6 @@ def get_city_stats(city):
 def get_recent_flooding_reports(city, hours=GROUND_TRUTH_WINDOW_HOURS, min_rating=4):
     """Live visitor reports of active flooding in the last `hours`, used to
     override a model-only verdict when people on the ground say it's flooding."""
-    from datetime import timedelta
-
     db = get_db()
     cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
     rows = db.execute(
@@ -466,16 +505,32 @@ def maybe_refresh_watchlist_async():
     if not is_stale:
         return
 
+    # Fast local check first (cheap, avoids a DB round-trip most of the time)...
     with _watchlist_refresh_lock:
         if _watchlist_refreshing:
             return
         _watchlist_refreshing = True
+
+    # ...then the authoritative cross-process check. A rolling deploy that
+    # briefly runs two instances, or multiple gunicorn workers each handling
+    # an early request, would otherwise each pass the in-memory check above
+    # and fire their own simultaneous sweep — this is what actually stops
+    # duplicate sweeps from combining to exceed Overpass/Open-Meteo's rate
+    # limits, as seen in production. The lock TTL is generous (60 min, well
+    # above WATCHLIST_REFRESH_MINUTES) because a full sweep across many
+    # locations with worst-case API timeouts can legitimately take a while;
+    # reclaiming the lock mid-sweep would reintroduce the same duplication.
+    if not try_acquire_lock("watchlist_refresh", max_age_minutes=60):
+        with _watchlist_refresh_lock:
+            _watchlist_refreshing = False
+        return
 
     def _run():
         global _watchlist_refreshing
         try:
             refresh_watchlist_cache()
         finally:
+            release_lock("watchlist_refresh")
             with _watchlist_refresh_lock:
                 _watchlist_refreshing = False
 
@@ -667,11 +722,17 @@ def maybe_refresh_global_alerts_async():
             return
         _global_alerts_refreshing = True
 
+    if not try_acquire_lock("global_alerts_refresh", max_age_minutes=30):
+        with _global_alerts_lock:
+            _global_alerts_refreshing = False
+        return
+
     def _run():
         global _global_alerts_refreshing
         try:
             refresh_global_alerts_cache()
         finally:
+            release_lock("global_alerts_refresh")
             with _global_alerts_lock:
                 _global_alerts_refreshing = False
 
@@ -2040,7 +2101,14 @@ def api_refresh_watchlist():
     if not API_KEY:
         return jsonify({"ok": False, "error": "OPENWEATHER_API_KEY is not configured."}), 400
 
-    refresh_watchlist_cache()
+    if not try_acquire_lock("watchlist_refresh", max_age_minutes=60):
+        return jsonify({"ok": True, "note": "A refresh is already in progress; returning current cache.", **get_watchlist_status()})
+
+    try:
+        refresh_watchlist_cache()
+    finally:
+        release_lock("watchlist_refresh")
+
     return jsonify({"ok": True, **get_watchlist_status()})
 
 
@@ -2054,7 +2122,14 @@ def api_refresh_global_alerts():
     """Trigger a synchronous GDACS refresh. Needs no API key — intended for
     an external scheduler to hit every 10 minutes for true always-fresh
     worldwide coverage."""
-    refresh_global_alerts_cache()
+    if not try_acquire_lock("global_alerts_refresh", max_age_minutes=30):
+        return jsonify({"ok": True, "note": "A refresh is already in progress; returning current cache.", **get_global_alerts_status()})
+
+    try:
+        refresh_global_alerts_cache()
+    finally:
+        release_lock("global_alerts_refresh")
+
     return jsonify({"ok": True, **get_global_alerts_status()})
 
 
