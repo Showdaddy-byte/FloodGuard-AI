@@ -115,6 +115,21 @@
         </div>
     </section>
 
+    <section id="route-safety" class="route-safety-panel">
+        <div class="route-safety-header">
+            <h2>🚗 Can I Travel There Safely?</h2>
+            <p>A real driving route (OSRM), checked point by point against live flood risk — terrain, water proximity, and current rainfall along the way. Not a "likely flooded roads" guess — every segment shown is backed by real elevation and water-proximity data.</p>
+        </div>
+
+        <form id="route-form" class="route-form">
+            <input type="text" id="route-origin" placeholder="From, e.g. Shomolu" required>
+            <input type="text" id="route-destination" placeholder="To, e.g. Victoria Island" required>
+            <button type="submit" id="route-submit">Check Route</button>
+        </form>
+        <div id="route-feedback" class="route-feedback"></div>
+        <div id="route-results"></div>
+    </section>
+
     <section id="features" class="features">
         <h2>Core Capabilities</h2>
         <div class="feature-grid">
@@ -191,6 +206,23 @@
                     <div class="risk-pill risk-{{ prediction.risk_color }}">{{ prediction.risk }}</div>
                 </div>
 
+                <div class="travel-banner risk-border-{{ prediction.travel_recommendation.color }}">
+                    <div class="travel-verdict risk-{{ prediction.travel_recommendation.color }}">{{ prediction.travel_recommendation.verdict }}</div>
+                    <p>{{ prediction.travel_recommendation.headline }}</p>
+                    {% if prediction.travel_recommendation.better_window %}
+                    <p class="travel-window">🕐 Conditions look better around <strong>{{ prediction.travel_recommendation.better_window.time }}</strong> ({{ prediction.travel_recommendation.better_window.risk }} risk) if travel can wait.</p>
+                    {% endif %}
+                </div>
+
+                <div class="share-row">
+                    <span class="share-label">Share this alert:</span>
+                    <a class="share-btn share-whatsapp" target="_blank" rel="noopener" id="share-whatsapp" href="#">WhatsApp</a>
+                    <a class="share-btn share-x" target="_blank" rel="noopener" id="share-x" href="#">X</a>
+                    <a class="share-btn share-facebook" target="_blank" rel="noopener" id="share-facebook" href="#">Facebook</a>
+                    <a class="share-btn share-telegram" target="_blank" rel="noopener" id="share-telegram" href="#">Telegram</a>
+                    <button type="button" class="share-btn share-copy" id="share-copy">Copy Link</button>
+                </div>
+
                 <div class="gauge" aria-label="Flood risk score">
                     <div class="gauge-fill" style="width:{{ prediction.score }}%"></div>
                 </div>
@@ -218,16 +250,24 @@
 
                 <div class="insight-grid">
                     <section>
-                        <h3>Risk Factors</h3>
-                        <ul class="factor-list">
+                        <h3>FloodGuard AI says {{ prediction.risk }} because:</h3>
+                        <ul class="checklist">
                             {% for factor in prediction.factors %}
-                            <li>{{ factor }}</li>
+                            <li><span class="check-mark">✔</span> {{ factor }}</li>
                             {% endfor %}
                         </ul>
                     </section>
                     <section>
                         <h3>Environment Intelligence</h3>
                         <p>{{ prediction.environment.summary }}</p>
+                        <div class="history-answer">
+                            <strong>Flood history at this location:</strong>
+                            {% if prediction.historical_reports > 0 %}
+                            <p>Visitors have reported flooding here <strong>{{ prediction.historical_reports }}</strong> time(s) since this app began tracking reports. This reflects community records, not a certified multi-year archive.</p>
+                            {% else %}
+                            <p>No community-reported flooding on record for this location yet. This reflects reports since this app launched, not a certified historical archive.</p>
+                            {% endif %}
+                        </div>
                     </section>
                 </div>
 
@@ -242,6 +282,28 @@
                     {% endif %}
                     {% endfor %}
                 </div>
+
+                {% set tide_info = prediction.environment.tide %}
+                {% if tide_info and (tide_info.next_high or tide_info.next_low) %}
+                <div class="tide-forecast-box">
+                    <strong>🌊 Tide Forecast</strong>
+                    <div class="tide-events">
+                        {% if tide_info.next_high %}
+                        <div class="tide-event">
+                            <span class="tide-event-label">Next High Tide</span>
+                            <span class="tide-event-value">{{ tide_info.next_high.height | round(1) }} m at {{ tide_info.next_high.time }}</span>
+                        </div>
+                        {% endif %}
+                        {% if tide_info.next_low %}
+                        <div class="tide-event">
+                            <span class="tide-event-label">Next Low Tide</span>
+                            <span class="tide-event-value">{{ tide_info.next_low.height | round(1) }} m at {{ tide_info.next_low.time }}</span>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <p class="tide-source">Live data from WorldTides.</p>
+                </div>
+                {% endif %}
 
                 <section id="community" class="community-panel" data-city="{{ prediction.city }}">
                     <div class="community-header">
@@ -287,6 +349,23 @@
                         </div>
 
                         <div class="field-row">
+                            <label for="water-depth">Water depth, if flooded (optional)</label>
+                            <select id="water-depth" name="water_depth_cm">
+                                <option value="">Not applicable / unknown</option>
+                                <option value="5">Ankle-deep (~5 cm)</option>
+                                <option value="20">Shin-deep (~20 cm)</option>
+                                <option value="45">Knee-deep (~45 cm)</option>
+                                <option value="90">Waist-deep (~90 cm)</option>
+                                <option value="150">Chest-deep or higher (~150 cm+)</option>
+                            </select>
+                        </div>
+
+                        <div class="field-row">
+                            <label for="roads-affected">Roads blocked or impassable (optional)</label>
+                            <input type="text" id="roads-affected" name="roads_affected" maxlength="200" placeholder="e.g. Admiralty Way, Freedom Way">
+                        </div>
+
+                        <div class="field-row">
                             <label for="comment">What are you seeing? (optional)</label>
                             <textarea id="comment" name="comment" maxlength="400" placeholder="e.g. Drainage channel blocked near the market road, water rising fast."></textarea>
                         </div>
@@ -304,6 +383,12 @@
                                     <span class="report-category">{{ category_labels.get(report.category, report.category) }}</span>
                                     <span class="report-rating">{{ report.rating }}/5</span>
                                 </div>
+                                {% if report.water_depth_cm or report.roads_affected %}
+                                <div class="report-meta">
+                                    {% if report.water_depth_cm %}<span>💧 ~{{ report.water_depth_cm }} cm deep</span>{% endif %}
+                                    {% if report.roads_affected %}<span>🚧 {{ report.roads_affected }}</span>{% endif %}
+                                </div>
+                                {% endif %}
                                 {% if report.comment %}<p class="report-comment">{{ report.comment }}</p>{% endif %}
                             </li>
                             {% else %}
@@ -312,6 +397,23 @@
                         </ul>
                     </div>
                 </section>
+
+                {% if prediction.emergency_contacts %}
+                <section class="emergency-panel">
+                    <h3>Nearby Emergency Contacts</h3>
+                    <div class="emergency-grid">
+                        {% for contact in prediction.emergency_contacts %}
+                        <div class="emergency-card">
+                            <span class="emergency-label">{{ contact.label }}</span>
+                            <strong>{{ contact.name }}</strong>
+                            <span class="emergency-distance">~{{ (contact.distance_m / 1000) | round(1) }} km away</span>
+                            {% if contact.phone %}<a href="tel:{{ contact.phone }}" class="emergency-phone">📞 {{ contact.phone }}</a>{% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <p class="emergency-note">From OpenStreetMap. Always call your national emergency number first in a life-threatening situation.</p>
+                </section>
+                {% endif %}
 
                 <h3>5-Day Forecast</h3>
                 {% if forecast %}
@@ -334,6 +436,22 @@
                 </div>
                 {% else %}
                 <p>No forecast available.</p>
+                {% endif %}
+
+                {% if prediction.timeline %}
+                <h3>Next 24 Hours</h3>
+                <div class="timeline-track">
+                    {% for slot in prediction.timeline[:8] %}
+                    <div class="timeline-slot">
+                        <span class="timeline-time">{{ slot.hour_label }}</span>
+                        <div class="timeline-bar-track">
+                            <div class="timeline-bar risk-{{ slot.risk_color }}" style="height:{{ [slot.score, 8] | max }}%"></div>
+                        </div>
+                        <span class="timeline-rain">{{ slot.rain }}mm</span>
+                        <span class="timeline-risk risk-{{ slot.risk_color }}">{{ slot.risk }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
                 {% endif %}
                 {% else %}
                 <p>No prediction yet. Search for a city above.</p>
@@ -364,6 +482,20 @@
 
     <footer id="contact">
         <h2>FloodGuard AI</h2>
+        <div class="contact-grid">
+            <div class="contact-item">
+                <span class="contact-label">📧 Email</span>
+                <a href="mailto:christtar@yahoo.com">christtar@yahoo.com</a>
+            </div>
+            <div class="contact-item">
+                <span class="contact-label">📱 Phone</span>
+                <a href="tel:+2349130000501">+234 9130000501</a>
+            </div>
+            <div class="contact-item">
+                <span class="contact-label">📍 Location</span>
+                <span>Lagos, Nigeria</span>
+            </div>
+        </div>
         <p>Copyright 2026 FloodGuard AI. All Rights Reserved.</p>
     </footer>
 
@@ -608,9 +740,140 @@
         });
     }
     attachManualRefreshHandler();
+
+    function riskColorClassRoute(level) {
+        const map = { LOW: "low", WATCH: "watch", HIGH: "high", SEVERE: "severe", CRITICAL: "critical" };
+        return map[level] || "low";
+    }
+
+    function renderRouteResult(data) {
+        const resultsEl = document.getElementById("route-results");
+        const feedbackEl = document.getElementById("route-feedback");
+
+        if (!data.ok) {
+            feedbackEl.textContent = data.error || "Could not assess this route.";
+            feedbackEl.className = "route-feedback error";
+            resultsEl.innerHTML = "";
+            return;
+        }
+
+        feedbackEl.textContent = "";
+        feedbackEl.className = "route-feedback";
+
+        const route = data.primary_route;
+        const verdictColor = riskColorClassRoute(data.verdict === "SAFE TO TRAVEL" ? "LOW" : (route.worst_risk));
+
+        const segmentBar = route.segments.map((s) => {
+            const color = riskColorClassRoute(s.risk);
+            return '<div class="route-segment risk-' + color + '" title="' + s.risk + (s.water_label ? " — near " + s.water_label : "") + '"></div>';
+        }).join("");
+
+        let riskyHtml = "";
+        if (route.risky_segments.length) {
+            riskyHtml = '<div class="route-risky-list"><strong>⚠ Risky sections along this route:</strong><ul>' +
+                route.risky_segments.map((s) => {
+                    const label = s.water_label ? " — near " + s.water_label : "";
+                    return "<li>~" + s.position_pct + "% of the way (" + s.risk + label + ")</li>";
+                }).join("") +
+                "</ul></div>";
+        }
+
+        let altHtml = "";
+        if (data.alternative_route) {
+            const alt = data.alternative_route;
+            altHtml = '<div class="route-alt">' +
+                "<strong>Alternate route:</strong> " + alt.distance_km + " km, ~" + alt.duration_min + " min, worst-case risk: " +
+                '<span class="risk-pill risk-' + riskColorClassRoute(alt.worst_risk) + '">' + alt.worst_risk + "</span>" +
+                "</div>";
+        }
+
+        resultsEl.innerHTML =
+            '<div class="route-verdict-banner risk-border-' + verdictColor + '">' +
+                '<div class="travel-verdict risk-' + verdictColor + '">' + data.verdict + "</div>" +
+                "<p>" + data.origin + " → " + data.destination + "</p>" +
+                "<p>" + route.distance_km + " km, ~" + route.duration_min + " min drive, " + route.confidence_pct + "% of the route has real terrain data</p>" +
+                (data.priority_action ? '<p class="route-action">⚠ ' + data.priority_action + "</p>" : "") +
+            "</div>" +
+            '<div class="route-segment-bar">' + segmentBar + "</div>" +
+            riskyHtml +
+            altHtml;
+    }
+
+    const routeForm = document.getElementById("route-form");
+    if (routeForm) {
+        routeForm.addEventListener("submit", async function (event) {
+            event.preventDefault();
+            const origin = document.getElementById("route-origin").value.trim();
+            const destination = document.getElementById("route-destination").value.trim();
+            const submitBtn = document.getElementById("route-submit");
+            const feedbackEl = document.getElementById("route-feedback");
+
+            if (!origin || !destination) return;
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = "Checking route...";
+            feedbackEl.textContent = "";
+            feedbackEl.className = "route-feedback";
+            document.getElementById("route-results").innerHTML = "";
+
+            try {
+                const response = await fetch("/api/route-safety", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ origin: origin, destination: destination })
+                });
+                const data = await response.json();
+                renderRouteResult(data);
+            } catch (err) {
+                feedbackEl.textContent = "Network error. Please try again.";
+                feedbackEl.className = "route-feedback error";
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = "Check Route";
+            }
+        });
+    }
     </script>
 
     {% if prediction %}
+    <script>
+    (function () {
+        const cityName = {{ prediction.city | tojson }};
+        const riskLevel = {{ prediction.risk | tojson }};
+        const verdict = {{ prediction.travel_recommendation.verdict | tojson }};
+        const shareText = "FloodGuard AI: " + cityName + " is at " + riskLevel + " flood risk right now. " + verdict + ". Check live conditions:";
+        const shareUrl = window.location.href;
+        const encodedText = encodeURIComponent(shareText);
+        const encodedUrl = encodeURIComponent(shareUrl);
+
+        const links = {
+            "share-whatsapp": "https://wa.me/?text=" + encodedText + "%20" + encodedUrl,
+            "share-x": "https://twitter.com/intent/tweet?text=" + encodedText + "&url=" + encodedUrl,
+            "share-facebook": "https://www.facebook.com/sharer/sharer.php?u=" + encodedUrl,
+            "share-telegram": "https://t.me/share/url?url=" + encodedUrl + "&text=" + encodedText,
+        };
+
+        Object.keys(links).forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.href = links[id];
+        });
+
+        const copyBtn = document.getElementById("share-copy");
+        if (copyBtn) {
+            copyBtn.addEventListener("click", async () => {
+                try {
+                    await navigator.clipboard.writeText(shareUrl);
+                    const original = copyBtn.textContent;
+                    copyBtn.textContent = "Copied!";
+                    setTimeout(() => { copyBtn.textContent = original; }, 2000);
+                } catch (err) {
+                    // Clipboard API unavailable — no-op, link stays as-is
+                }
+            });
+        }
+    })();
+    </script>
+
     <script>
     document.addEventListener("DOMContentLoaded", function () {
         const latitude = {{ prediction.latitude }};
@@ -780,6 +1043,22 @@
                 top.appendChild(rating);
                 li.appendChild(top);
 
+                if (report.water_depth_cm || report.roads_affected) {
+                    const meta = document.createElement("div");
+                    meta.className = "report-meta";
+                    if (report.water_depth_cm) {
+                        const depth = document.createElement("span");
+                        depth.textContent = "💧 ~" + report.water_depth_cm + " cm deep";
+                        meta.appendChild(depth);
+                    }
+                    if (report.roads_affected) {
+                        const roads = document.createElement("span");
+                        roads.textContent = "🚧 " + report.roads_affected;
+                        meta.appendChild(roads);
+                    }
+                    li.appendChild(meta);
+                }
+
                 if (report.comment) {
                     const comment = document.createElement("p");
                     comment.className = "report-comment";
@@ -832,7 +1111,9 @@
                 city: city,
                 category: document.getElementById("category").value,
                 rating: rating,
-                comment: document.getElementById("comment").value
+                comment: document.getElementById("comment").value,
+                water_depth_cm: document.getElementById("water-depth").value,
+                roads_affected: document.getElementById("roads-affected").value
             };
 
             try {
@@ -849,6 +1130,8 @@
                     feedback.textContent = "Thanks! Your live report has been added.";
                     feedback.className = "contribute-feedback success";
                     document.getElementById("comment").value = "";
+                    document.getElementById("water-depth").value = "";
+                    document.getElementById("roads-affected").value = "";
                     ratingInput.value = 0;
                     starWrap.dataset.value = 0;
                     paintStars(0);

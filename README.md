@@ -92,7 +92,7 @@ The location map (shown after a search) now includes:
 | Soil type (clay content) | ISRIC SoilGrids v2.0 | No key required |
 | **River discharge (real hydrological model)** | **Open-Meteo Flood API — GloFAS** | No key required; only returns data on a modeled river reach |
 | **Soil moisture (real-time saturation)** | **Open-Meteo Forecast API (ERA5-based)** | No key required |
-| Tide level | WorldTides | **Optional** — only runs if `TIDE_API_KEY` is set |
+| Tide level + next high/low tide | WorldTides | **Optional** — only runs if `TIDE_API_KEY` is set |
 | Live traffic layer | Mapbox Traffic tiles | **Optional** — only shown if `MAPBOX_ACCESS_TOKEN` is set |
 | Global flood alerts | GDACS (UN OCHA feed) | No key required; independent of location search |
 | Historical flood frequency | This app's own community reports table | A proxy, not a certified archive (see limitations) |
@@ -110,6 +110,17 @@ Two factors now come from real hydrology rather than weather alone:
 **A note on what "hydrological modeling" does and doesn't mean here**: this app *consumes* a real hydrological model (GloFAS) rather than running its own rainfall-runoff simulation, watershed delineation, or flow routing. Building an independent hydrological model from scratch would require raster DEM processing, catchment delineation, and calibration against historical discharge — infrastructure well beyond a REST-call-based Flask app. Plugging into GloFAS is the honest way to get real hydrological science into the score without overstating what's computed in-house.
 
 **A testing caveat, in the interest of transparency**: the sandbox this app was built in has restricted network egress, so the GloFAS and soil moisture integrations could not be verified against live responses during development — they were built carefully against Open-Meteo's documented, stable API schema, with defensive error handling so a schema mismatch fails safely (shows "data unavailable," never crashes or shows wrong data). Worth a quick check against real output once deployed.
+
+## Tide integration (WorldTides)
+
+A full WorldTides integration has four parts, and an earlier version of this app only completed the first two:
+
+1. `TIDE_API_KEY` in environment variables.
+2. `requests.get(...)` to the WorldTides API.
+3. **Processing the JSON response** — extracting current height *and* the next high/low tide events (`extremes`), not just a single number.
+4. **Displaying those values** — both folded into the score/factors, and as a dedicated "🌊 Tide Forecast" box on the result page showing the next high and low tide with times, whenever that data is available.
+
+All four are implemented now. When `TIDE_API_KEY` isn't set, the tide card explicitly says "Tide monitoring not configured" rather than silently disappearing from the page — every other factor in this app behaves this way, and tide should too.
 
 ## Known limitations (please read before relying on this for safety decisions)
 
