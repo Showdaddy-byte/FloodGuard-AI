@@ -9,13 +9,14 @@ from datetime import datetime, timedelta
 
 import requests
 from flask import Flask, g, jsonify, render_template, request
-
+from dotenv import load_dotenv
 try:
     import ee
 except ImportError:
     ee = None
 
-
+load_dotenv()
+print("OPENWEATHER_API_KEY =", os.getenv("OPENWEATHER_API_KEY"))
 app = Flask(__name__)
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "community.db")
@@ -1366,8 +1367,8 @@ def fetch_tide_status(lat, lon):
         response = requests.get(
             WORLDTIDES_URL,
             params={
-                "heights": "",
-                "extremes": "",
+                "heights": True,
+                "extremes": True,
                 "lat": lat,
                 "lon": lon,
                 "key": TIDE_API_KEY,
