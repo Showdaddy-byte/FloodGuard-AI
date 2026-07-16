@@ -8,6 +8,6 @@ instance/
 .pytest_cache/
 .DS_Store
 community.db
-# Google Cloud credentials
+# Google Earth Engine credentials
 credentials/
 *.json
