@@ -10,10 +10,17 @@ from datetime import datetime, timedelta
 import requests
 from flask import Flask, g, jsonify, render_template, request
 
+try:
+    import ee
+except ImportError:
+    ee = None
+
 
 app = Flask(__name__)
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "community.db")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_GEE_KEY_PATH = os.path.join(BASE_DIR, "credentials", "floodguard-ai-502609-81e725f17c81.json")
 
 CATEGORY_LABELS = {
     "flooding": "Flooding Observed",
@@ -26,6 +33,11 @@ CATEGORY_LABELS = {
 API_KEY = os.getenv("OPENWEATHER_API_KEY")
 TIDE_API_KEY = os.getenv("TIDE_API_KEY")  # optional — WorldTides free tier; tidal factor is skipped if unset
 MAPBOX_ACCESS_TOKEN = os.getenv("MAPBOX_ACCESS_TOKEN")  # optional — enables the live traffic map layer
+
+EARTH_ENGINE_ENABLED = os.getenv("EARTH_ENGINE_ENABLED", "1").lower() not in ("0", "false", "no")
+GEE_SERVICE_ACCOUNT = os.getenv("GEE_SERVICE_ACCOUNT")
+GEE_PRIVATE_KEY_PATH = os.getenv("GEE_PRIVATE_KEY_PATH", DEFAULT_GEE_KEY_PATH)
+GEE_PROJECT = os.getenv("GEE_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT")
 
 OPENWEATHER_URL = "https://api.openweathermap.org/data/2.5"
 OPENWEATHER_GEO_URL = "https://api.openweathermap.org/geo/1.0/direct"
@@ -66,6 +78,7 @@ WATCHLIST_REFRESH_MINUTES = 15
 # a full day cuts external call volume by ~95%+, which is what actually
 # fixes Overpass rate-limiting (406s) rather than just retrying harder.
 GEO_CONTEXT_TTL_HOURS = 24
+EARTH_ENGINE_CONTEXT_TTL_HOURS = 6
 
 # Locations actively monitored for the homepage alert banner, independent of
 # whether any visitor has searched them. Edit this list to match the areas
@@ -228,6 +241,15 @@ def init_db():
         conn.execute("ALTER TABLE geo_context_cache ADD COLUMN emergency_contacts_json TEXT")
     except sqlite3.OperationalError:
         pass
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS earth_engine_cache (
+            city_key TEXT PRIMARY KEY,
+            payload_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS refresh_locks (
@@ -1651,6 +1673,7 @@ def estimate_environment(city, weather, community=None, context=None):
     tide = context.get("tide")
     river = context.get("river_discharge")
     moisture = context.get("soil_moisture")
+    earth_engine = context.get("earth_engine")
     historical_reports = context.get("historical_reports", 0)
 
     drainage_score = 8 if rainfall >= 30 else 6 if rainfall >= 10 else 3
@@ -1746,7 +1769,26 @@ def estimate_environment(city, weather, community=None, context=None):
             "status": moisture["status"],
         }
 
-    layers["summary"] = f"{city} is being evaluated with weather, terrain, water proximity, soil, hydrological, and urbanization signals, plus live visitor contributions.{community_note}"
+    if earth_engine:
+        if earth_engine.get("available"):
+            layers["earth_engine"] = {
+                "label": "Earth Engine satellite and raster analysis",
+                "score": max(0, min(10, round(earth_engine.get("score_bonus", 0) / 3.5))),
+                "status": (
+                    "Sentinel-1/Sentinel-2, Copernicus DEM, JRC Global Surface Water, CHIRPS rainfall, "
+                    "Dynamic World land cover, and terrain/watershed susceptibility are active."
+                ),
+                "details": earth_engine,
+            }
+        else:
+            layers["earth_engine"] = {
+                "label": "Earth Engine unavailable",
+                "score": 0,
+                "status": earth_engine.get("error") or "Google Earth Engine is not configured for this deployment.",
+                "details": earth_engine,
+            }
+
+    layers["summary"] = f"{city} is being evaluated with weather, terrain, water proximity, soil, hydrological, satellite/raster, and urbanization signals, plus live visitor contributions.{community_note}"
 
     return layers
 
@@ -1806,6 +1848,7 @@ def _context_bonus(context):
     tide = context.get("tide")
     river = context.get("river_discharge")
     moisture = context.get("soil_moisture")
+    earth_engine = context.get("earth_engine")
     historical_reports = context.get("historical_reports", 0)
 
     score = 0
@@ -1834,6 +1877,10 @@ def _context_bonus(context):
         if bonus:
             score += bonus
             factors.append(f"Soil moisture: {moisture['label']}")
+
+    if earth_engine and earth_engine.get("available"):
+        score += earth_engine.get("score_bonus", 0)
+        factors.extend(earth_engine.get("factors") or [])
 
     if historical_reports >= 6:
         score += 10
@@ -2014,6 +2061,339 @@ def get_weather(lat, lon, display_name=None):
         "latitude": data["coord"]["lat"],
         "longitude": data["coord"]["lon"],
     }
+
+
+_ee_init_lock = threading.Lock()
+_ee_initialized = False
+_ee_init_error = None
+
+
+def earth_engine_configured():
+    return bool(EARTH_ENGINE_ENABLED and ee is not None)
+
+
+def initialize_earth_engine():
+    """Initialize Google Earth Engine once per process.
+
+    Supports either a service-account JSON file (recommended for Flask
+    hosting) or the default Earth Engine credentials available in the runtime.
+    """
+    global _ee_initialized, _ee_init_error
+
+    if not EARTH_ENGINE_ENABLED:
+        _ee_init_error = "Earth Engine disabled by EARTH_ENGINE_ENABLED."
+        return False
+    if ee is None:
+        _ee_init_error = "earthengine-api is not installed."
+        return False
+    if _ee_initialized:
+        return True
+
+    with _ee_init_lock:
+        if _ee_initialized:
+            return True
+        try:
+            init_kwargs = {}
+            if GEE_PROJECT:
+                init_kwargs["project"] = GEE_PROJECT
+
+            if GEE_PRIVATE_KEY_PATH and os.path.exists(GEE_PRIVATE_KEY_PATH):
+                service_account = GEE_SERVICE_ACCOUNT
+                if not service_account:
+                    with open(GEE_PRIVATE_KEY_PATH, encoding="utf-8") as key_file:
+                        service_account = json.load(key_file).get("client_email")
+                credentials = ee.ServiceAccountCredentials(service_account, GEE_PRIVATE_KEY_PATH)
+                ee.Initialize(credentials, **init_kwargs)
+            else:
+                ee.Initialize(**init_kwargs)
+
+            _ee_initialized = True
+            _ee_init_error = None
+            return True
+        except Exception as error:  # noqa: BLE001 - Earth Engine must fail closed, not break weather lookups
+            _ee_init_error = str(error)
+            print(f"Earth Engine initialization failed: {error}")
+            return False
+
+
+def _ee_reduce_mean(image, region, scale):
+    return image.reduceRegion(
+        reducer=ee.Reducer.mean(),
+        geometry=region,
+        scale=scale,
+        maxPixels=1e8,
+        bestEffort=True,
+    ).getInfo() or {}
+
+
+def _ee_reduce_sum(image, region, scale):
+    return image.reduceRegion(
+        reducer=ee.Reducer.sum(),
+        geometry=region,
+        scale=scale,
+        maxPixels=1e8,
+        bestEffort=True,
+    ).getInfo() or {}
+
+
+def _round_or_none(value, digits=1):
+    if value is None:
+        return None
+    try:
+        return round(float(value), digits)
+    except (TypeError, ValueError):
+        return None
+
+
+def _land_cover_label(label_id):
+    labels = {
+        0: "water",
+        1: "trees",
+        2: "grass",
+        3: "flooded vegetation",
+        4: "crops",
+        5: "shrub and scrub",
+        6: "built area",
+        7: "bare ground",
+        8: "snow and ice",
+    }
+    if label_id is None:
+        return None
+    return labels.get(int(label_id), "unknown")
+
+
+def _score_earth_engine_context(data):
+    if not data or not data.get("available"):
+        return {"score_bonus": 0, "factors": []}
+
+    score = 0
+    factors = []
+    flood_area = data.get("sentinel1_flood_area_ha")
+    if flood_area is not None:
+        if flood_area >= 50:
+            score += 18
+            factors.append(f"Sentinel-1 detected a large possible flood extent (~{flood_area:.1f} ha)")
+        elif flood_area >= 10:
+            score += 12
+            factors.append(f"Sentinel-1 detected possible flood extent (~{flood_area:.1f} ha)")
+        elif flood_area >= 1:
+            score += 6
+            factors.append(f"Sentinel-1 detected small possible inundation patches (~{flood_area:.1f} ha)")
+
+    rain_7d = data.get("chirps_7d_mm")
+    if rain_7d is not None:
+        if rain_7d >= 120:
+            score += 16
+            factors.append(f"CHIRPS shows extreme 7-day rainfall (~{rain_7d:.0f} mm)")
+        elif rain_7d >= 70:
+            score += 10
+            factors.append(f"CHIRPS shows heavy 7-day rainfall (~{rain_7d:.0f} mm)")
+        elif rain_7d >= 35:
+            score += 5
+            factors.append(f"CHIRPS shows notable recent rainfall (~{rain_7d:.0f} mm)")
+
+    ndwi = data.get("sentinel2_ndwi")
+    if ndwi is not None and ndwi >= 0.25:
+        score += 6
+        factors.append(f"Sentinel-2 NDWI indicates strong surface-water signal ({ndwi:.2f})")
+
+    water_occurrence = data.get("jrc_water_occurrence_pct")
+    if water_occurrence is not None and water_occurrence >= 20:
+        score += 5
+        factors.append(f"JRC Global Surface Water shows recurring water presence (~{water_occurrence:.0f}%)")
+
+    watershed_score = data.get("watershed_susceptibility_score")
+    if watershed_score is not None:
+        if watershed_score >= 8:
+            score += 8
+            factors.append("Terrain/watershed proxy: low, flat terrain likely to retain runoff")
+        elif watershed_score >= 5:
+            score += 4
+            factors.append("Terrain/watershed proxy: moderate runoff accumulation susceptibility")
+
+    land_cover = data.get("dynamic_world_label")
+    if land_cover in ("built area", "flooded vegetation", "water"):
+        score += 4
+        factors.append(f"Dynamic World land cover is {land_cover}, which can increase flood exposure")
+
+    return {"score_bonus": min(score, 35), "factors": factors}
+
+
+def _compute_earth_engine_context(lat, lon):
+    if not initialize_earth_engine():
+        return {"available": False, "error": _ee_init_error}
+
+    point = ee.Geometry.Point([lon, lat])
+    region = point.buffer(3000)
+    now = datetime.utcnow()
+    today = now.strftime("%Y-%m-%d")
+    after_start = (now - timedelta(days=14)).strftime("%Y-%m-%d")
+    before_start = (now - timedelta(days=45)).strftime("%Y-%m-%d")
+    before_end = (now - timedelta(days=16)).strftime("%Y-%m-%d")
+    s2_start = (now - timedelta(days=45)).strftime("%Y-%m-%d")
+    dw_start = (now - timedelta(days=90)).strftime("%Y-%m-%d")
+    chirps_7d_start = (now - timedelta(days=7)).strftime("%Y-%m-%d")
+    chirps_30d_start = (now - timedelta(days=30)).strftime("%Y-%m-%d")
+
+    result = {
+        "available": True,
+        "source": "Google Earth Engine",
+        "analysis_radius_km": 3,
+        "updated_at": now.isoformat(),
+    }
+
+    try:
+        dem = ee.Image("COPERNICUS/DEM/GLO30").select("DEM")
+        slope_img = ee.Terrain.slope(dem).rename("slope")
+        terrain_stats = _ee_reduce_mean(dem.rename("elevation").addBands(slope_img), region, 30)
+        result["gee_elevation_m"] = _round_or_none(terrain_stats.get("elevation"), 1)
+        result["gee_slope_deg"] = _round_or_none(terrain_stats.get("slope"), 2)
+    except Exception as error:  # noqa: BLE001
+        result["dem_error"] = str(error)
+        dem = None
+        slope_img = None
+
+    try:
+        jrc = ee.Image("JRC/GSW1_4/GlobalSurfaceWater")
+        jrc_stats = _ee_reduce_mean(
+            jrc.select("occurrence").rename("water_occurrence")
+            .addBands(jrc.select("seasonality").rename("water_seasonality")),
+            region,
+            30,
+        )
+        result["jrc_water_occurrence_pct"] = _round_or_none(jrc_stats.get("water_occurrence"), 1)
+        result["jrc_water_seasonality_months"] = _round_or_none(jrc_stats.get("water_seasonality"), 1)
+    except Exception as error:  # noqa: BLE001
+        result["jrc_error"] = str(error)
+
+    try:
+        chirps = ee.ImageCollection("UCSB-CHG/CHIRPS/DAILY").select("precipitation")
+        rain_7d = chirps.filterDate(chirps_7d_start, today).sum().rename("rain_7d")
+        rain_30d = chirps.filterDate(chirps_30d_start, today).sum().rename("rain_30d")
+        rain_stats = _ee_reduce_mean(rain_7d.addBands(rain_30d), region, 5500)
+        result["chirps_7d_mm"] = _round_or_none(rain_stats.get("rain_7d"), 1)
+        result["chirps_30d_mm"] = _round_or_none(rain_stats.get("rain_30d"), 1)
+    except Exception as error:  # noqa: BLE001
+        result["chirps_error"] = str(error)
+
+    try:
+        s2 = (
+            ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+            .filterBounds(point)
+            .filterDate(s2_start, today)
+            .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", 60))
+        )
+        if s2.size().getInfo() > 0:
+            s2_img = s2.median()
+            ndwi = s2_img.normalizedDifference(["B3", "B8"]).rename("ndwi")
+            ndvi = s2_img.normalizedDifference(["B8", "B4"]).rename("ndvi")
+            s2_stats = _ee_reduce_mean(ndwi.addBands(ndvi), region, 20)
+            result["sentinel2_ndwi"] = _round_or_none(s2_stats.get("ndwi"), 3)
+            result["sentinel2_ndvi"] = _round_or_none(s2_stats.get("ndvi"), 3)
+            result["sentinel2_image_count"] = s2.size().getInfo()
+        else:
+            result["sentinel2_image_count"] = 0
+    except Exception as error:  # noqa: BLE001
+        result["sentinel2_error"] = str(error)
+
+    try:
+        s1 = (
+            ee.ImageCollection("COPERNICUS/S1_GRD")
+            .filterBounds(point)
+            .filter(ee.Filter.eq("instrumentMode", "IW"))
+            .filter(ee.Filter.listContains("transmitterReceiverPolarisation", "VV"))
+            .select("VV")
+        )
+        before = s1.filterDate(before_start, before_end)
+        after = s1.filterDate(after_start, today)
+        before_count = before.size().getInfo()
+        after_count = after.size().getInfo()
+        result["sentinel1_before_count"] = before_count
+        result["sentinel1_after_count"] = after_count
+
+        if before_count > 0 and after_count > 0:
+            before_img = before.median().rename("before_vv")
+            after_img = after.median().rename("after_vv")
+            vv_change = after_img.subtract(before_img).rename("vv_change")
+            permanent_water = ee.Image("JRC/GSW1_4/GlobalSurfaceWater").select("occurrence").gte(80)
+            flood_mask = after_img.lt(-16).And(vv_change.lt(-3)).And(permanent_water.Not())
+            if slope_img is not None:
+                flood_mask = flood_mask.And(slope_img.lt(5))
+            flood_area = flood_mask.rename("flood").multiply(ee.Image.pixelArea()).rename("flood_area_m2")
+            area_stats = _ee_reduce_sum(flood_area, region, 30)
+            vv_stats = _ee_reduce_mean(before_img.addBands(after_img).addBands(vv_change), region, 30)
+            result["sentinel1_flood_area_ha"] = _round_or_none((area_stats.get("flood_area_m2") or 0) / 10000, 2)
+            result["sentinel1_before_vv_db"] = _round_or_none(vv_stats.get("before_vv"), 2)
+            result["sentinel1_after_vv_db"] = _round_or_none(vv_stats.get("after_vv"), 2)
+            result["sentinel1_vv_change_db"] = _round_or_none(vv_stats.get("vv_change"), 2)
+    except Exception as error:  # noqa: BLE001
+        result["sentinel1_error"] = str(error)
+
+    try:
+        dw = (
+            ee.ImageCollection("GOOGLE/DYNAMICWORLD/V1")
+            .filterBounds(point)
+            .filterDate(dw_start, today)
+        )
+        dw_count = dw.size().getInfo()
+        result["dynamic_world_image_count"] = dw_count
+        if dw_count > 0:
+            mode_label = dw.select("label").reduce(ee.Reducer.mode()).rename("landcover_mode")
+            probabilities = dw.select(["water", "flooded_vegetation", "built"]).mean()
+            dw_stats = _ee_reduce_mean(mode_label.addBands(probabilities), region, 10)
+            result["dynamic_world_label"] = _land_cover_label(dw_stats.get("landcover_mode"))
+            result["dynamic_world_water_prob"] = _round_or_none(dw_stats.get("water"), 3)
+            result["dynamic_world_flooded_vegetation_prob"] = _round_or_none(dw_stats.get("flooded_vegetation"), 3)
+            result["dynamic_world_built_prob"] = _round_or_none(dw_stats.get("built"), 3)
+    except Exception as error:  # noqa: BLE001
+        result["dynamic_world_error"] = str(error)
+
+    elevation = result.get("gee_elevation_m")
+    slope_deg = result.get("gee_slope_deg")
+    water_occurrence = result.get("jrc_water_occurrence_pct") or 0
+    watershed_score = 0
+    if elevation is not None:
+        watershed_score += 4 if elevation <= 10 else 2 if elevation <= 25 else 0
+    if slope_deg is not None:
+        watershed_score += 4 if slope_deg <= 1 else 2 if slope_deg <= 3 else 0
+    if water_occurrence >= 20:
+        watershed_score += 2
+    result["watershed_susceptibility_score"] = min(10, watershed_score)
+    result["score_bonus"] = _score_earth_engine_context(result)["score_bonus"]
+    result["factors"] = _score_earth_engine_context(result)["factors"]
+    return result
+
+
+def get_earth_engine_context(city_key, lat, lon):
+    if not EARTH_ENGINE_ENABLED:
+        return {"available": False, "error": "Earth Engine disabled."}
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT * FROM earth_engine_cache WHERE city_key = ?", (city_key,)).fetchone()
+    if row:
+        age_hours = (datetime.utcnow() - datetime.fromisoformat(row["updated_at"])).total_seconds() / 3600
+        if age_hours < EARTH_ENGINE_CONTEXT_TTL_HOURS:
+            conn.close()
+            try:
+                return json.loads(row["payload_json"])
+            except (TypeError, ValueError):
+                pass
+
+    payload = _compute_earth_engine_context(lat, lon)
+    conn.execute(
+        """
+        INSERT INTO earth_engine_cache (city_key, payload_json, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(city_key) DO UPDATE SET
+            payload_json=excluded.payload_json,
+            updated_at=excluded.updated_at
+        """,
+        (city_key, json.dumps(payload), datetime.utcnow().isoformat()),
+    )
+    conn.commit()
+    conn.close()
+    return payload
 
 
 def get_geo_context(city_key, lat, lon):
@@ -2315,7 +2695,17 @@ def build_prediction(query):
     # for a day (GEO_CONTEXT_TTL_HOURS) since they don't meaningfully change
     # hour to hour — this is what keeps Overpass/SoilGrids call volume low
     # enough to avoid rate-limiting on repeated watchlist sweeps.
-    geo = get_geo_context(normalize_city(weather["city"]), lat, lon)
+    city_key = normalize_city(weather["city"])
+    geo = get_geo_context(city_key, lat, lon)
+    earth_engine = get_earth_engine_context(city_key, lat, lon)
+
+    if earth_engine.get("available"):
+        if geo["elevation"] is None and earth_engine.get("gee_elevation_m") is not None:
+            geo["elevation"] = earth_engine["gee_elevation_m"]
+        if geo["slope_percent"] is None and earth_engine.get("gee_slope_deg") is not None:
+            # For small gradients, degrees and percent are close enough for this coarse risk bucket.
+            geo["slope_percent"] = round(math.tan(math.radians(earth_engine["gee_slope_deg"])) * 100, 1)
+
     elevation = geo["elevation"]
     slope_percent = geo["slope_percent"]
     terrain = classify_terrain(elevation)
@@ -2358,6 +2748,7 @@ def build_prediction(query):
         "tide": tide,
         "river_discharge": river,
         "soil_moisture": moisture,
+        "earth_engine": earth_engine,
         "historical_reports": historical_reports,
         "coastal": coastal,
     }
@@ -2415,6 +2806,7 @@ def build_prediction(query):
         "timeline": timeline,
         "emergency_contacts": emergency_contacts,
         "historical_reports": historical_reports,
+        "earth_engine": earth_engine,
     }, forecast
 
 
@@ -2607,6 +2999,11 @@ def health():
             "openweather_configured": bool(API_KEY),
             "tide_configured": bool(TIDE_API_KEY),
             "mapbox_configured": bool(MAPBOX_ACCESS_TOKEN),
+            "earth_engine_enabled": bool(EARTH_ENGINE_ENABLED),
+            "earth_engine_package_installed": ee is not None,
+            "earth_engine_key_present": bool(GEE_PRIVATE_KEY_PATH and os.path.exists(GEE_PRIVATE_KEY_PATH)),
+            "earth_engine_initialized": bool(_ee_initialized),
+            "earth_engine_error": _ee_init_error,
         },
     }
 

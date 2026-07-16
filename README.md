@@ -95,6 +95,12 @@ The location map (shown after a search) now includes:
 | Tide level + next high/low tide | WorldTides | **Optional** — only runs if `TIDE_API_KEY` is set |
 | Live traffic layer | Mapbox Traffic tiles | **Optional** — only shown if `MAPBOX_ACCESS_TOKEN` is set |
 | Global flood alerts | GDACS (UN OCHA feed) | No key required; independent of location search |
+| **Satellite flood extent** | **Google Earth Engine: Sentinel-1 GRD** | Optional Earth Engine integration; compares recent radar backscatter with a prior baseline |
+| **Surface-water index** | **Google Earth Engine: Sentinel-2 SR Harmonized** | Optional Earth Engine integration; computes NDWI/NDVI where cloud-free imagery is available |
+| **Raster elevation/slope** | **Google Earth Engine: Copernicus DEM GLO-30** | Optional fallback/augmentation for terrain and slope |
+| **Historical surface water** | **Google Earth Engine: JRC Global Surface Water** | Optional recurring-water and seasonality signal |
+| **Satellite rainfall** | **Google Earth Engine: CHIRPS Daily** | Optional 7-day and 30-day gridded rainfall totals |
+| **Land cover** | **Google Earth Engine: Dynamic World V1** | Optional land-cover signal for built area, water, and flooded vegetation |
 | Historical flood frequency | This app's own community reports table | A proxy, not a certified archive (see limitations) |
 | Live ground truth | This app's own community reports table | Recent "flooding observed" reports can override the model's verdict |
 
@@ -128,7 +134,7 @@ All four are implemented now. When `TIDE_API_KEY` isn't set, the tide card expli
 - **Weather forecasting has real limits.** This app uses the same free public forecast data available to anyone — it cannot guarantee catching a genuinely unprecedented, highly localized convective storm before it happens. What it can do, and now does: read the *same* forecast number very differently depending on terrain, coastline proximity, and historical pattern, so a modest-looking forecast rainfall figure for a vulnerable coastal spot triggers a real warning instead of being read the same as it would be for solid inland terrain.
 - **GDACS covers significant/large-scale flood events, not hyperlocal ones.** It's a real, live, worldwide feed — but it's built to track disaster-scale flooding, so a flash flood in one neighborhood that hasn't been classified as a GDACS "event" yet won't appear there. It's a complement to FloodGuard AI's own per-location model, not a replacement for it — this is exactly why both layers run independently on the homepage.
 - **Historical flood frequency (for a specific searched location) is a proxy, not an archive.** True historical datasets (Dartmouth Flood Observatory, EM-DAT, GDACS's own historical archive) are static files that need to be downloaded and hosted, not queried live per-coordinate — that's real infrastructure work beyond what a REST-call-based app can do out of the box. Until that's built, the per-location "historical" layer reflects only what visitors have reported through this app, which starts at zero for every new location and grows over time.
-- **Not yet included** (genuinely needs heavier infrastructure than a live REST call can provide): direct country-level river gauge telemetry (GloFAS discharge above is a modeled estimate, not a physical gauge reading), satellite-based flood detection, population/building-density rasters (WorldPop/GHSL), and true digital-twin/ML prediction trained on historical outcomes. These remain a Phase 3 roadmap, not a Phase 2 claim.
+- **Partly included via Earth Engine when configured**: satellite-based flood detection, gridded rainfall, land cover, historical surface water, and raster terrain. Direct country-level river gauge telemetry, population/building-density rasters (WorldPop/GHSL), and true digital-twin/ML prediction trained on historical outcomes remain future work.
 - **Drainage quality** has no free automated global data source, so it's estimated from rainfall intensity and nudged by community reports rather than measured directly.
 - **This is a decision-support tool, not an emergency alert system.** Always follow official emergency services and local authority guidance over any single app.
 
@@ -160,6 +166,21 @@ Optionally, enable tidal scoring for coastal locations:
 ```bash
 set TIDE_API_KEY=your_worldtides_key
 ```
+
+Optionally, enable Google Earth Engine satellite/raster scoring. The app
+defaults to `credentials/floodguard-ai-502609-81e725f17c81.json` when that
+file exists, or you can point to another service-account JSON key:
+
+```bash
+set EARTH_ENGINE_ENABLED=1
+set GEE_PRIVATE_KEY_PATH=credentials/floodguard-ai-502609-81e725f17c81.json
+set GEE_PROJECT=your_google_cloud_project_id
+```
+
+The service account must be registered for Earth Engine and have access to
+the Google Cloud project used for Earth Engine requests. If Earth Engine is
+missing or authentication fails, FloodGuard AI continues using OpenWeather,
+Open-Meteo, Overpass, SoilGrids, GDACS, and community reports.
 
 Run the app:
 
@@ -204,4 +225,3 @@ POST https://your-app.onrender.com/api/refresh-watchlist        # every 10-15 mi
 **Phase 2 (done, this release):** Elevation, slope, water proximity, soil type, urbanization, optional tide, community-reported historical frequency, live ground-truth override.
 
 **Phase 3 (not yet built — needs real infrastructure, not just an API call):** Live river gauge integration, satellite-based flood detection, soil moisture, population/building-density rasters, hosted historical flood archives, and machine-learning prediction trained on historical outcomes.
-

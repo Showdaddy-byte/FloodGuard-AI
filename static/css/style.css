@@ -989,6 +989,77 @@ a {
     margin-top: 4px;
 }
 
+.earth-engine-panel {
+    background: rgba(6, 78, 59, 0.18);
+    border: 1px solid rgba(52, 211, 153, 0.28);
+    border-radius: 8px;
+    margin-top: 22px;
+    padding: 18px;
+}
+
+.earth-engine-header {
+    align-items: center;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    margin-bottom: 14px;
+}
+
+.earth-engine-header h3 {
+    color: #86efac;
+    font-size: 20px;
+}
+
+.earth-engine-header span {
+    background: rgba(34, 197, 94, 0.2);
+    border: 1px solid rgba(74, 222, 128, 0.35);
+    border-radius: 999px;
+    color: #bbf7d0;
+    font-size: 12px;
+    font-weight: 800;
+    padding: 4px 10px;
+}
+
+.earth-engine-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.earth-engine-grid div {
+    background: rgba(15, 23, 42, 0.52);
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 8px;
+    padding: 12px;
+}
+
+.earth-engine-grid span {
+    color: #a7f3d0;
+    display: block;
+    font-size: 12px;
+}
+
+.earth-engine-grid strong {
+    color: #f8fafc;
+    display: block;
+    font-size: 18px;
+    margin-top: 4px;
+}
+
+.earth-engine-factors {
+    color: #d1fae5;
+    display: grid;
+    font-size: 13px;
+    gap: 6px;
+    list-style: disc;
+    margin: 14px 0 0 18px;
+}
+
+.earth-engine-panel > p {
+    color: #d1fae5;
+    font-size: 13px;
+}
+
 .advice-box {
     background: rgba(14, 165, 233, 0.14);
     border: 1px solid rgba(125, 211, 252, 0.35);

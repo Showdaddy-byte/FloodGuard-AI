@@ -240,6 +240,34 @@
                     <div><span>Nearest water</span><strong>{% if prediction.nearest_water_m is not none %}{{ prediction.nearest_water_m }} m{% else %}Unavailable{% endif %}</strong></div>
                 </div>
 
+                {% if prediction.earth_engine %}
+                <div class="earth-engine-panel">
+                    <div class="earth-engine-header">
+                        <h3>Earth Engine Intelligence</h3>
+                        <span>{% if prediction.earth_engine.available %}Active{% else %}Unavailable{% endif %}</span>
+                    </div>
+                    {% if prediction.earth_engine.available %}
+                    <div class="earth-engine-grid">
+                        <div><span>Sentinel-1 flood extent</span><strong>{% if prediction.earth_engine.sentinel1_flood_area_ha is not none %}{{ prediction.earth_engine.sentinel1_flood_area_ha }} ha{% else %}No recent radar pair{% endif %}</strong></div>
+                        <div><span>Sentinel-2 water index</span><strong>{% if prediction.earth_engine.sentinel2_ndwi is not none %}{{ prediction.earth_engine.sentinel2_ndwi }} NDWI{% else %}Cloudy/no image{% endif %}</strong></div>
+                        <div><span>CHIRPS rainfall</span><strong>{% if prediction.earth_engine.chirps_7d_mm is not none %}{{ prediction.earth_engine.chirps_7d_mm }} mm / 7d{% else %}Unavailable{% endif %}</strong></div>
+                        <div><span>JRC water occurrence</span><strong>{% if prediction.earth_engine.jrc_water_occurrence_pct is not none %}{{ prediction.earth_engine.jrc_water_occurrence_pct }}%{% else %}Unavailable{% endif %}</strong></div>
+                        <div><span>Dynamic World cover</span><strong>{{ prediction.earth_engine.dynamic_world_label or "Unavailable" }}</strong></div>
+                        <div><span>Watershed susceptibility</span><strong>{% if prediction.earth_engine.watershed_susceptibility_score is not none %}{{ prediction.earth_engine.watershed_susceptibility_score }}/10{% else %}Unavailable{% endif %}</strong></div>
+                    </div>
+                    {% if prediction.earth_engine.factors %}
+                    <ul class="earth-engine-factors">
+                        {% for factor in prediction.earth_engine.factors %}
+                        <li>{{ factor }}</li>
+                        {% endfor %}
+                    </ul>
+                    {% endif %}
+                    {% else %}
+                    <p>{{ prediction.earth_engine.error or "Google Earth Engine is not configured for this deployment." }}</p>
+                    {% endif %}
+                </div>
+                {% endif %}
+
                 {% if prediction.priority_action %}
                 <div class="safety-action-box risk-border-{{ prediction.risk_color }}">
                     <strong>⚠ Safety action:</strong> {{ prediction.priority_action }}
