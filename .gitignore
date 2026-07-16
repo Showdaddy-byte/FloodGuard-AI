@@ -8,3 +8,6 @@ instance/
 .pytest_cache/
 .DS_Store
 community.db
+# Google Cloud credentials
+credentials/
+*.json
