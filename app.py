@@ -16,7 +16,6 @@ except ImportError:
     ee = None
 
 load_dotenv()
-print("OPENWEATHER_API_KEY =", os.getenv("OPENWEATHER_API_KEY"))
 app = Flask(__name__)
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "community.db")
@@ -242,11 +241,28 @@ def init_db():
         conn.execute("ALTER TABLE geo_context_cache ADD COLUMN emergency_contacts_json TEXT")
     except sqlite3.OperationalError:
         pass
+    try:
+        conn.execute("ALTER TABLE geo_context_cache ADD COLUMN terrain_source TEXT")
+    except sqlite3.OperationalError:
+        pass
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS earth_engine_cache (
             city_key TEXT PRIMARY KEY,
             payload_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ee_terrain_core_cache (
+            city_key TEXT PRIMARY KEY,
+            available INTEGER NOT NULL,
+            elevation_m REAL,
+            slope_percent REAL,
+            nearest_water_m REAL,
+            error_message TEXT,
             updated_at TEXT NOT NULL
         )
         """
@@ -1122,7 +1138,14 @@ def is_coastal_region(nearest_coast_m):
     return nearest_coast_m is not None and nearest_coast_m <= COASTAL_ZONE_KM * 1000
 
 
-def classify_water_proximity(distance_m, feature_label=None):
+def classify_water_proximity(distance_m, feature_label=None, source="openstreetmap"):
+    source_note = (
+        " Distance is Earth Engine's satellite-measured value (JRC Global Surface Water); "
+        "the named feature shown is OpenStreetMap's nearest mapped water feature, which is not "
+        "always the exact same water body the satellite distance refers to."
+        if source == "earth-engine" and feature_label
+        else ""
+    )
     if distance_m is None:
         return {
             "score_bonus": 0,
@@ -1134,19 +1157,19 @@ def classify_water_proximity(distance_m, feature_label=None):
         return {
             "score_bonus": 18,
             "label": f"~{distance_m:.0f} m from open water{named}",
-            "status": "Very close to a river, lake, or coastline — high overflow/surge exposure.",
+            "status": f"Very close to a river, lake, or coastline — high overflow/surge exposure.{source_note}",
         }
     if distance_m <= 2000:
         return {
             "score_bonus": 11,
             "label": f"~{distance_m/1000:.1f} km from open water{named}",
-            "status": "Close enough to a river, lake, or coastline for overflow to matter.",
+            "status": f"Close enough to a river, lake, or coastline for overflow to matter.{source_note}",
         }
     if distance_m <= 5000:
         return {
             "score_bonus": 4,
             "label": f"~{distance_m/1000:.1f} km from open water{named}",
-            "status": "Moderate distance from major water bodies.",
+            "status": f"Moderate distance from major water bodies.{source_note}",
         }
     return {
         "score_bonus": 0,
@@ -1367,8 +1390,8 @@ def fetch_tide_status(lat, lon):
         response = requests.get(
             WORLDTIDES_URL,
             params={
-                "heights": True,
-                "extremes": True,
+                "heights": "",
+                "extremes": "",
                 "lat": lat,
                 "lon": lon,
                 "key": TIDE_API_KEY,
@@ -1675,6 +1698,7 @@ def estimate_environment(city, weather, community=None, context=None):
     river = context.get("river_discharge")
     moisture = context.get("soil_moisture")
     earth_engine = context.get("earth_engine")
+    terrain_source = context.get("terrain_source", "open-meteo")
     historical_reports = context.get("historical_reports", 0)
 
     drainage_score = 8 if rainfall >= 30 else 6 if rainfall >= 10 else 3
@@ -1697,14 +1721,25 @@ def estimate_environment(city, weather, community=None, context=None):
     else:
         community_note = " No community reports yet for this city — be the first to contribute."
 
+    terrain_attribution = (
+        (" (Earth Engine / Copernicus DEM)" if terrain_source == "earth-engine" else " (Open-Meteo)")
+        if "unavailable" not in terrain.get("label", "").lower()
+        else ""
+    )
+    slope_attribution = (
+        (" (Earth Engine / Copernicus DEM)" if terrain_source == "earth-engine" else " (Open-Meteo)")
+        if "unavailable" not in slope.get("label", "").lower()
+        else ""
+    )
+
     layers = {
         "terrain": {
-            "label": terrain["label"],
+            "label": terrain["label"] + terrain_attribution,
             "score": terrain["score"],
             "status": terrain["status"],
         },
         "slope": {
-            "label": slope["label"],
+            "label": slope["label"] + slope_attribution,
             "score": max(0, min(10, 5 + slope.get("score_bonus", 0))),
             "status": slope["status"],
         },
@@ -2137,6 +2172,130 @@ def _ee_reduce_sum(image, region, scale):
     ).getInfo() or {}
 
 
+# Earth Engine is now the primary geospatial source everywhere in this app
+# (single-location search AND per-route-segment sampling), not just an
+# afterthought fallback layered on top of Open-Meteo/OpenStreetMap. This is
+# the lightweight "terrain core" subset — DEM elevation/slope + nearest-water
+# distance via JRC — kept deliberately cheap (3 reduceRegion calls, no
+# ImageCollection filtering) so it's affordable to run for every point on a
+# route, not just a single searched location. The much heavier 8-dataset
+# satellite bundle (Sentinel-1/2, CHIRPS, Dynamic World, watershed) stays a
+# single-location-only enrichment layered on top — see
+# _compute_earth_engine_context below.
+EE_WATER_SEARCH_RADIUS_M = 5000
+
+
+def _compute_ee_terrain_core(lat, lon):
+    """Elevation, slope, and nearest-water distance from Earth Engine,
+    replacing Open-Meteo (elevation/slope) and OpenStreetMap/Overpass
+    (nearest water) as the primary source, with those as the fallback only
+    when Earth Engine itself is unavailable."""
+    if not initialize_earth_engine():
+        return {"available": False, "error": _ee_init_error}
+
+    point = ee.Geometry.Point([lon, lat])
+    region = point.buffer(300)  # small buffer for a stable elevation/slope mean at this point
+
+    result = {"available": True}
+
+    try:
+        dem = ee.Image("COPERNICUS/DEM/GLO30").select("DEM")
+        slope_img = ee.Terrain.slope(dem).rename("slope")
+        terrain_stats = _ee_reduce_mean(dem.rename("elevation").addBands(slope_img), region, 30)
+        result["elevation_m"] = _round_or_none(terrain_stats.get("elevation"), 1)
+        slope_deg = terrain_stats.get("slope")
+        # Degrees -> percent grade, consistent with the rest of this app's slope handling.
+        result["slope_percent"] = (
+            round(math.tan(math.radians(slope_deg)) * 100, 1) if slope_deg is not None else None
+        )
+    except Exception as error:  # noqa: BLE001 — Earth Engine must fail closed, never break a search
+        result["elevation_error"] = str(error)
+        result["elevation_m"] = None
+        result["slope_percent"] = None
+
+    try:
+        # JRC Global Surface Water occurrence >= 50% as a "reliably water"
+        # mask, then a fast distance transform to the nearest such pixel —
+        # this is the Earth Engine equivalent of the Overpass "nearest
+        # water body" lookup, but built on satellite-observed water extent
+        # rather than OpenStreetMap's manually-mapped features.
+        water_mask = ee.Image("JRC/GSW1_4/GlobalSurfaceWater").select("occurrence").gte(50)
+        search_region = point.buffer(EE_WATER_SEARCH_RADIUS_M)
+        distance_img = (
+            water_mask.selfMask()
+            .distance(ee.Kernel.euclidean(EE_WATER_SEARCH_RADIUS_M, "meters"), False)
+            .rename("water_distance")
+        )
+        dist_stats = distance_img.reduceRegion(
+            reducer=ee.Reducer.min(),
+            geometry=search_region,
+            scale=30,
+            maxPixels=1e8,
+            bestEffort=True,
+        ).getInfo() or {}
+        raw_distance = dist_stats.get("water_distance")
+        result["nearest_water_m"] = _round_or_none(raw_distance, 0) if raw_distance is not None else None
+    except Exception as error:  # noqa: BLE001
+        result["water_error"] = str(error)
+        result["nearest_water_m"] = None
+
+    return result
+
+
+def get_ee_terrain_core(city_key, lat, lon):
+    """Cached (GEO_CONTEXT_TTL_HOURS) Earth Engine terrain core. Shares the
+    same cache table and TTL as the old Open-Meteo/Overpass geo context,
+    since terrain doesn't meaningfully change hour to hour either way."""
+    if not earth_engine_configured():
+        return {"available": False, "error": "Earth Engine not configured."}
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT * FROM ee_terrain_core_cache WHERE city_key = ?", (city_key,)
+    ).fetchone()
+
+    if row:
+        age_hours = (datetime.utcnow() - datetime.fromisoformat(row["updated_at"])).total_seconds() / 3600
+        if age_hours < GEO_CONTEXT_TTL_HOURS:
+            conn.close()
+            return {
+                "available": bool(row["available"]),
+                "elevation_m": row["elevation_m"],
+                "slope_percent": row["slope_percent"],
+                "nearest_water_m": row["nearest_water_m"],
+                "error": row["error_message"],
+            }
+
+    payload = _compute_ee_terrain_core(lat, lon)
+    conn.execute(
+        """
+        INSERT INTO ee_terrain_core_cache
+            (city_key, available, elevation_m, slope_percent, nearest_water_m, error_message, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(city_key) DO UPDATE SET
+            available=excluded.available,
+            elevation_m=excluded.elevation_m,
+            slope_percent=excluded.slope_percent,
+            nearest_water_m=excluded.nearest_water_m,
+            error_message=excluded.error_message,
+            updated_at=excluded.updated_at
+        """,
+        (
+            city_key,
+            1 if payload.get("available") else 0,
+            payload.get("elevation_m"),
+            payload.get("slope_percent"),
+            payload.get("nearest_water_m"),
+            payload.get("error") or payload.get("elevation_error") or payload.get("water_error"),
+            datetime.utcnow().isoformat(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return payload
+
+
 def _round_or_none(value, digits=1):
     if value is None:
         return None
@@ -2284,14 +2443,15 @@ def _compute_earth_engine_context(lat, lon):
             .filterDate(s2_start, today)
             .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", 60))
         )
-        if s2.size().getInfo() > 0:
+        s2_count = s2.size().getInfo()
+        if s2_count > 0:
             s2_img = s2.median()
             ndwi = s2_img.normalizedDifference(["B3", "B8"]).rename("ndwi")
             ndvi = s2_img.normalizedDifference(["B8", "B4"]).rename("ndvi")
             s2_stats = _ee_reduce_mean(ndwi.addBands(ndvi), region, 20)
             result["sentinel2_ndwi"] = _round_or_none(s2_stats.get("ndwi"), 3)
             result["sentinel2_ndvi"] = _round_or_none(s2_stats.get("ndvi"), 3)
-            result["sentinel2_image_count"] = s2.size().getInfo()
+            result["sentinel2_image_count"] = s2_count
         else:
             result["sentinel2_image_count"] = 0
     except Exception as error:  # noqa: BLE001
@@ -2360,8 +2520,9 @@ def _compute_earth_engine_context(lat, lon):
     if water_occurrence >= 20:
         watershed_score += 2
     result["watershed_susceptibility_score"] = min(10, watershed_score)
-    result["score_bonus"] = _score_earth_engine_context(result)["score_bonus"]
-    result["factors"] = _score_earth_engine_context(result)["factors"]
+    ee_score = _score_earth_engine_context(result)
+    result["score_bonus"] = ee_score["score_bonus"]
+    result["factors"] = ee_score["factors"]
     return result
 
 
@@ -2399,12 +2560,25 @@ def get_earth_engine_context(city_key, lat, lon):
 
 def get_geo_context(city_key, lat, lon):
     """Elevation, slope, water proximity, soil type, and urbanization for a
-    location, cached for GEO_CONTEXT_TTL_HOURS. This is the fix for
-    Overpass/SoilGrids rate-limiting: a 29-location watchlist refreshing
-    every 15 minutes was re-fetching static terrain data ~100 times/hour
-    that hadn't changed since the last sweep. Now each location only hits
-    those APIs once per day; weather, tide, and river discharge (which
-    genuinely change) are still fetched fresh every time by the caller."""
+    location, cached for GEO_CONTEXT_TTL_HOURS.
+
+    Earth Engine (Copernicus DEM + JRC Global Surface Water) is now the
+    PRIMARY source for elevation, slope, and nearest-water distance —
+    Open-Meteo's elevation API and the Overpass distance calculation are
+    used only as a fallback when Earth Engine is unavailable (not
+    configured, or a transient failure). Overpass is still the source for
+    things Earth Engine's lightweight terrain core doesn't cover: coastline
+    detection, a *named*, plottable water feature for the map (GEE gives a
+    distance, not a labeled point), and building density; SoilGrids remains
+    the soil source. This keeps Overpass/SoilGrids call volume low (the
+    original fix for their rate-limiting) while using the more authoritative
+    satellite terrain data as the primary signal.
+
+    This function is also the terrain source used per-route-segment by the
+    route safety feature, which is exactly why the Earth Engine side of
+    this stays scoped to the cheap 3-call terrain core, not the full
+    8-dataset satellite bundle — that heavier analysis is single-location
+    only (see get_earth_engine_context)."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     row = conn.execute("SELECT * FROM geo_context_cache WHERE city_key = ?", (city_key,)).fetchone()
@@ -2432,15 +2606,37 @@ def get_geo_context(city_key, lat, lon):
                 "building_count": row["building_count"] or 0,
                 "clay_percent": row["clay_percent"],
                 "emergency_contacts": emergency_contacts,
+                "terrain_source": row["terrain_source"] or "open-meteo",
             }
 
-    # Cache miss or stale — fetch live from Overpass/Open-Meteo/SoilGrids.
-    elevation, slope_percent = fetch_elevation_grid(lat, lon)
+    # Cache miss or stale. Fetch Earth Engine's terrain core (primary) and
+    # Overpass/Open-Meteo/SoilGrids (fallback + the fields GEE doesn't cover)
+    # in parallel-equivalent fashion — sequential here, but each call is
+    # independent and fails gracefully on its own.
+    ee_terrain = get_ee_terrain_core(city_key, lat, lon)
+
     nearest_water_m, nearest_coast_m, building_count, nearest_water_point, nearest_water_label = (
         fetch_water_and_urban_context(lat, lon)
     )
     clay_percent = fetch_soil_clay(lat, lon)
     emergency_contacts = fetch_emergency_contacts(lat, lon)
+
+    if ee_terrain.get("available") and ee_terrain.get("elevation_m") is not None:
+        elevation = ee_terrain["elevation_m"]
+        slope_percent = ee_terrain.get("slope_percent")
+        terrain_source = "earth-engine"
+        # Earth Engine's satellite-derived water distance is generally more
+        # reliable than Overpass's manually-mapped features (which can miss
+        # smaller or unmapped water bodies) — prefer it for the *distance*
+        # used in scoring, but keep Overpass's named/coordinate point for
+        # the map marker and label, since GEE gives a number, not a place.
+        if ee_terrain.get("nearest_water_m") is not None:
+            nearest_water_m = ee_terrain["nearest_water_m"]
+    else:
+        # Earth Engine unavailable or this call failed — fall back to the
+        # original Open-Meteo elevation grid, exactly as before.
+        elevation, slope_percent = fetch_elevation_grid(lat, lon)
+        terrain_source = "open-meteo"
 
     now = datetime.utcnow().isoformat()
     conn.execute(
@@ -2448,8 +2644,8 @@ def get_geo_context(city_key, lat, lon):
         INSERT INTO geo_context_cache
             (city_key, elevation, slope_percent, nearest_water_m, nearest_coast_m,
              nearest_water_lat, nearest_water_lon, nearest_water_label, building_count, clay_percent,
-             emergency_contacts_json, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             emergency_contacts_json, terrain_source, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(city_key) DO UPDATE SET
             elevation=excluded.elevation,
             slope_percent=excluded.slope_percent,
@@ -2461,6 +2657,7 @@ def get_geo_context(city_key, lat, lon):
             building_count=excluded.building_count,
             clay_percent=excluded.clay_percent,
             emergency_contacts_json=excluded.emergency_contacts_json,
+            terrain_source=excluded.terrain_source,
             updated_at=excluded.updated_at
         """,
         (
@@ -2475,6 +2672,7 @@ def get_geo_context(city_key, lat, lon):
             building_count,
             clay_percent,
             json.dumps(emergency_contacts),
+            terrain_source,
             now,
         ),
     )
@@ -2491,6 +2689,7 @@ def get_geo_context(city_key, lat, lon):
         "building_count": building_count,
         "clay_percent": clay_percent,
         "emergency_contacts": emergency_contacts,
+        "terrain_source": terrain_source,
     }
 
 
@@ -2589,7 +2788,7 @@ def assess_route_safety(origin_query, destination_query):
             geo = get_geo_context(city_key, lat, lon)
             terrain = classify_terrain(geo["elevation"])
             slope = classify_slope(geo["slope_percent"])
-            water = classify_water_proximity(geo["nearest_water_m"], geo["nearest_water_label"])
+            water = classify_water_proximity(geo["nearest_water_m"], geo["nearest_water_label"], geo.get("terrain_source", "open-meteo"))
             urban = classify_urbanization(geo["building_count"])
             coastal = is_coastal_region(geo["nearest_coast_m"])
             soil = classify_soil(geo["clay_percent"])
@@ -2700,13 +2899,6 @@ def build_prediction(query):
     geo = get_geo_context(city_key, lat, lon)
     earth_engine = get_earth_engine_context(city_key, lat, lon)
 
-    if earth_engine.get("available"):
-        if geo["elevation"] is None and earth_engine.get("gee_elevation_m") is not None:
-            geo["elevation"] = earth_engine["gee_elevation_m"]
-        if geo["slope_percent"] is None and earth_engine.get("gee_slope_deg") is not None:
-            # For small gradients, degrees and percent are close enough for this coarse risk bucket.
-            geo["slope_percent"] = round(math.tan(math.radians(earth_engine["gee_slope_deg"])) * 100, 1)
-
     elevation = geo["elevation"]
     slope_percent = geo["slope_percent"]
     terrain = classify_terrain(elevation)
@@ -2717,7 +2909,7 @@ def build_prediction(query):
     building_count = geo["building_count"]
     nearest_water_point = geo["nearest_water_point"]
     nearest_water_label = geo["nearest_water_label"]
-    water = classify_water_proximity(nearest_water_m, nearest_water_label)
+    water = classify_water_proximity(nearest_water_m, nearest_water_label, geo.get("terrain_source", "open-meteo"))
     urban = classify_urbanization(building_count)
     coastal = is_coastal_region(nearest_coast_m)
 
@@ -2752,6 +2944,7 @@ def build_prediction(query):
         "earth_engine": earth_engine,
         "historical_reports": historical_reports,
         "coastal": coastal,
+        "terrain_source": geo.get("terrain_source", "open-meteo"),
     }
 
     # The forecast is fetched after context so each day can be scored with
@@ -2803,6 +2996,7 @@ def build_prediction(query):
         "nearest_water_lat": nearest_water_point[0] if nearest_water_point else None,
         "nearest_water_lon": nearest_water_point[1] if nearest_water_point else None,
         "nearest_water_label": nearest_water_label,
+        "terrain_source": geo.get("terrain_source", "open-meteo"),
         "travel_recommendation": travel_recommendation,
         "timeline": timeline,
         "emergency_contacts": emergency_contacts,
@@ -2993,6 +3187,13 @@ def api_stats():
 
 @app.route("/health")
 def health():
+    # Initialization is normally lazy (triggered by the first real search),
+    # so hitting /health before any search would otherwise show a
+    # misleading "not initialized" even when everything is configured
+    # correctly. Attempt it here so this endpoint gives a true answer.
+    if EARTH_ENGINE_ENABLED and ee is not None and not _ee_initialized:
+        initialize_earth_engine()
+
     return {
         "status": "ok",
         "service": "FloodGuard AI",

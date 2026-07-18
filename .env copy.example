@@ -1,0 +1,28 @@
+OPENWEATHER_API_KEY=replace_with_your_openweather_key
+
+# Optional: enables the tidal risk factor for coastal locations.
+# Free tier at https://www.worldtides.info/register — leave blank to skip tidal scoring.
+TIDE_API_KEY=
+
+# Optional: enables the live traffic layer on the location map.
+# Free tier at https://account.mapbox.com (50,000 map loads/month free) — leave blank to skip.
+MAPBOX_ACCESS_TOKEN=
+
+# Optional but recommended: enables Google Earth Engine satellite/raster analysis
+# (Sentinel-1/2, Copernicus DEM, JRC Global Surface Water, CHIRPS, Dynamic World).
+#
+# LOCAL DEV: point GEE_PRIVATE_KEY_PATH at your downloaded service-account JSON key
+# (e.g. credentials/your-key-file.json -- this folder is gitignored, never commit it).
+#
+# RENDER DEPLOYMENT: the credentials/ folder is gitignored, so it will NOT exist on
+# Render just because it's in your local repo. Use Render's "Secret Files" feature
+# (Dashboard -> your service -> Environment -> Secret Files) to upload the JSON key --
+# Render mounts it at /etc/secrets/<filename>. Then set GEE_PRIVATE_KEY_PATH to that
+# mounted path, e.g. /etc/secrets/your-key-file.json
+#
+# Check GET /health after deploying -- it reports earth_engine_key_present and
+# earth_engine_initialized so you can confirm this actually worked, not just guess.
+EARTH_ENGINE_ENABLED=1
+GEE_PRIVATE_KEY_PATH=credentials/your-key-file.json
+GEE_SERVICE_ACCOUNT=
+GEE_PROJECT=

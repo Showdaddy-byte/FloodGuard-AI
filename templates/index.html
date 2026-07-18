@@ -235,10 +235,11 @@
                     <div><span>Pressure</span><strong>{{ prediction.pressure }} hPa</strong></div>
                     <div><span>Wind</span><strong>{{ prediction.wind }} m/s</strong></div>
                     <div><span>Rainfall</span><strong>{{ prediction.rainfall }} mm</strong></div>
-                    <div><span>Elevation</span><strong>{% if prediction.elevation is not none %}{{ prediction.elevation }} m{% else %}Unavailable{% endif %}</strong></div>
-                    <div><span>Slope</span><strong>{% if prediction.slope_percent is not none %}{{ prediction.slope_percent }}%{% else %}Unavailable{% endif %}</strong></div>
-                    <div><span>Nearest water</span><strong>{% if prediction.nearest_water_m is not none %}{{ prediction.nearest_water_m }} m{% else %}Unavailable{% endif %}</strong></div>
+                    <div><span>Elevation{% if prediction.terrain_source == "earth-engine" %} <span class="source-badge">GEE</span>{% endif %}</span><strong>{% if prediction.elevation is not none %}{{ prediction.elevation }} m{% else %}Unavailable{% endif %}</strong></div>
+                    <div><span>Slope{% if prediction.terrain_source == "earth-engine" %} <span class="source-badge">GEE</span>{% endif %}</span><strong>{% if prediction.slope_percent is not none %}{{ prediction.slope_percent }}%{% else %}Unavailable{% endif %}</strong></div>
+                    <div><span>Nearest water{% if prediction.terrain_source == "earth-engine" %} <span class="source-badge">GEE</span>{% endif %}</span><strong>{% if prediction.nearest_water_m is not none %}{{ prediction.nearest_water_m }} m{% else %}Unavailable{% endif %}</strong></div>
                 </div>
+                <p class="terrain-source-note">Terrain data source: {% if prediction.terrain_source == "earth-engine" %}Google Earth Engine (Copernicus DEM + JRC Global Surface Water) — the primary source when configured.{% else %}Open-Meteo + OpenStreetMap fallback (Earth Engine unavailable for this request).{% endif %}</p>
 
                 {% if prediction.earth_engine %}
                 <div class="earth-engine-panel">
