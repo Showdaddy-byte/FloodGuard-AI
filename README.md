@@ -2,42 +2,38 @@
 
 FloodGuard AI is a Flask web app for location-aware flood early warning. Instead of scoring flood risk from rainfall alone, it combines live weather with terrain, water proximity, soil, urbanization, and community-reported ground truth — so two places with the same rainfall (e.g. a low-lying coastal neighborhood vs. an elevated inland one) can land on very different risk levels, the way real forecasting systems (Copernicus EMS, GDACS, Google Flood Hub) work.
 
-## ⚠️ Urgent: rotate these two keys
-
-Two API keys have appeared in places they shouldn't have, unrelated to any code bug — rotate both:
-
-1. **OpenWeatherMap key**: a key was hardcoded directly in this repo's very first commit (`53779c9`). It was later removed in commit `7ba0f91` ("Remove exposed API key"), but this repo is public on GitHub (`github.com/Showdaddy-byte/FloodGuard-AI`), and git history is permanently browsable by commit hash even after a key is removed from the latest version. Treat that key as compromised — regenerate it at openweathermap.org and update `OPENWEATHER_API_KEY` wherever it's configured.
-2. **WorldTides key**: appeared in a debug log line during troubleshooting of the 400 error below. If that log was ever shared or stored anywhere outside a private context, rotate it at worldtides.info as a precaution.
-
-The Google Earth Engine service-account JSON (`credentials/*.json`) was checked against the full git history and was **never** committed — that one's fine, no action needed there.
-
-## Fixes in this update
-
-- **Render deployment crash (`ModuleNotFoundError: dotenv`)**: `app.py` imports `python-dotenv`, but it was missing from `requirements.txt` — the whole process crashed on import before Flask could even start. Added `python-dotenv==1.0.1` to `requirements.txt`.
-- **WorldTides 400 Bad Request**: the `heights`/`extremes` request parameters were being sent as Python booleans (`True`), which `requests` serializes into the URL as the literal string `"True"` — WorldTides expects these as empty-value flags (`?heights&extremes`). Fixed to send empty strings, matching WorldTides' documented format.
-- **API key leaking into logs**: a leftover debug `print()` statement logged the real `OPENWEATHER_API_KEY` value on every app startup. Removed — Render's logs are visible to anyone with dashboard access, and this is unnecessary exposure risk.
-- **Gunicorn worker timeout**: a single Earth Engine lookup makes roughly 10-12 sequential blocking calls to Google's servers (DEM/slope, JRC water, CHIRPS, Sentinel-2, Sentinel-1, Dynamic World). On a cold cache this can comfortably exceed gunicorn's 30-second default timeout, killing the worker mid-request. Set `--timeout 120` in the `Procfile`.
-- **Redundant Earth Engine calls**: the scoring function was being computed twice per request, and the Sentinel-2 image count was fetched via two separate blocking `.getInfo()` calls instead of one. Both fixed — this roughly halves the redundant portion of an already-heavy request.
-- **`/health` now actively verifies Earth Engine** instead of just reporting a stale "not initialized" before the first search ever triggers it — see the Earth Engine section below.
-
 ## How the flood score is built
 
+The score is a **weighted model out of 100**, not an unbounded sum of points clamped afterward. Each factor contributes at most its fixed weight below, scaled by how severe that factor's own signal is right now:
+
+| Factor | Weight |
+|---|---|
+| Forecast rainfall | 25 |
+| Current rainfall | 20 |
+| Terrain (elevation + slope) | 12 |
+| Soil (type + real-time saturation) | 10 |
+| River discharge (GloFAS) | 10 |
+| Tide (coastal only) | 8 |
+| Historical community-reported floods | 5 |
+| Drainage/runoff proxy (water proximity + urbanization + community reports) | 5 |
+| Synoptic conditions (humidity + pressure + wind, combined) | 3 |
+| Satellite reinforcement (Earth Engine: Sentinel-1/2, CHIRPS, Dynamic World) | 2 |
+| **Total** | **100** |
+
 ```
-Rainfall + Forecast Rain + Humidity + Pressure + Wind
-        + Elevation + Slope (Google Earth Engine / Copernicus DEM, primary — Open-Meteo fallback)
-        + Distance to Water (Earth Engine / JRC Global Surface Water, primary — OpenStreetMap fallback + named feature)
-        + Soil Type (clay content) + Real-Time Soil Moisture
-        + River Discharge (GloFAS hydrological model)
-        + Urbanization (building density)
-        + Tide (optional, coastal)
-        + Satellite flood/rainfall/land-cover signals (Sentinel-1/2, CHIRPS, Dynamic World — single-location only)
-        + Community-Reported Flood History
-        + Live Ground-Truth Reports (override)
                     ↓
-            AI Flood Risk Score
+            AI Flood Risk Score (0-100)
                     ↓
-        LOW → WATCH → HIGH → SEVERE → CRITICAL
+   LOW → WATCH → MODERATE → HIGH → SEVERE → CRITICAL
 ```
+
+Live ground-truth reports (recent "flooding observed" community reports) can still override the model's verdict upward regardless of the computed score.
+
+**Why this changed from an earlier version**: the previous model let every factor add points independently with no shared ceiling, only clamping the total to 100 afterward. Two concrete, reported problems came directly from that: (1) risk reading too high too often, because several only-moderately-elevated factors could stack past HIGH/SEVERE even when none of them individually looked severe, and (2) humidity being overweighted — a rainy day is almost always a humid day too, so a separate, large humidity contribution was effectively double-counting rainfall's own signal. Humidity now shares one small "synoptic conditions" bucket with pressure and wind instead of scoring on its own.
+
+**This is a calibration choice, not a scientific constant.** The weights above are the result of reasoning about relative importance, not fitted against a labeled historical-outcomes dataset (this app doesn't have one). Treat them as a documented, adjustable starting point — `SCORE_WEIGHTS` near the scoring functions in `app.py` is the single place to retune them as real-world results come in.
+
+**Confidence is now a real data-completeness metric**, not a disguised function of the score. A previous version computed "confidence" as `min(95, 68 + score // 3)` — meaning a CRITICAL reading always showed roughly 95% confidence even if half the underlying data sources had failed. It's now the actual percentage of relevant data sources (terrain, slope, water, soil, river discharge, soil moisture, tide where applicable, Earth Engine) that returned real data for that specific request.
 
 ## Worldwide live coverage
 
@@ -125,48 +121,6 @@ The location map (shown after a search) now includes:
 
 Every external lookup fails independently and gracefully — if Overpass or SoilGrids is briefly down, that one factor is just marked "unavailable" and the rest of the score still comes through.
 
-## Google Earth Engine integration
-
-Earth Engine is now the **primary geospatial core** for terrain data — not a fallback layered on top of other services. It's split into two tiers with different cost/scope tradeoffs:
-
-### Tier 1: Terrain core (primary, used everywhere)
-
-Elevation, slope, and nearest-water distance now come from Earth Engine by default (Copernicus DEM + JRC Global Surface Water), replacing Open-Meteo's elevation API and OpenStreetMap's distance calculation as the primary source. This is deliberately kept to **3 lightweight Earth Engine calls** (no ImageCollection filtering, small buffer regions) so it's cheap enough to run for every sampled point along a route in the route-safety feature, not just a single searched location — Open-Meteo/Overpass remain the automatic fallback whenever Earth Engine is unavailable (not configured, or a transient failure), so the app degrades gracefully either way.
-
-OpenStreetMap (Overpass) still supplies what Earth Engine's terrain core doesn't cover: coastline detection (for the coastal alert-threshold adjustment), a *named*, plottable water feature for the map marker (Earth Engine gives a distance, not a labeled place), building density, and SoilGrids remains the soil-type source. Because the water *distance* can come from Earth Engine while the *named map marker* comes from OpenStreetMap, these can occasionally point at slightly different water bodies — when that's the case, the result page says so explicitly rather than silently blending two different sources into one number.
-
-Every location's result page shows a `GEE` badge next to Elevation/Slope/Nearest water when Earth Engine supplied that data, plus a one-line note stating which system was actually used for that specific request — this is real-time, per-request transparency, not just documentation.
-
-### Tier 2: Full satellite bundle (single-location enrichment only)
-
-The heavier ~8-dataset analysis — Sentinel-1 SAR flood detection, Sentinel-2 NDWI/NDVI, CHIRPS rainfall accumulation, Dynamic World land cover, and watershed susceptibility — stays a single-location-only enrichment layer (`get_earth_engine_context`), shown in the dedicated "Earth Engine Intelligence" panel. This is too expensive to run per-route-segment, which is exactly why it's kept separate from the terrain core tier above.
-
-| Dataset | Tier | What it adds |
-|---|---|---|
-| Copernicus DEM (`COPERNICUS/DEM/GLO30`) | 1 (core) | Elevation + slope — primary source everywhere |
-| JRC Global Surface Water (`JRC/GSW1_4/GlobalSurfaceWater`) | 1 (core) | Nearest-water distance (primary) + historical water occurrence (Tier 2 detail) |
-| Sentinel-1 SAR (`COPERNICUS/S1_GRD`) | 2 (single-location) | Automatic flood extent detection — compares recent radar backscatter against a pre-event baseline, excludes permanent water and steep terrain to reduce false positives |
-| Sentinel-2 (`COPERNICUS/S2_SR_HARMONIZED`) | 2 (single-location) | NDWI (surface water index) and NDVI from recent low-cloud imagery |
-| CHIRPS (`UCSB-CHG/CHIRPS/DAILY`) | 2 (single-location) | Satellite-derived 7-day and 30-day rainfall accumulation, cross-validating ground-station rainfall |
-| Dynamic World (`GOOGLE/DYNAMICWORLD/V1`) | 2 (single-location) | Near-real-time land cover classification (built area, flooded vegetation, water, etc.) |
-
-Both tiers feed into the flood score (`_context_bonus`) and are shown on the result page, not just computed and discarded.
-
-### Setup
-
-1. Create a Google Cloud project and enable the Earth Engine API.
-2. Register for Earth Engine access at [earthengine.google.com](https://earthengine.google.com) — noncommercial/research/humanitarian use is free; a commercial product built on top of this would need Google's paid Earth Engine commercial license.
-3. Create a service account, grant it Earth Engine access, and download its JSON key.
-4. **Local dev**: place the JSON in `credentials/` (gitignored) and set `GEE_PRIVATE_KEY_PATH` to it.
-5. **Render**: the `credentials/` folder is gitignored and won't exist on Render just because it's in your local repo. Upload the JSON via Render's **Secret Files** feature (Dashboard → your service → Environment → Secret Files), which mounts it at `/etc/secrets/<filename>` — then set `GEE_PRIVATE_KEY_PATH=/etc/secrets/<filename>`.
-6. After deploying, check `GET /health` — it reports `earth_engine_key_present` and `earth_engine_initialized` so you can confirm the credentials actually loaded, rather than guessing from a silent fallback.
-
-### Known constraints (not bugs, just how satellite data works)
-
-- **Sentinel-1/Sentinel-2 revisit time**: these satellites don't image every location every day. A location with no recent radar or optical pass will show "no recent radar pair" / "cloudy/no image" rather than a false negative — this is expected, not a failure.
-- **Request latency**: the Tier 1 terrain core (3 calls) is fast enough for route-segment sampling; the Tier 2 full bundle (~8 calls) can take several seconds to over a minute on a cold cache. Both are cached (`GEO_CONTEXT_TTL_HOURS` for Tier 1, `EARTH_ENGINE_CONTEXT_TTL_HOURS` for Tier 2) so only the *first* lookup for a new location pays this cost.
-- **This was not tested against live Earth Engine from the environment this integration was written in** — no network access or credentials were available there. The logic was verified with a mocked `ee` module exercising the real code paths (confirmed Earth Engine becomes primary when available, correctly falls back to Open-Meteo/Overpass when not, and caching prevents redundant calls across repeated route-segment lookups), but real-world verification against your actual GEE project happens when you check `/health` and the `GEE` source badge on a real search after deploying.
-
 ## Hydrological modeling
 
 Two factors now come from real hydrology rather than weather alone:
@@ -188,6 +142,23 @@ A full WorldTides integration has four parts, and an earlier version of this app
 4. **Displaying those values** — both folded into the score/factors, and as a dedicated "🌊 Tide Forecast" box on the result page showing the next high and low tide with times, whenever that data is available.
 
 All four are implemented now. When `TIDE_API_KEY` isn't set, the tide card explicitly says "Tide monitoring not configured" rather than silently disappearing from the page — every other factor in this app behaves this way, and tide should too.
+
+## Property flood risk check (for buyers/renters)
+
+A deliberately **weather-independent** long-term flood vulnerability check, separate from the main "is it flooding right now" score — this is what makes the site useful in the dry season too, not just during an active flood event.
+
+- Uses only slow-changing signals: elevation/slope, distance to water, soil drainage character, coastal status, JRC Global Surface Water's historical water-occurrence percentage (Earth Engine — a genuine indicator of a location's water-adjacent history, not today's weather), and the community's historical flood-report count.
+- Deliberately excludes today's rainfall, tide, and river discharge — those answer "is it flooding today," not "should someone buying or renting here be cautious in general."
+- Returns a LOW/MODERATE/HIGH/SEVERE exposure level with concrete guidance (ask about flooding history, get a professional survey, consider flood insurance, etc.) and lists exactly which factors drove the result.
+- `POST /api/property-check` with `{"location": "..."}`.
+- Comes with an explicit disclaimer: this is a location-history and terrain-based estimate for general awareness, not a certified flood-zone survey, insurance assessment, or legal disclosure.
+
+## Network resilience
+
+Two classes of error were showing up in production logs and are now fixed at the root:
+
+- **"Network is unreachable" (errno 101) on Overpass**: this wasn't a timeout or rate limit — it's a routing failure. Overpass publishes both IPv4 and IPv6 DNS records; if the hosting environment's outbound network doesn't have a working IPv6 route, Python still tries the IPv6 address first and fails immediately. The app now forces IPv4-only DNS resolution process-wide, the standard fix for this exact symptom.
+- **Transient failures (SoilGrids 503s, brief outages)**: every external call now goes through a shared retry-with-backoff wrapper (2 retries, short exponential backoff) plus a per-service circuit breaker — if a service just failed, subsequent requests skip it immediately for a cooldown window instead of each waiting out a doomed timeout. `geo_context_cache` also now falls back field-by-field to the last known-good cached value when a live re-fetch fails, since terrain/soil/water barely change day to day — a slightly-stale real number beats a blank "unavailable."
 
 ## Known limitations (please read before relying on this for safety decisions)
 

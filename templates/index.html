@@ -33,7 +33,7 @@
 
     <section id="global-alerts" class="watchlist-panel">
         <div class="watchlist-header">
-            <h2>{% if global_alerts.entries %}<span class="live-dot" aria-hidden="true"></span>{% endif %}🌍 Live Global Flood Alerts</h2>
+            <h2>{% if global_alerts.entries %}<span class="live-dot" aria-hidden="true"></span>{% endif %}Live Global Flood Alerts</h2>
             <span id="global-alerts-updated" class="watchlist-updated">{% if global_alerts.last_updated %}Last checked {{ global_alerts.last_updated }} UTC{% endif %}</span>
         </div>
         <p class="watchlist-subtitle">Real-time worldwide flood alerts from GDACS (Global Disaster Alert and Coordination System) — the same feed used by UN OCHA and humanitarian agencies. Independent of any location search.</p>
@@ -72,7 +72,7 @@
 
     <section id="active-alerts" class="watchlist-panel">
         <div class="watchlist-header">
-            <h2>{% if watchlist.active_alerts %}<span class="live-dot" aria-hidden="true"></span>{% endif %}📍 Monitored Locations</h2>
+            <h2>{% if watchlist.active_alerts %}<span class="live-dot" aria-hidden="true"></span>{% endif %}Monitored Locations</h2>
             <span id="watchlist-updated" class="watchlist-updated">{% if watchlist.last_updated %}Last checked {{ watchlist.last_updated }} UTC{% endif %}</span>
         </div>
         <p class="watchlist-subtitle">FloodGuard AI's own terrain-aware model — elevation, slope, water proximity, soil, urbanization, and coastal thresholds — applied continuously to {{ watchlist.entries | length }} tracked locations across every continent, plus anywhere visitors search.</p>
@@ -117,7 +117,7 @@
 
     <section id="route-safety" class="route-safety-panel">
         <div class="route-safety-header">
-            <h2>🚗 Can I Travel There Safely?</h2>
+            <h2>Can I Travel There Safely?</h2>
             <p>A real driving route (OSRM), checked point by point against live flood risk — terrain, water proximity, and current rainfall along the way. Not a "likely flooded roads" guess — every segment shown is backed by real elevation and water-proximity data.</p>
         </div>
 
@@ -128,6 +128,20 @@
         </form>
         <div id="route-feedback" class="route-feedback"></div>
         <div id="route-results"></div>
+    </section>
+
+    <section id="property-check" class="route-safety-panel">
+        <div class="route-safety-header">
+            <h2>Thinking of Buying or Renting Here?</h2>
+            <p>A long-term flood exposure check for a specific address or neighborhood — based on elevation, distance to water, historical satellite water presence, and past community flood reports. This does not depend on today's weather, so it's useful to check any time of year, not just during a storm.</p>
+        </div>
+
+        <form id="property-form" class="route-form">
+            <input type="text" id="property-location" placeholder="Address or neighborhood, e.g. Lekki Phase 1, Lagos" required>
+            <button type="submit" id="property-submit">Check Location</button>
+        </form>
+        <div id="property-feedback" class="route-feedback"></div>
+        <div id="property-results"></div>
     </section>
 
     <section id="features" class="features">
@@ -210,7 +224,7 @@
                     <div class="travel-verdict risk-{{ prediction.travel_recommendation.color }}">{{ prediction.travel_recommendation.verdict }}</div>
                     <p>{{ prediction.travel_recommendation.headline }}</p>
                     {% if prediction.travel_recommendation.better_window %}
-                    <p class="travel-window">🕐 Conditions look better around <strong>{{ prediction.travel_recommendation.better_window.time }}</strong> ({{ prediction.travel_recommendation.better_window.risk }} risk) if travel can wait.</p>
+                    <p class="travel-window">Conditions look better around <strong>{{ prediction.travel_recommendation.better_window.time }}</strong> ({{ prediction.travel_recommendation.better_window.risk }} risk) if travel can wait.</p>
                     {% endif %}
                 </div>
 
@@ -235,11 +249,10 @@
                     <div><span>Pressure</span><strong>{{ prediction.pressure }} hPa</strong></div>
                     <div><span>Wind</span><strong>{{ prediction.wind }} m/s</strong></div>
                     <div><span>Rainfall</span><strong>{{ prediction.rainfall }} mm</strong></div>
-                    <div><span>Elevation{% if prediction.terrain_source == "earth-engine" %} <span class="source-badge">GEE</span>{% endif %}</span><strong>{% if prediction.elevation is not none %}{{ prediction.elevation }} m{% else %}Unavailable{% endif %}</strong></div>
-                    <div><span>Slope{% if prediction.terrain_source == "earth-engine" %} <span class="source-badge">GEE</span>{% endif %}</span><strong>{% if prediction.slope_percent is not none %}{{ prediction.slope_percent }}%{% else %}Unavailable{% endif %}</strong></div>
-                    <div><span>Nearest water{% if prediction.terrain_source == "earth-engine" %} <span class="source-badge">GEE</span>{% endif %}</span><strong>{% if prediction.nearest_water_m is not none %}{{ prediction.nearest_water_m }} m{% else %}Unavailable{% endif %}</strong></div>
+                    <div><span>Elevation</span><strong>{% if prediction.elevation is not none %}{{ prediction.elevation }} m{% else %}Unavailable{% endif %}</strong></div>
+                    <div><span>Slope</span><strong>{% if prediction.slope_percent is not none %}{{ prediction.slope_percent }}%{% else %}Unavailable{% endif %}</strong></div>
+                    <div><span>Nearest water</span><strong>{% if prediction.nearest_water_m is not none %}{{ prediction.nearest_water_m }} m{% else %}Unavailable{% endif %}</strong></div>
                 </div>
-                <p class="terrain-source-note">Terrain data source: {% if prediction.terrain_source == "earth-engine" %}Google Earth Engine (Copernicus DEM + JRC Global Surface Water) — the primary source when configured.{% else %}Open-Meteo + OpenStreetMap fallback (Earth Engine unavailable for this request).{% endif %}</p>
 
                 {% if prediction.earth_engine %}
                 <div class="earth-engine-panel">
@@ -570,7 +583,7 @@
     attachWatchlistButtons();
 
     function riskColorClass(level) {
-        const map = { LOW: "low", WATCH: "watch", HIGH: "high", SEVERE: "severe", CRITICAL: "critical" };
+        const map = { LOW: "low", WATCH: "watch", MODERATE: "moderate", HIGH: "high", SEVERE: "severe", CRITICAL: "critical" };
         return map[level] || "low";
     }
 
@@ -771,7 +784,7 @@
     attachManualRefreshHandler();
 
     function riskColorClassRoute(level) {
-        const map = { LOW: "low", WATCH: "watch", HIGH: "high", SEVERE: "severe", CRITICAL: "critical" };
+        const map = { LOW: "low", WATCH: "watch", MODERATE: "moderate", HIGH: "high", SEVERE: "severe", CRITICAL: "critical" };
         return map[level] || "low";
     }
 
@@ -859,6 +872,67 @@
             } finally {
                 submitBtn.disabled = false;
                 submitBtn.textContent = "Check Route";
+            }
+        });
+    }
+
+    function renderPropertyResult(data) {
+        const resultsEl = document.getElementById("property-results");
+        const feedbackEl = document.getElementById("property-feedback");
+
+        if (!data.ok) {
+            feedbackEl.textContent = data.error || "Could not check this location.";
+            feedbackEl.className = "route-feedback error";
+            resultsEl.innerHTML = "";
+            return;
+        }
+
+        feedbackEl.textContent = "";
+        feedbackEl.className = "route-feedback";
+
+        const color = riskColorClassRoute(data.level);
+        const factorsHtml = data.factors.map((f) => "<li>" + f + "</li>").join("");
+
+        resultsEl.innerHTML =
+            '<div class="route-verdict-banner risk-border-' + color + '">' +
+                '<div class="travel-verdict risk-' + color + '">' + data.headline + "</div>" +
+                "<p>" + data.location + " — long-term exposure score " + data.score + "/100</p>" +
+                "<p>" + data.guidance + "</p>" +
+            "</div>" +
+            '<div class="route-risky-list"><strong>What this is based on:</strong><ul>' + factorsHtml + "</ul></div>" +
+            '<p class="property-disclaimer">' + data.disclaimer + "</p>";
+    }
+
+    const propertyForm = document.getElementById("property-form");
+    if (propertyForm) {
+        propertyForm.addEventListener("submit", async function (event) {
+            event.preventDefault();
+            const location = document.getElementById("property-location").value.trim();
+            const submitBtn = document.getElementById("property-submit");
+            const feedbackEl = document.getElementById("property-feedback");
+
+            if (!location) return;
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = "Checking...";
+            feedbackEl.textContent = "";
+            feedbackEl.className = "route-feedback";
+            document.getElementById("property-results").innerHTML = "";
+
+            try {
+                const response = await fetch("/api/property-check", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ location: location })
+                });
+                const data = await response.json();
+                renderPropertyResult(data);
+            } catch (err) {
+                feedbackEl.textContent = "Network error. Please try again.";
+                feedbackEl.className = "route-feedback error";
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = "Check Location";
             }
         });
     }

@@ -1,6 +1,7 @@
 import json
 import math
 import os
+import socket
 import sqlite3
 import threading
 import time
@@ -8,6 +9,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 
 import requests
+import urllib3.util.connection as urllib3_cn
 from flask import Flask, g, jsonify, render_template, request
 from dotenv import load_dotenv
 try:
@@ -132,6 +134,105 @@ GDACS_RSS_URL = "https://www.gdacs.org/xml/rss.xml"
 GLOBAL_ALERTS_REFRESH_MINUTES = 10
 
 
+# ---------------------------------------------------------------------------
+# Network resilience layer
+#
+# This is the fix for two distinct classes of error seen in production:
+#
+# 1. "Network is unreachable" (errno 101) on Overpass and similar hosts.
+#    This is NOT a timeout or a rate limit — it's a routing failure. Many
+#    hosts (overpass-api.de included) publish both an IPv4 (A) and IPv6
+#    (AAAA) DNS record. If this environment's outbound network doesn't
+#    actually have a working IPv6 route, Python/urllib3 will still try the
+#    IPv6 address first (because DNS returned it) and fail immediately with
+#    ENETUNREACH, never falling back to the IPv4 address that *would* have
+#    worked. Forcing IPv4-only DNS resolution process-wide is the standard,
+#    known fix for this exact symptom.
+#
+# 2. Transient failures (503s, connection resets, brief outages) on
+#    SoilGrids and other public APIs. These services occasionally have real
+#    outages that have nothing to do with this app's code. A short,
+#    bounded retry with backoff rides out a brief blip; a per-service
+#    circuit breaker stops repeatedly attempting (and waiting out the
+#    timeout on) a service that just told us it's down, so one outage
+#    doesn't slow down every subsequent request until it recovers.
+# ---------------------------------------------------------------------------
+
+_original_allowed_gai_family = urllib3_cn.allowed_gai_family
+
+
+def _force_ipv4_gai_family():
+    return socket.AF_INET
+
+
+urllib3_cn.allowed_gai_family = _force_ipv4_gai_family
+
+
+_service_cooldowns = {}
+SERVICE_COOLDOWN_SECONDS = 120  # how long to skip a service after it fails
+
+
+def _service_available(service_name):
+    until = _service_cooldowns.get(service_name)
+    return not (until and time.time() < until)
+
+
+def _mark_service_down(service_name, cooldown_seconds=SERVICE_COOLDOWN_SECONDS):
+    _service_cooldowns[service_name] = time.time() + cooldown_seconds
+
+
+def _mark_service_up(service_name):
+    _service_cooldowns.pop(service_name, None)
+
+
+def request_with_retry(
+    method,
+    url,
+    *,
+    service_name=None,
+    max_retries=2,
+    backoff_base=0.6,
+    retry_statuses=(429, 500, 502, 503, 504),
+    **kwargs,
+):
+    """Shared retry wrapper used by every external API call in this app.
+    Retries a small, bounded number of times with short exponential
+    backoff on transient failures — enough to ride out a brief blip
+    without making a user-facing request noticeably slower. If
+    `service_name` is given, this also checks/updates that service's
+    circuit-breaker cooldown, so a known-down service is skipped
+    immediately (raising ConnectionError) instead of making the caller
+    wait through a doomed timeout on every single request."""
+    if service_name and not _service_available(service_name):
+        raise requests.exceptions.ConnectionError(
+            f"{service_name} is in cooldown after a recent failure; skipping request."
+        )
+
+    last_exc = None
+    for attempt in range(max_retries + 1):
+        try:
+            response = requests.request(method, url, **kwargs)
+            if response.status_code in retry_statuses and attempt < max_retries:
+                time.sleep(backoff_base * (2 ** attempt))
+                continue
+            if response.status_code in retry_statuses:
+                if service_name:
+                    _mark_service_down(service_name)
+            elif service_name:
+                _mark_service_up(service_name)
+            return response
+        except requests.RequestException as error:
+            last_exc = error
+            if attempt < max_retries:
+                time.sleep(backoff_base * (2 ** attempt))
+                continue
+            if service_name:
+                _mark_service_down(service_name)
+            raise
+    if last_exc:
+        raise last_exc
+
+
 def get_db():
     if "db" not in g:
         g.db = sqlite3.connect(DB_PATH)
@@ -241,28 +342,11 @@ def init_db():
         conn.execute("ALTER TABLE geo_context_cache ADD COLUMN emergency_contacts_json TEXT")
     except sqlite3.OperationalError:
         pass
-    try:
-        conn.execute("ALTER TABLE geo_context_cache ADD COLUMN terrain_source TEXT")
-    except sqlite3.OperationalError:
-        pass
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS earth_engine_cache (
             city_key TEXT PRIMARY KEY,
             payload_json TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS ee_terrain_core_cache (
-            city_key TEXT PRIMARY KEY,
-            available INTEGER NOT NULL,
-            elevation_m REAL,
-            slope_percent REAL,
-            nearest_water_m REAL,
-            error_message TEXT,
             updated_at TEXT NOT NULL
         )
         """
@@ -939,8 +1023,10 @@ def fetch_emergency_contacts(lat, lon, radius_m=8000):
     out center tags 60;
     """
     try:
-        response = requests.post(
+        response = request_with_retry(
+            "POST",
             OVERPASS_URL,
+            service_name="overpass",
             data={"data": query},
             timeout=14,
             headers={"User-Agent": "FloodGuardAI/1.0 (flood risk web app; contact via app owner)"},
@@ -1056,8 +1142,10 @@ def fetch_water_and_urban_context(lat, lon, radius_m=3000):
     out count;
     """
     try:
-        response = requests.post(
+        response = request_with_retry(
+            "POST",
             OVERPASS_URL,
+            service_name="overpass",
             data={"data": query},
             timeout=14,
             headers={"User-Agent": "FloodGuardAI/1.0 (flood risk web app; contact via app owner)"},
@@ -1105,7 +1193,8 @@ def fetch_water_and_urban_context(lat, lon, radius_m=3000):
     nearest_coast_m = None
     if coast_points:
         nearest_coast_m = min(haversine_meters(lat, lon, cp[0], cp[1]) for cp in coast_points)
-
+    print("Nearest water:", nearest_water_m, nearest_water_label)
+    print("Nearest coast:", nearest_coast_m)
     return nearest_water_m, nearest_coast_m, building_count, nearest_water_point, nearest_water_label
 
 
@@ -1138,14 +1227,7 @@ def is_coastal_region(nearest_coast_m):
     return nearest_coast_m is not None and nearest_coast_m <= COASTAL_ZONE_KM * 1000
 
 
-def classify_water_proximity(distance_m, feature_label=None, source="openstreetmap"):
-    source_note = (
-        " Distance is Earth Engine's satellite-measured value (JRC Global Surface Water); "
-        "the named feature shown is OpenStreetMap's nearest mapped water feature, which is not "
-        "always the exact same water body the satellite distance refers to."
-        if source == "earth-engine" and feature_label
-        else ""
-    )
+def classify_water_proximity(distance_m, feature_label=None):
     if distance_m is None:
         return {
             "score_bonus": 0,
@@ -1157,19 +1239,19 @@ def classify_water_proximity(distance_m, feature_label=None, source="openstreetm
         return {
             "score_bonus": 18,
             "label": f"~{distance_m:.0f} m from open water{named}",
-            "status": f"Very close to a river, lake, or coastline — high overflow/surge exposure.{source_note}",
+            "status": "Very close to a river, lake, or coastline — high overflow/surge exposure.",
         }
     if distance_m <= 2000:
         return {
             "score_bonus": 11,
             "label": f"~{distance_m/1000:.1f} km from open water{named}",
-            "status": f"Close enough to a river, lake, or coastline for overflow to matter.{source_note}",
+            "status": "Close enough to a river, lake, or coastline for overflow to matter.",
         }
     if distance_m <= 5000:
         return {
             "score_bonus": 4,
             "label": f"~{distance_m/1000:.1f} km from open water{named}",
-            "status": f"Moderate distance from major water bodies.{source_note}",
+            "status": "Moderate distance from major water bodies.",
         }
     return {
         "score_bonus": 0,
@@ -1216,8 +1298,10 @@ def fetch_soil_clay(lat, lon):
     is a known-slow public API, so this uses a longer timeout than most
     other lookups here."""
     try:
-        response = requests.get(
+        response = request_with_retry(
+            "GET",
             SOILGRIDS_URL,
+            service_name="soilgrids",
             params={"lon": lon, "lat": lat, "property": "clay", "depth": "0-5cm", "value": "mean"},
             timeout=20,
             headers={"User-Agent": "FloodGuardAI/1.0 (flood risk web app; contact via app owner)"},
@@ -1387,8 +1471,10 @@ def fetch_tide_status(lat, lon):
         return None
 
     try:
-        response = requests.get(
+        response = request_with_retry(
+            "GET",
             WORLDTIDES_URL,
+            service_name="worldtides",
             params={
                 "heights": "",
                 "extremes": "",
@@ -1596,18 +1682,24 @@ def weather_scene(weather_id, description):
     }
 
 
-def classify_risk(score, coastal=False):
-    # Coastal regions get every threshold shifted down by 20 points, so HIGH
-    # starts at 25 instead of 45 — storm surge, tidal backflow, and lagoon/
-    # estuary effects mean coastal areas flood at rainfall levels that
-    # wouldn't trouble inland terrain, so the same numeric score should read
-    # as more urgent near a coastline.
-    if coastal:
-        critical_at, severe_at, high_at, watch_at = 65, 45, 25, 5
-    else:
-        critical_at, severe_at, high_at, watch_at = 85, 65, 45, 25
+RISK_THRESHOLDS = {
+    "coastal": {"watch": 10, "moderate": 22, "high": 38, "severe": 55, "critical": 75},
+    "inland": {"watch": 20, "moderate": 35, "high": 55, "severe": 72, "critical": 88},
+}
 
-    if score >= critical_at:
+
+def classify_risk(score, coastal=False):
+    # Coastal regions get a lower bar at every tier — storm surge, tidal
+    # backflow, and lagoon/estuary effects mean coastal areas flood at
+    # rainfall levels that wouldn't trouble inland terrain, so the same
+    # numeric score should read as more urgent near a coastline. The shift
+    # is smaller than before (was a flat -20 under the old unbounded
+    # scoring model) because the new weighted-to-100 model makes very high
+    # scores harder to reach in the first place — an equally large shift
+    # here would make almost everything coastal read as CRITICAL.
+    t = RISK_THRESHOLDS["coastal"] if coastal else RISK_THRESHOLDS["inland"]
+
+    if score >= t["critical"]:
         return {
             "level": "CRITICAL",
             "color": "critical",
@@ -1615,7 +1707,7 @@ def classify_risk(score, coastal=False):
             "priority_action": "Evacuate people to higher ground now. Lives first — move property only if it's safe to do so.",
             "advice": "Severe flood conditions are likely or already happening. Move people to elevated ground immediately, avoid low bridges and flooded roads entirely, and relocate vehicles and valuables only if you can do so safely.",
         }
-    if score >= severe_at:
+    if score >= t["severe"]:
         return {
             "level": "SEVERE",
             "color": "severe",
@@ -1623,7 +1715,7 @@ def classify_risk(score, coastal=False):
             "priority_action": "Move property, vehicles, and valuables to elevated ground now.",
             "advice": "Serious flood risk given local terrain and conditions. Relocate property, vehicles, and valuables to elevated ground now, and avoid low-lying roads and waterside routes.",
         }
-    if score >= high_at:
+    if score >= t["high"]:
         return {
             "level": "HIGH",
             "color": "high",
@@ -1631,7 +1723,15 @@ def classify_risk(score, coastal=False):
             "priority_action": "Start moving furniture, electronics, and valuables to higher ground.",
             "advice": "High flood risk. Start moving furniture, electronics, and valuables to a higher floor or elevated ground now. Stay away from drainage channels and monitor official emergency updates.",
         }
-    if score >= watch_at:
+    if score >= t["moderate"]:
+        return {
+            "level": "MODERATE",
+            "color": "moderate",
+            "map_color": "#eab308",
+            "priority_action": "Keep valuables off the floor and stay aware of changing conditions.",
+            "advice": "Moderate flood risk. Conditions warrant attention but aren't yet severe — keep an eye on rainfall updates and avoid parking or lingering near low-lying drainage routes.",
+        }
+    if score >= t["watch"]:
         return {
             "level": "WATCH",
             "color": "watch",
@@ -1680,8 +1780,65 @@ def build_travel_recommendation(risk_level, score, timeline):
     }
 
 
+def _earth_engine_status_text(ee_data):
+    """Only claims what actually succeeded for THIS specific location and
+    request — Earth Engine 'available' just means it initialized, not that
+    every dataset returned real data (Sentinel-1/2 depend on a recent
+    satellite pass existing at all; any individual dataset call can fail
+    independently). Listing exactly what worked and what didn't is the fix
+    for output that previously claimed six datasets were 'active' even
+    when several of them had silently failed or had no data for that
+    point."""
+    working = []
+    missing = []
+
+    if ee_data.get("gee_elevation_m") is not None:
+        working.append("Copernicus DEM elevation/slope")
+    else:
+        missing.append("Copernicus DEM")
+
+    if ee_data.get("jrc_water_occurrence_pct") is not None:
+        working.append("JRC Global Surface Water")
+    else:
+        missing.append("JRC Global Surface Water")
+
+    if ee_data.get("chirps_7d_mm") is not None:
+        working.append("CHIRPS rainfall")
+    else:
+        missing.append("CHIRPS rainfall")
+
+    if ee_data.get("sentinel2_ndwi") is not None:
+        working.append("Sentinel-2 optical")
+    elif ee_data.get("sentinel2_image_count") == 0:
+        missing.append("Sentinel-2 (no cloud-free image in the last 45 days)")
+    else:
+        missing.append("Sentinel-2")
+
+    if ee_data.get("sentinel1_flood_area_ha") is not None:
+        working.append("Sentinel-1 radar flood detection")
+    elif ee_data.get("sentinel1_before_count") == 0 or ee_data.get("sentinel1_after_count") == 0:
+        missing.append("Sentinel-1 (no valid before/after radar pass for this location right now)")
+    else:
+        missing.append("Sentinel-1")
+
+    if ee_data.get("dynamic_world_label") is not None:
+        working.append("Dynamic World land cover")
+    elif ee_data.get("dynamic_world_image_count") == 0:
+        missing.append("Dynamic World (no recent image)")
+    else:
+        missing.append("Dynamic World")
+
+    parts = []
+    if working:
+        parts.append("Returned real data for this location: " + ", ".join(working) + ".")
+    if missing:
+        parts.append("Not available for this specific location/time: " + ", ".join(missing) + ".")
+    if not parts:
+        return "Earth Engine initialized, but no datasets returned usable data for this specific location."
+    return " ".join(parts)
+
+
 def estimate_environment(city, weather, community=None, context=None):
-    rainfall = weather["rainfall"]
     community = community or {"total": 0, "average_rating": 0, "construction_reports": 0, "flooding_reports": 0}
     context = context or {}
 
@@ -1698,20 +1855,20 @@ def estimate_environment(city, weather, community=None, context=None):
     river = context.get("river_discharge")
     moisture = context.get("soil_moisture")
     earth_engine = context.get("earth_engine")
-    terrain_source = context.get("terrain_source", "open-meteo")
     historical_reports = context.get("historical_reports", 0)
 
-    drainage_score = 8 if rainfall >= 30 else 6 if rainfall >= 10 else 3
+    # Drainage display now uses the exact same function that feeds the real
+    # score (_drainage_severity) instead of a separate, disconnected
+    # formula — previously these could show completely different numbers
+    # for the same location, which is exactly the kind of mismatch between
+    # displayed output and actual scoring this needed to stop doing.
+    drainage_sev, _ = _drainage_severity(water, urban, community)
+    drainage_score = round(drainage_sev * 10)
 
     # Base construction/land-use score from weather, boosted by live community reports
     construction_score = 5
     construction_score += min(4, community["construction_reports"])
     construction_score = min(10, construction_score)
-
-    # Community-perceived risk nudges drainage estimate slightly, since residents
-    # often notice blocked drains and standing water before sensors or models do
-    if community["total"] >= 3:
-        drainage_score = min(10, round(drainage_score * 0.7 + community["average_rating"] / 5 * 10 * 0.3))
 
     if community["total"] > 0:
         community_note = (
@@ -1721,25 +1878,14 @@ def estimate_environment(city, weather, community=None, context=None):
     else:
         community_note = " No community reports yet for this city — be the first to contribute."
 
-    terrain_attribution = (
-        (" (Earth Engine / Copernicus DEM)" if terrain_source == "earth-engine" else " (Open-Meteo)")
-        if "unavailable" not in terrain.get("label", "").lower()
-        else ""
-    )
-    slope_attribution = (
-        (" (Earth Engine / Copernicus DEM)" if terrain_source == "earth-engine" else " (Open-Meteo)")
-        if "unavailable" not in slope.get("label", "").lower()
-        else ""
-    )
-
     layers = {
         "terrain": {
-            "label": terrain["label"] + terrain_attribution,
+            "label": terrain["label"],
             "score": terrain["score"],
             "status": terrain["status"],
         },
         "slope": {
-            "label": slope["label"] + slope_attribution,
+            "label": slope["label"],
             "score": max(0, min(10, 5 + slope.get("score_bonus", 0))),
             "status": slope["status"],
         },
@@ -1759,24 +1905,25 @@ def estimate_environment(city, weather, community=None, context=None):
             "status": urban["status"],
         },
         "drainage": {
-            "label": "Drainage overload estimate",
+            "label": "Drainage/runoff proxy",
             "score": drainage_score,
-            "status": "Estimated from rainfall intensity and live community reports."
-            if community["total"] >= 3
-            else "Estimated from current rainfall intensity.",
+            "status": "Estimated from proximity to open water, built-up density (impervious runoff), and live community reports of blockages — not a direct measurement of actual drain capacity, since no free data source measures that.",
         },
         "construction": {
-            "label": "Construction and land-use impact",
+            "label": "Community-reported construction/drainage issues",
             "score": construction_score,
-            "status": f"{community['construction_reports']} live construction/drainage report(s) from visitors."
-            if community["construction_reports"]
-            else "No construction or drainage issues reported yet for this location — be the first to flag one.",
+            "status": (
+                f"{community['construction_reports']} live construction/drainage report(s) from visitors. "
+                "This feeds into the Drainage/runoff figure above rather than being scored separately."
+                if community["construction_reports"]
+                else "No construction or drainage issues reported yet for this location — be the first to flag one."
+            ),
         },
         "historical": {
             "label": f"Community-reported flooding history: {historical_reports} report(s)"
             if historical_reports
             else "No community flooding history recorded yet",
-            "score": min(10, historical_reports * 2),
+            "score": _historical_raw(historical_reports),
             "status": "Proxy based on past visitor reports, not a certified historical flood archive.",
         },
     }
@@ -1808,12 +1955,10 @@ def estimate_environment(city, weather, community=None, context=None):
     if earth_engine:
         if earth_engine.get("available"):
             layers["earth_engine"] = {
-                "label": "Earth Engine satellite and raster analysis",
+                "label": "Earth Engine satellite reinforcement",
                 "score": max(0, min(10, round(earth_engine.get("score_bonus", 0) / 3.5))),
-                "status": (
-                    "Sentinel-1/Sentinel-2, Copernicus DEM, JRC Global Surface Water, CHIRPS rainfall, "
-                    "Dynamic World land cover, and terrain/watershed susceptibility are active."
-                ),
+                "status": _earth_engine_status_text(earth_engine)
+                + f" This contributes up to {SCORE_WEIGHTS['satellite']} of the 100 total risk points — a small reinforcing signal, not a primary driver.",
                 "details": earth_engine,
             }
         else:
@@ -1824,57 +1969,152 @@ def estimate_environment(city, weather, community=None, context=None):
                 "details": earth_engine,
             }
 
-    layers["summary"] = f"{city} is being evaluated with weather, terrain, water proximity, soil, hydrological, satellite/raster, and urbanization signals, plus live visitor contributions.{community_note}"
+    satellite_clause = ", satellite/raster," if earth_engine and earth_engine.get("available") else ""
+    layers["summary"] = f"{city} is being evaluated with weather, terrain, water proximity, soil, hydrological{satellite_clause} and urbanization signals, plus live visitor contributions.{community_note}"
 
     return layers
 
 
-def _weather_bonus(rainfall, humidity, pressure, wind_speed, rainfall_word="current"):
-    """Rainfall/humidity/pressure/wind contribution, shared between the
-    current-conditions score and each forecast day's score."""
-    score = 0
+# ---------------------------------------------------------------------------
+# Weighted flood scoring model
+#
+# Each factor contributes at most its fixed WEIGHT (out of 100), scaled by
+# a 0-1 "severity" normalized against that factor's own realistic maximum
+# raw signal. This replaces an older unbounded additive model where every
+# factor could independently add points with no shared ceiling until the
+# final clamp to 100 -- which is exactly what caused two real, reported
+# problems: (1) risk reading too high too often, because several
+# moderately-elevated factors could stack past HIGH/SEVERE even when none
+# of them individually looked severe, and (2) humidity being overweighted,
+# since a rainy day is almost always a humid day too, so a separate
+# large humidity contribution was effectively double-counting rainfall's
+# own signal. Humidity now shares one small "synoptic conditions" bucket
+# with pressure and wind instead of scoring independently.
+#
+# Weights sum to exactly 100, so the score is always a genuine share of
+# maximum plausible risk, not a sum that happens to get capped afterward.
+# This is a calibration choice, not a scientific constant -- it's the
+# result of reasoning about relative importance, not fitted against real
+# historical flood outcomes (this app doesn't have a labeled dataset to
+# calibrate against). Treat these weights as a documented starting point
+# to refine further as real-world results come in, not a finished answer.
+# ---------------------------------------------------------------------------
+SCORE_WEIGHTS = {
+    "forecast_rainfall": 25,
+    "current_rainfall": 20,
+    "terrain": 12,
+    "soil": 10,
+    "river_discharge": 10,
+    "tide": 8,
+    "historical": 5,
+    "drainage": 5,
+    "synoptic": 3,   # humidity + pressure + wind, combined and deliberately small
+    "satellite": 2,  # Earth Engine reinforcing signals (Sentinel-1/2, CHIRPS, Dynamic World)
+}
+assert sum(SCORE_WEIGHTS.values()) == 100, "SCORE_WEIGHTS must sum to exactly 100"
+
+
+def _severity(raw, max_raw):
+    """Normalize a raw score_bonus-style value to a 0-1 severity against
+    its own known realistic maximum. Negative raw values (e.g. highland
+    terrain, steep slope, sandy soil -- all of which reduce risk) floor at
+    0 severity rather than going negative, since this model expresses risk
+    as a positive weighted sum, not an add-and-subtract tally."""
+    if max_raw <= 0:
+        return 0.0
+    return max(0.0, min(1.0, raw / max_raw))
+
+
+def _rainfall_severity(rainfall_mm):
+    """0-1 severity for a single rainfall reading, tiered rather than
+    linear so a light drizzle doesn't read as meaningfully risky."""
+    if rainfall_mm >= 50:
+        return 1.0, "Extreme rainfall"
+    if rainfall_mm >= 30:
+        return 0.75, "Heavy rainfall"
+    if rainfall_mm >= 15:
+        return 0.5, "Moderate rainfall"
+    if rainfall_mm >= 5:
+        return 0.25, "Active rainfall"
+    return 0.0, None
+
+
+def _forecast_rainfall_severity(forecast_rain_total, max_forecast_rain):
+    if forecast_rain_total >= 80:
+        return 1.0, "Very wet 5-day forecast"
+    if forecast_rain_total >= 35:
+        return 0.6, "Sustained rainfall expected"
+    if max_forecast_rain >= 10:
+        return 0.3, "One or more rainy forecast periods"
+    if forecast_rain_total > 0:
+        return min(0.25, forecast_rain_total / 80), None
+    return 0.0, None
+
+
+def _synoptic_severity(humidity, pressure, wind_speed):
+    """Humidity, pressure, and wind combined into ONE small severity
+    (max 1.0) instead of each scoring independently. This is the direct
+    fix for humidity being overweighted: previously humidity alone could
+    contribute as much as an entire rainfall tier, which meant a merely
+    humid (not actually heavily rainy) day could push risk up on its own —
+    but humidity is a weak, indirect signal on its own, not a primary one,
+    and it's already highly correlated with the rainfall signal that's
+    scored separately and far more heavily."""
+    severity = 0.0
     factors = []
-
-    if rainfall >= 50:
-        score += 32
-        factors.append(f"Extreme {rainfall_word} rainfall")
-    elif rainfall >= 20:
-        score += 22
-        factors.append(f"Heavy {rainfall_word} rainfall")
-    elif rainfall >= 5:
-        score += 10
-        factors.append(f"Active {rainfall_word} rainfall")
-
     if humidity >= 90:
-        score += 10
+        severity += 0.5
         factors.append("Very high humidity")
     elif humidity >= 75:
-        score += 5
+        severity += 0.25
         factors.append("High humidity")
-
     if pressure <= 995:
-        score += 8
+        severity += 0.35
         factors.append("Low atmospheric pressure")
     elif pressure <= 1005:
-        score += 4
+        severity += 0.15
         factors.append("Falling pressure signal")
-
     if wind_speed >= 12:
-        score += 5
+        severity += 0.15
         factors.append("Strong wind may worsen storm impact")
     elif wind_speed >= 8:
-        score += 3
+        severity += 0.1
         factors.append("Moderate wind")
+    return min(severity, 1.0), factors
 
-    return score, factors
+
+def _drainage_severity(water, urban, community):
+    """Drainage/runoff proxy: proximity to open water + built-up density
+    (impervious surface runoff) + live community reports of blockages —
+    there's no free API that measures actual drain capacity, so this is
+    explicitly a proxy, not a direct measurement."""
+    water_raw = max(0.0, water.get("score_bonus", 0))  # observed max 18
+    urban_raw = max(0.0, urban.get("score_bonus", 0))  # observed max 9
+    community = community or {}
+    construction_reports = community.get("construction_reports", 0)
+    community_raw = min(3.0, construction_reports * 0.75)  # observed max 3
+    combined = water_raw + urban_raw + community_raw  # max 30
+    return _severity(combined, 30), community_raw > 0
 
 
-def _context_bonus(context):
-    """Terrain/slope/water/soil/urbanization/tide/historical contribution —
-    independent of any single reading, shared between the current-conditions
-    score and each forecast day's score. This is what lets a forecast day
-    warn ahead of time for a low-lying coastal spot even when the rainfall
-    number alone looks unremarkable."""
+def _historical_raw(historical_reports):
+    """Shared by both scoring (_context_severities) and display
+    (estimate_environment) so the number a user sees always matches the
+    number actually used in the risk score — these had drifted apart
+    before into two different formulas."""
+    if historical_reports >= 6:
+        return 10
+    if historical_reports >= 3:
+        return 6
+    if historical_reports >= 1:
+        return 3
+    return 0
+
+
+def _context_severities(context):
+    """Builds the 0-1 severity for every weighted bucket except rainfall
+    (handled separately since it needs the raw weather reading, not just
+    context). Returns (severities dict, factors list)."""
     context = context or {}
     terrain = context.get("terrain") or {"score_bonus": 0, "label": "Elevation data unavailable"}
     slope = context.get("slope") or {"score_bonus": 0, "label": "Slope data unavailable"}
@@ -1885,70 +2125,148 @@ def _context_bonus(context):
     river = context.get("river_discharge")
     moisture = context.get("soil_moisture")
     earth_engine = context.get("earth_engine")
+    community = context.get("community")
     historical_reports = context.get("historical_reports", 0)
 
-    score = 0
     factors = []
+    severities = {}
 
-    for layer, label_prefix in ((terrain, "Terrain"), (slope, "Slope"), (water, "Water proximity"), (soil, "Soil"), (urban, "Urbanization")):
-        bonus = layer.get("score_bonus", 0)
-        if bonus:
-            score += bonus
-            factors.append(f"{label_prefix}: {layer['label']}")
+    # Terrain: elevation + slope combined (observed raw max 22 + 9 = 31)
+    terrain_raw = max(0.0, terrain.get("score_bonus", 0)) + max(0.0, slope.get("score_bonus", 0))
+    severities["terrain"] = _severity(terrain_raw, 31)
+    if terrain.get("score_bonus", 0) > 0:
+        factors.append(f"Terrain: {terrain['label']}")
+    if slope.get("score_bonus", 0) > 0:
+        factors.append(f"Slope: {slope['label']}")
 
-    if tide:
-        bonus = tide.get("score_bonus", 0)
-        if bonus:
-            score += bonus
-            factors.append(f"Tide: {tide['label']}")
+    # Soil: static type + real-time moisture combined (observed raw max 7 + 10 = 17)
+    soil_raw = max(0.0, soil.get("score_bonus", 0)) + (max(0.0, moisture.get("score_bonus", 0)) if moisture else 0)
+    severities["soil"] = _severity(soil_raw, 17)
+    if soil.get("score_bonus", 0) > 0:
+        factors.append(f"Soil: {soil['label']}")
+    if moisture and moisture.get("score_bonus", 0) > 0:
+        factors.append(f"Soil moisture: {moisture['label']}")
 
-    if river:
-        bonus = river.get("score_bonus", 0)
-        if bonus:
-            score += bonus
-            factors.append(f"Hydrology (GloFAS): {river['label']}")
+    # River discharge (GloFAS), observed raw max 20
+    river_raw = max(0.0, river.get("score_bonus", 0)) if river else 0
+    severities["river_discharge"] = _severity(river_raw, 20)
+    if river and river.get("score_bonus", 0) > 0:
+        factors.append(f"Hydrology (GloFAS): {river['label']}")
 
-    if moisture:
-        bonus = moisture.get("score_bonus", 0)
-        if bonus:
-            score += bonus
-            factors.append(f"Soil moisture: {moisture['label']}")
+    # Tide, coastal-only, observed raw max 8
+    tide_raw = max(0.0, tide.get("score_bonus", 0)) if tide else 0
+    severities["tide"] = _severity(tide_raw, 8)
+    if tide and tide.get("score_bonus", 0) > 0:
+        factors.append(f"Tide: {tide['label']}")
 
-    if earth_engine and earth_engine.get("available"):
-        score += earth_engine.get("score_bonus", 0)
-        factors.extend(earth_engine.get("factors") or [])
+    # Drainage/runoff proxy
+    drainage_sev, has_community_signal = _drainage_severity(water, urban, community)
+    severities["drainage"] = drainage_sev
+    if water.get("score_bonus", 0) > 0:
+        factors.append(f"Water proximity: {water['label']}")
+    if urban.get("score_bonus", 0) > 0:
+        factors.append(f"Urbanization: {urban['label']}")
+    if has_community_signal:
+        factors.append("Community-reported construction/drainage blockage nearby")
 
+    # Historical community-reported flooding frequency, tiered 0/3/6/10 raw -> /10
+    hist_raw = _historical_raw(historical_reports)
     if historical_reports >= 6:
-        score += 10
         factors.append(f"Community-reported flooding history: {historical_reports} past reports at this location")
     elif historical_reports >= 3:
-        score += 6
         factors.append(f"Community-reported flooding history: {historical_reports} past reports at this location")
     elif historical_reports >= 1:
-        score += 3
         factors.append(f"Community-reported flooding history: {historical_reports} past report(s) at this location")
+    severities["historical"] = _severity(hist_raw, 10)
 
-    return score, factors
+    # Earth Engine satellite reinforcement, observed raw max 35 (its own internal cap)
+    if earth_engine and earth_engine.get("available"):
+        sat_raw = max(0.0, earth_engine.get("score_bonus", 0))
+        severities["satellite"] = _severity(sat_raw, 35)
+        factors.extend(earth_engine.get("factors") or [])
+    else:
+        severities["satellite"] = 0.0
+
+    return severities, factors
 
 
 def calculate_day_score(rainfall, humidity, pressure, wind_speed, context):
-    """Same terrain/coastal-aware model as 'right now', applied to a single
-    forecast day's weather — so the 5-day forecast can warn ahead of time
-    for vulnerable terrain, not just flag it once flooding is already
-    happening."""
-    weather_bonus, _ = _weather_bonus(rainfall, humidity, pressure, wind_speed, rainfall_word="forecast")
-    context_bonus, _ = _context_bonus(context)
-    score = max(0, min(weather_bonus + context_bonus, 100))
+    """Same terrain/coastal-aware weighted model as 'right now', applied to
+    a single forecast day's weather — so the 5-day forecast can warn ahead
+    of time for vulnerable terrain, not just flag it once flooding is
+    already underway."""
+    rain_sev, _ = _rainfall_severity(rainfall)
+    synoptic_sev, _ = _synoptic_severity(humidity, pressure, wind_speed)
+    context_sev, _ = _context_severities(context)
+
+    score = (
+        rain_sev * SCORE_WEIGHTS["current_rainfall"]
+        + synoptic_sev * SCORE_WEIGHTS["synoptic"]
+        + context_sev["terrain"] * SCORE_WEIGHTS["terrain"]
+        + context_sev["soil"] * SCORE_WEIGHTS["soil"]
+        + context_sev["river_discharge"] * SCORE_WEIGHTS["river_discharge"]
+        + context_sev["tide"] * SCORE_WEIGHTS["tide"]
+        + context_sev["drainage"] * SCORE_WEIGHTS["drainage"]
+        + context_sev["historical"] * SCORE_WEIGHTS["historical"]
+        + context_sev["satellite"] * SCORE_WEIGHTS["satellite"]
+    )
+    score = max(0, min(round(score), 100))
     coastal = bool((context or {}).get("coastal"))
     risk = classify_risk(score, coastal=coastal)
     return score, risk
 
 
+def _compute_data_confidence(context):
+    """What this app actually calls 'confidence' should mean 'how much of
+    our real data did we actually get for this request' — not a restated
+    function of the risk score itself. The previous formula, `min(95, 68 +
+    score // 3)`, meant a CRITICAL reading always showed ~95% confidence
+    even when half the underlying lookups had failed and fallen back to
+    defaults, which is exactly the kind of output that doesn't correspond
+    to its actual sources. This instead checks how many of the real
+    external data sources returned usable data for this specific request."""
+    context = context or {}
+    checks = []
+
+    terrain = context.get("terrain") or {}
+    checks.append("unavailable" not in terrain.get("label", "").lower())
+
+    slope = context.get("slope") or {}
+    checks.append("unavailable" not in slope.get("label", "").lower())
+
+    water = context.get("water") or {}
+    checks.append("unavailable" not in water.get("label", "").lower())
+
+    soil = context.get("soil") or {}
+    checks.append("unavailable" not in soil.get("label", "").lower())
+
+    river = context.get("river_discharge")
+    checks.append(bool(river) and "unavailable" not in river.get("label", "").lower())
+
+    moisture = context.get("soil_moisture")
+    checks.append(bool(moisture) and "unavailable" not in moisture.get("label", "").lower())
+
+    # Tide only meaningfully applies to coastal locations — don't penalize
+    # an inland location's confidence for correctly having no tide data.
+    if context.get("coastal"):
+        tide = context.get("tide")
+        checks.append(bool(tide) and tide.get("current_height") is not None)
+
+    earth_engine = context.get("earth_engine")
+    checks.append(bool(earth_engine) and bool(earth_engine.get("available")))
+
+    if not checks:
+        return 50
+    return round(100 * sum(1 for c in checks if c) / len(checks))
+
+
 def calculate_flood_score(weather, forecast, context=None):
-    """Combines rainfall/forecast/humidity/pressure/wind with terrain,
-    slope, water proximity, soil, urbanization, tide, and community-observed
-    frequency — rather than rainfall alone, matching how systems like
-    Copernicus EMS or GDACS combine multiple layers instead of one signal."""
+    """Combines forecast rainfall, current rainfall, terrain, soil,
+    hydrology, tide, drainage, historical pattern, synoptic conditions, and
+    satellite reinforcement into a single weighted score out of 100 (see
+    SCORE_WEIGHTS above) — rather than an unbounded additive tally, which
+    is what let risk read too high too often and let humidity punch above
+    its actual predictive weight."""
     context = context or {}
     factors = []
 
@@ -1959,34 +2277,43 @@ def calculate_flood_score(weather, forecast, context=None):
     forecast_rain_total = sum(day["rain"] for day in forecast)
     max_forecast_rain = max([day["rain"] for day in forecast], default=0)
 
-    weather_score, weather_factors = _weather_bonus(rainfall, humidity, pressure, wind_speed, rainfall_word="current")
-    score = weather_score
-    factors.extend(weather_factors)
+    rain_sev, rain_factor = _rainfall_severity(rainfall)
+    if rain_factor:
+        factors.append(f"Current {rain_factor.lower()}" if "rainfall" in rain_factor.lower() else rain_factor)
 
-    if forecast_rain_total >= 80:
-        score += 20
-        factors.append("Very wet 5-day forecast")
-    elif forecast_rain_total >= 35:
-        score += 12
-        factors.append("Sustained rainfall expected")
-    elif max_forecast_rain >= 10:
-        score += 6
-        factors.append("One or more rainy forecast periods")
+    forecast_sev, forecast_factor = _forecast_rainfall_severity(forecast_rain_total, max_forecast_rain)
+    if forecast_factor:
+        factors.append(forecast_factor)
 
-    context_score, context_factors = _context_bonus(context)
-    score += context_score
+    synoptic_sev, synoptic_factors = _synoptic_severity(humidity, pressure, wind_speed)
+    factors.extend(synoptic_factors)
+
+    context_sev, context_factors = _context_severities(context)
     factors.extend(context_factors)
 
-    score = max(0, min(score, 100))
+    score = (
+        rain_sev * SCORE_WEIGHTS["current_rainfall"]
+        + forecast_sev * SCORE_WEIGHTS["forecast_rainfall"]
+        + synoptic_sev * SCORE_WEIGHTS["synoptic"]
+        + context_sev["terrain"] * SCORE_WEIGHTS["terrain"]
+        + context_sev["soil"] * SCORE_WEIGHTS["soil"]
+        + context_sev["river_discharge"] * SCORE_WEIGHTS["river_discharge"]
+        + context_sev["tide"] * SCORE_WEIGHTS["tide"]
+        + context_sev["drainage"] * SCORE_WEIGHTS["drainage"]
+        + context_sev["historical"] * SCORE_WEIGHTS["historical"]
+        + context_sev["satellite"] * SCORE_WEIGHTS["satellite"]
+    )
+    score = max(0, min(round(score), 100))
     coastal = bool(context.get("coastal"))
     risk = classify_risk(score, coastal=coastal)
 
     if coastal:
-        factors.append("Coastal region — lower alert threshold applied (HIGH starts at 25 instead of 45)")
+        t = RISK_THRESHOLDS["coastal"]
+        factors.append(f"Coastal region — lower alert threshold applied (HIGH starts at {t['high']} instead of {RISK_THRESHOLDS['inland']['high']})")
 
     return {
         "score": score,
-        "confidence": min(95, 68 + score // 3),
+        "confidence": _compute_data_confidence(context),
         "risk": risk["level"],
         "risk_color": risk["color"],
         "map_color": risk["map_color"],
@@ -2172,130 +2499,6 @@ def _ee_reduce_sum(image, region, scale):
     ).getInfo() or {}
 
 
-# Earth Engine is now the primary geospatial source everywhere in this app
-# (single-location search AND per-route-segment sampling), not just an
-# afterthought fallback layered on top of Open-Meteo/OpenStreetMap. This is
-# the lightweight "terrain core" subset — DEM elevation/slope + nearest-water
-# distance via JRC — kept deliberately cheap (3 reduceRegion calls, no
-# ImageCollection filtering) so it's affordable to run for every point on a
-# route, not just a single searched location. The much heavier 8-dataset
-# satellite bundle (Sentinel-1/2, CHIRPS, Dynamic World, watershed) stays a
-# single-location-only enrichment layered on top — see
-# _compute_earth_engine_context below.
-EE_WATER_SEARCH_RADIUS_M = 5000
-
-
-def _compute_ee_terrain_core(lat, lon):
-    """Elevation, slope, and nearest-water distance from Earth Engine,
-    replacing Open-Meteo (elevation/slope) and OpenStreetMap/Overpass
-    (nearest water) as the primary source, with those as the fallback only
-    when Earth Engine itself is unavailable."""
-    if not initialize_earth_engine():
-        return {"available": False, "error": _ee_init_error}
-
-    point = ee.Geometry.Point([lon, lat])
-    region = point.buffer(300)  # small buffer for a stable elevation/slope mean at this point
-
-    result = {"available": True}
-
-    try:
-        dem = ee.Image("COPERNICUS/DEM/GLO30").select("DEM")
-        slope_img = ee.Terrain.slope(dem).rename("slope")
-        terrain_stats = _ee_reduce_mean(dem.rename("elevation").addBands(slope_img), region, 30)
-        result["elevation_m"] = _round_or_none(terrain_stats.get("elevation"), 1)
-        slope_deg = terrain_stats.get("slope")
-        # Degrees -> percent grade, consistent with the rest of this app's slope handling.
-        result["slope_percent"] = (
-            round(math.tan(math.radians(slope_deg)) * 100, 1) if slope_deg is not None else None
-        )
-    except Exception as error:  # noqa: BLE001 — Earth Engine must fail closed, never break a search
-        result["elevation_error"] = str(error)
-        result["elevation_m"] = None
-        result["slope_percent"] = None
-
-    try:
-        # JRC Global Surface Water occurrence >= 50% as a "reliably water"
-        # mask, then a fast distance transform to the nearest such pixel —
-        # this is the Earth Engine equivalent of the Overpass "nearest
-        # water body" lookup, but built on satellite-observed water extent
-        # rather than OpenStreetMap's manually-mapped features.
-        water_mask = ee.Image("JRC/GSW1_4/GlobalSurfaceWater").select("occurrence").gte(50)
-        search_region = point.buffer(EE_WATER_SEARCH_RADIUS_M)
-        distance_img = (
-            water_mask.selfMask()
-            .distance(ee.Kernel.euclidean(EE_WATER_SEARCH_RADIUS_M, "meters"), False)
-            .rename("water_distance")
-        )
-        dist_stats = distance_img.reduceRegion(
-            reducer=ee.Reducer.min(),
-            geometry=search_region,
-            scale=30,
-            maxPixels=1e8,
-            bestEffort=True,
-        ).getInfo() or {}
-        raw_distance = dist_stats.get("water_distance")
-        result["nearest_water_m"] = _round_or_none(raw_distance, 0) if raw_distance is not None else None
-    except Exception as error:  # noqa: BLE001
-        result["water_error"] = str(error)
-        result["nearest_water_m"] = None
-
-    return result
-
-
-def get_ee_terrain_core(city_key, lat, lon):
-    """Cached (GEO_CONTEXT_TTL_HOURS) Earth Engine terrain core. Shares the
-    same cache table and TTL as the old Open-Meteo/Overpass geo context,
-    since terrain doesn't meaningfully change hour to hour either way."""
-    if not earth_engine_configured():
-        return {"available": False, "error": "Earth Engine not configured."}
-
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    row = conn.execute(
-        "SELECT * FROM ee_terrain_core_cache WHERE city_key = ?", (city_key,)
-    ).fetchone()
-
-    if row:
-        age_hours = (datetime.utcnow() - datetime.fromisoformat(row["updated_at"])).total_seconds() / 3600
-        if age_hours < GEO_CONTEXT_TTL_HOURS:
-            conn.close()
-            return {
-                "available": bool(row["available"]),
-                "elevation_m": row["elevation_m"],
-                "slope_percent": row["slope_percent"],
-                "nearest_water_m": row["nearest_water_m"],
-                "error": row["error_message"],
-            }
-
-    payload = _compute_ee_terrain_core(lat, lon)
-    conn.execute(
-        """
-        INSERT INTO ee_terrain_core_cache
-            (city_key, available, elevation_m, slope_percent, nearest_water_m, error_message, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(city_key) DO UPDATE SET
-            available=excluded.available,
-            elevation_m=excluded.elevation_m,
-            slope_percent=excluded.slope_percent,
-            nearest_water_m=excluded.nearest_water_m,
-            error_message=excluded.error_message,
-            updated_at=excluded.updated_at
-        """,
-        (
-            city_key,
-            1 if payload.get("available") else 0,
-            payload.get("elevation_m"),
-            payload.get("slope_percent"),
-            payload.get("nearest_water_m"),
-            payload.get("error") or payload.get("elevation_error") or payload.get("water_error"),
-            datetime.utcnow().isoformat(),
-        ),
-    )
-    conn.commit()
-    conn.close()
-    return payload
-
-
 def _round_or_none(value, digits=1):
     if value is None:
         return None
@@ -2443,15 +2646,14 @@ def _compute_earth_engine_context(lat, lon):
             .filterDate(s2_start, today)
             .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", 60))
         )
-        s2_count = s2.size().getInfo()
-        if s2_count > 0:
+        if s2.size().getInfo() > 0:
             s2_img = s2.median()
             ndwi = s2_img.normalizedDifference(["B3", "B8"]).rename("ndwi")
             ndvi = s2_img.normalizedDifference(["B8", "B4"]).rename("ndvi")
             s2_stats = _ee_reduce_mean(ndwi.addBands(ndvi), region, 20)
             result["sentinel2_ndwi"] = _round_or_none(s2_stats.get("ndwi"), 3)
             result["sentinel2_ndvi"] = _round_or_none(s2_stats.get("ndvi"), 3)
-            result["sentinel2_image_count"] = s2_count
+            result["sentinel2_image_count"] = s2.size().getInfo()
         else:
             result["sentinel2_image_count"] = 0
     except Exception as error:  # noqa: BLE001
@@ -2520,9 +2722,8 @@ def _compute_earth_engine_context(lat, lon):
     if water_occurrence >= 20:
         watershed_score += 2
     result["watershed_susceptibility_score"] = min(10, watershed_score)
-    ee_score = _score_earth_engine_context(result)
-    result["score_bonus"] = ee_score["score_bonus"]
-    result["factors"] = ee_score["factors"]
+    result["score_bonus"] = _score_earth_engine_context(result)["score_bonus"]
+    result["factors"] = _score_earth_engine_context(result)["factors"]
     return result
 
 
@@ -2560,83 +2761,79 @@ def get_earth_engine_context(city_key, lat, lon):
 
 def get_geo_context(city_key, lat, lon):
     """Elevation, slope, water proximity, soil type, and urbanization for a
-    location, cached for GEO_CONTEXT_TTL_HOURS.
+    location, cached for GEO_CONTEXT_TTL_HOURS. This is the fix for
+    Overpass/SoilGrids rate-limiting: a 29-location watchlist refreshing
+    every 15 minutes was re-fetching static terrain data ~100 times/hour
+    that hadn't changed since the last sweep. Now each location only hits
+    those APIs once per day; weather, tide, and river discharge (which
+    genuinely change) are still fetched fresh every time by the caller.
 
-    Earth Engine (Copernicus DEM + JRC Global Surface Water) is now the
-    PRIMARY source for elevation, slope, and nearest-water distance —
-    Open-Meteo's elevation API and the Overpass distance calculation are
-    used only as a fallback when Earth Engine is unavailable (not
-    configured, or a transient failure). Overpass is still the source for
-    things Earth Engine's lightweight terrain core doesn't cover: coastline
-    detection, a *named*, plottable water feature for the map (GEE gives a
-    distance, not a labeled point), and building density; SoilGrids remains
-    the soil source. This keeps Overpass/SoilGrids call volume low (the
-    original fix for their rate-limiting) while using the more authoritative
-    satellite terrain data as the primary signal.
-
-    This function is also the terrain source used per-route-segment by the
-    route safety feature, which is exactly why the Earth Engine side of
-    this stays scoped to the cheap 3-call terrain core, not the full
-    8-dataset satellite bundle — that heavier analysis is single-location
-    only (see get_earth_engine_context)."""
+    Also stale-if-error: if the TTL has expired and a live re-fetch fails
+    for a specific field (Overpass down, SoilGrids down, etc.), this falls
+    back to the last successfully cached value for that exact field rather
+    than returning None/"unavailable". Terrain, soil, and water proximity
+    barely change over time, so a slightly-stale real number is strictly
+    better than a blank one during a temporary outage."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     row = conn.execute("SELECT * FROM geo_context_cache WHERE city_key = ?", (city_key,)).fetchone()
 
+    cached = None
     if row:
+        water_point = (
+            (row["nearest_water_lat"], row["nearest_water_lon"])
+            if row["nearest_water_lat"] is not None
+            else None
+        )
+        try:
+            cached_contacts = json.loads(row["emergency_contacts_json"]) if row["emergency_contacts_json"] else []
+        except (ValueError, TypeError):
+            cached_contacts = []
+        cached = {
+            "elevation": row["elevation"],
+            "slope_percent": row["slope_percent"],
+            "nearest_water_m": row["nearest_water_m"],
+            "nearest_coast_m": row["nearest_coast_m"],
+            "nearest_water_point": water_point,
+            "nearest_water_label": row["nearest_water_label"],
+            "building_count": row["building_count"],
+            "clay_percent": row["clay_percent"],
+            "emergency_contacts": cached_contacts,
+        }
+
         age_hours = (datetime.utcnow() - datetime.fromisoformat(row["updated_at"])).total_seconds() / 3600
         if age_hours < GEO_CONTEXT_TTL_HOURS:
             conn.close()
-            water_point = (
-                (row["nearest_water_lat"], row["nearest_water_lon"])
-                if row["nearest_water_lat"] is not None
-                else None
-            )
-            try:
-                emergency_contacts = json.loads(row["emergency_contacts_json"]) if row["emergency_contacts_json"] else []
-            except (ValueError, TypeError):
-                emergency_contacts = []
-            return {
-                "elevation": row["elevation"],
-                "slope_percent": row["slope_percent"],
-                "nearest_water_m": row["nearest_water_m"],
-                "nearest_coast_m": row["nearest_coast_m"],
-                "nearest_water_point": water_point,
-                "nearest_water_label": row["nearest_water_label"],
-                "building_count": row["building_count"] or 0,
-                "clay_percent": row["clay_percent"],
-                "emergency_contacts": emergency_contacts,
-                "terrain_source": row["terrain_source"] or "open-meteo",
-            }
+            cached["building_count"] = cached["building_count"] or 0
+            return cached
 
-    # Cache miss or stale. Fetch Earth Engine's terrain core (primary) and
-    # Overpass/Open-Meteo/SoilGrids (fallback + the fields GEE doesn't cover)
-    # in parallel-equivalent fashion — sequential here, but each call is
-    # independent and fails gracefully on its own.
-    ee_terrain = get_ee_terrain_core(city_key, lat, lon)
+    # Cache miss or stale — fetch live from Overpass/Open-Meteo/SoilGrids,
+    # falling back field-by-field to the stale cached value if a specific
+    # service failed outright on this attempt.
+    elevation, slope_percent = fetch_elevation_grid(lat, lon)
+    if elevation is None and cached and cached["elevation"] is not None:
+        elevation, slope_percent = cached["elevation"], cached["slope_percent"]
 
     nearest_water_m, nearest_coast_m, building_count, nearest_water_point, nearest_water_label = (
         fetch_water_and_urban_context(lat, lon)
     )
-    clay_percent = fetch_soil_clay(lat, lon)
-    emergency_contacts = fetch_emergency_contacts(lat, lon)
+    # building_count is None only when the Overpass call failed outright
+    # (a successful call always returns an int, even 0) — that's the
+    # reliable signal to fall back to the whole stale bundle from that call.
+    if building_count is None and cached and cached["building_count"] is not None:
+        nearest_water_m = cached["nearest_water_m"]
+        nearest_coast_m = cached["nearest_coast_m"]
+        building_count = cached["building_count"]
+        nearest_water_point = cached["nearest_water_point"]
+        nearest_water_label = cached["nearest_water_label"]
 
-    if ee_terrain.get("available") and ee_terrain.get("elevation_m") is not None:
-        elevation = ee_terrain["elevation_m"]
-        slope_percent = ee_terrain.get("slope_percent")
-        terrain_source = "earth-engine"
-        # Earth Engine's satellite-derived water distance is generally more
-        # reliable than Overpass's manually-mapped features (which can miss
-        # smaller or unmapped water bodies) — prefer it for the *distance*
-        # used in scoring, but keep Overpass's named/coordinate point for
-        # the map marker and label, since GEE gives a number, not a place.
-        if ee_terrain.get("nearest_water_m") is not None:
-            nearest_water_m = ee_terrain["nearest_water_m"]
-    else:
-        # Earth Engine unavailable or this call failed — fall back to the
-        # original Open-Meteo elevation grid, exactly as before.
-        elevation, slope_percent = fetch_elevation_grid(lat, lon)
-        terrain_source = "open-meteo"
+    clay_percent = fetch_soil_clay(lat, lon)
+    if clay_percent is None and cached and cached["clay_percent"] is not None:
+        clay_percent = cached["clay_percent"]
+
+    emergency_contacts = fetch_emergency_contacts(lat, lon)
+    if not emergency_contacts and cached and cached["emergency_contacts"]:
+        emergency_contacts = cached["emergency_contacts"]
 
     now = datetime.utcnow().isoformat()
     conn.execute(
@@ -2644,8 +2841,8 @@ def get_geo_context(city_key, lat, lon):
         INSERT INTO geo_context_cache
             (city_key, elevation, slope_percent, nearest_water_m, nearest_coast_m,
              nearest_water_lat, nearest_water_lon, nearest_water_label, building_count, clay_percent,
-             emergency_contacts_json, terrain_source, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             emergency_contacts_json, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(city_key) DO UPDATE SET
             elevation=excluded.elevation,
             slope_percent=excluded.slope_percent,
@@ -2657,7 +2854,6 @@ def get_geo_context(city_key, lat, lon):
             building_count=excluded.building_count,
             clay_percent=excluded.clay_percent,
             emergency_contacts_json=excluded.emergency_contacts_json,
-            terrain_source=excluded.terrain_source,
             updated_at=excluded.updated_at
         """,
         (
@@ -2672,7 +2868,6 @@ def get_geo_context(city_key, lat, lon):
             building_count,
             clay_percent,
             json.dumps(emergency_contacts),
-            terrain_source,
             now,
         ),
     )
@@ -2689,7 +2884,6 @@ def get_geo_context(city_key, lat, lon):
         "building_count": building_count,
         "clay_percent": clay_percent,
         "emergency_contacts": emergency_contacts,
-        "terrain_source": terrain_source,
     }
 
 
@@ -2788,7 +2982,7 @@ def assess_route_safety(origin_query, destination_query):
             geo = get_geo_context(city_key, lat, lon)
             terrain = classify_terrain(geo["elevation"])
             slope = classify_slope(geo["slope_percent"])
-            water = classify_water_proximity(geo["nearest_water_m"], geo["nearest_water_label"], geo.get("terrain_source", "open-meteo"))
+            water = classify_water_proximity(geo["nearest_water_m"], geo["nearest_water_label"])
             urban = classify_urbanization(geo["building_count"])
             coastal = is_coastal_region(geo["nearest_coast_m"])
             soil = classify_soil(geo["clay_percent"])
@@ -2797,14 +2991,11 @@ def assess_route_safety(origin_query, destination_query):
                 available_count += 1
 
             w = nearest_weather(lat, lon)
-            weather_bonus, _ = _weather_bonus(
+            score, risk = calculate_day_score(
                 w["rainfall"] if w else 0,
                 w["humidity"] if w else 50,
                 w["pressure"] if w else 1013,
                 w["wind"] if w else 0,
-                rainfall_word="current",
-            )
-            context_bonus, _ = _context_bonus(
                 {
                     "terrain": terrain,
                     "slope": slope,
@@ -2813,10 +3004,9 @@ def assess_route_safety(origin_query, destination_query):
                     "urban": urban,
                     "tide": None,
                     "historical_reports": 0,
-                }
+                    "coastal": coastal,
+                },
             )
-            score = max(0, min(weather_bonus + context_bonus, 100))
-            risk = classify_risk(score, coastal=coastal)
 
             segments.append(
                 {
@@ -2874,6 +3064,146 @@ def assess_route_safety(origin_query, destination_query):
     }
 
 
+PROPERTY_RISK_LEVELS = {
+    "LOW": {
+        "color": "low",
+        "headline": "Low long-term flood exposure",
+        "guidance": "No strong long-term flood indicators for this location. Still worth asking about drainage history during due diligence — this is a terrain/history-based estimate, not a guarantee.",
+    },
+    "MODERATE": {
+        "color": "moderate",
+        "headline": "Some long-term flood exposure",
+        "guidance": "Consider asking the seller/landlord about past flooding, checking local drainage infrastructure, and reviewing flood insurance options before committing.",
+    },
+    "HIGH": {
+        "color": "high",
+        "headline": "Elevated long-term flood exposure",
+        "guidance": "Strongly consider a professional flood-risk survey, ask directly about flooding history, check whether the property has flood-resistant features (raised foundation, sump pump, etc.), and price flood insurance into your decision.",
+    },
+    "SEVERE": {
+        "color": "severe",
+        "headline": "Significant long-term flood exposure",
+        "guidance": "This location shows multiple strong long-term flood indicators (low elevation, close/frequent water presence, and/or a real history of community-reported flooding). Get a professional flood-risk assessment before buying or signing a lease, and factor in flood insurance cost and availability.",
+    },
+}
+
+
+def assess_property_flood_risk(location_query):
+    """A deliberately WEATHER-INDEPENDENT long-term flood vulnerability
+    check for prospective buyers/renters — this is the opposite question
+    from the main flood score ('is it flooding right now'). It only uses
+    static, slow-changing signals: elevation/slope, distance to water,
+    soil drainage character, JRC Global Surface Water's historical water
+    occurrence (Earth Engine — a genuine long-term indicator of a
+    location's water-adjacent character, not today's weather), coastal
+    status, and the community's historical flood-report count. This is
+    what makes the site useful in the dry season too, not just during an
+    active flood event."""
+    place = geocode_location(location_query)
+    if not place:
+        return {"ok": False, "error": f"Could not find '{location_query}'."}
+
+    lat, lon = place["lat"], place["lon"]
+    location_label = place["name"] + (f", {place['state']}" if place.get("state") else "")
+    city_key = normalize_city(location_label)
+
+    geo = get_geo_context(city_key, lat, lon)
+    earth_engine = get_earth_engine_context(city_key, lat, lon)
+    historical_reports = get_historical_frequency(location_label)
+
+    elevation = geo["elevation"]
+    slope_percent = geo["slope_percent"]
+    terrain = classify_terrain(elevation)
+    slope = classify_slope(slope_percent)
+    water = classify_water_proximity(geo["nearest_water_m"], geo["nearest_water_label"])
+    coastal = is_coastal_region(geo["nearest_coast_m"])
+    soil = classify_soil(geo["clay_percent"])
+
+    # Static score out of 100, reusing the same weighting philosophy as the
+    # main model but WITHOUT any of the weather/hydrology-of-the-moment
+    # factors (rainfall, tide, river discharge, soil moisture) — those
+    # answer "is it flooding today", not "should a buyer be cautious here
+    # in general".
+    terrain_raw = max(0.0, terrain.get("score_bonus", 0)) + max(0.0, slope.get("score_bonus", 0))
+    terrain_sev = _severity(terrain_raw, 31)
+
+    water_raw = max(0.0, water.get("score_bonus", 0))
+    water_sev = _severity(water_raw, 18)
+
+    soil_raw = max(0.0, soil.get("score_bonus", 0))
+    soil_sev = _severity(soil_raw, 7)
+
+    hist_raw = _historical_raw(historical_reports)
+    hist_sev = _severity(hist_raw, 10)
+
+    water_occurrence_pct = earth_engine.get("jrc_water_occurrence_pct") if earth_engine and earth_engine.get("available") else None
+    occurrence_sev = _severity(water_occurrence_pct or 0, 40)  # 40%+ occurrence is a strong long-term water-presence signal
+
+    coastal_sev = 1.0 if coastal else 0.0
+
+    weights = {"terrain": 25, "water": 20, "occurrence": 20, "coastal": 15, "historical": 12, "soil": 8}
+    score = (
+        terrain_sev * weights["terrain"]
+        + water_sev * weights["water"]
+        + occurrence_sev * weights["occurrence"]
+        + coastal_sev * weights["coastal"]
+        + hist_sev * weights["historical"]
+        + soil_sev * weights["soil"]
+    )
+    score = max(0, min(round(score), 100))
+
+    if score >= 65:
+        level = "SEVERE"
+    elif score >= 42:
+        level = "HIGH"
+    elif score >= 20:
+        level = "MODERATE"
+    else:
+        level = "LOW"
+
+    factors = []
+    if terrain.get("score_bonus", 0) > 0:
+        factors.append(f"Terrain: {terrain['label']}")
+    if slope.get("score_bonus", 0) > 0:
+        factors.append(f"Slope: {slope['label']}")
+    if water.get("score_bonus", 0) > 0:
+        factors.append(f"Water proximity: {water['label']}")
+    if coastal:
+        factors.append("Coastal region (within 10 km of an ocean/sea coastline)")
+    if water_occurrence_pct is not None and water_occurrence_pct >= 10:
+        factors.append(f"Earth Engine JRC data shows this area has been water-covered ~{water_occurrence_pct:.0f}% of the time historically")
+    if soil.get("score_bonus", 0) > 0:
+        factors.append(f"Soil: {soil['label']}")
+    if historical_reports > 0:
+        factors.append(f"{historical_reports} community-reported flooding incident(s) at this location since tracking began")
+    if not factors:
+        factors.append("No significant long-term flood indicators found for this location")
+
+    meta = PROPERTY_RISK_LEVELS[level]
+
+    return {
+        "ok": True,
+        "location": location_label,
+        "coordinates": [lat, lon],
+        "level": level,
+        "color": meta["color"],
+        "headline": meta["headline"],
+        "guidance": meta["guidance"],
+        "score": score,
+        "factors": factors,
+        "elevation_m": round(elevation) if elevation is not None else None,
+        "coastal": coastal,
+        "historical_reports": historical_reports,
+        "water_occurrence_pct": round(water_occurrence_pct) if water_occurrence_pct is not None else None,
+        "earth_engine_available": bool(earth_engine and earth_engine.get("available")),
+        "disclaimer": (
+            "This is a location-history and terrain-based estimate for general awareness, not a certified "
+            "flood-zone survey, insurance assessment, or legal disclosure. Always get a professional flood-risk "
+            "survey and check official flood maps before a property purchase or lease decision."
+        ),
+    }
+
+
 def build_prediction(query):
     place = geocode_location(query)
 
@@ -2899,6 +3229,13 @@ def build_prediction(query):
     geo = get_geo_context(city_key, lat, lon)
     earth_engine = get_earth_engine_context(city_key, lat, lon)
 
+    if earth_engine.get("available"):
+        if geo["elevation"] is None and earth_engine.get("gee_elevation_m") is not None:
+            geo["elevation"] = earth_engine["gee_elevation_m"]
+        if geo["slope_percent"] is None and earth_engine.get("gee_slope_deg") is not None:
+            # For small gradients, degrees and percent are close enough for this coarse risk bucket.
+            geo["slope_percent"] = round(math.tan(math.radians(earth_engine["gee_slope_deg"])) * 100, 1)
+
     elevation = geo["elevation"]
     slope_percent = geo["slope_percent"]
     terrain = classify_terrain(elevation)
@@ -2909,7 +3246,7 @@ def build_prediction(query):
     building_count = geo["building_count"]
     nearest_water_point = geo["nearest_water_point"]
     nearest_water_label = geo["nearest_water_label"]
-    water = classify_water_proximity(nearest_water_m, nearest_water_label, geo.get("terrain_source", "open-meteo"))
+    water = classify_water_proximity(nearest_water_m, nearest_water_label)
     urban = classify_urbanization(building_count)
     coastal = is_coastal_region(nearest_coast_m)
 
@@ -2944,7 +3281,6 @@ def build_prediction(query):
         "earth_engine": earth_engine,
         "historical_reports": historical_reports,
         "coastal": coastal,
-        "terrain_source": geo.get("terrain_source", "open-meteo"),
     }
 
     # The forecast is fetched after context so each day can be scored with
@@ -2996,7 +3332,6 @@ def build_prediction(query):
         "nearest_water_lat": nearest_water_point[0] if nearest_water_point else None,
         "nearest_water_lon": nearest_water_point[1] if nearest_water_point else None,
         "nearest_water_label": nearest_water_label,
-        "terrain_source": geo.get("terrain_source", "open-meteo"),
         "travel_recommendation": travel_recommendation,
         "timeline": timeline,
         "emergency_contacts": emergency_contacts,
@@ -3178,6 +3513,31 @@ def api_route_safety():
     return jsonify(result), status_code
 
 
+@app.route("/api/property-check", methods=["POST"])
+def api_property_check():
+    """Long-term flood vulnerability check for prospective buyers/renters —
+    weather-independent, so this is useful even in the dry season."""
+    if not API_KEY:
+        return jsonify({"ok": False, "error": "OPENWEATHER_API_KEY is not configured."}), 400
+
+    payload = request.get_json(silent=True) or request.form
+    location = (payload.get("location") or "").strip()
+
+    if not location:
+        return jsonify({"ok": False, "error": "A location or address is required."}), 400
+    if len(location) > 150:
+        return jsonify({"ok": False, "error": "Location is too long."}), 400
+
+    try:
+        result = assess_property_flood_risk(location)
+    except Exception as error:  # noqa: BLE001 — never let an edge case 500 the page
+        print(f"Property flood risk assessment failed: {error}")
+        return jsonify({"ok": False, "error": "Something went wrong checking this location. Please try again."}), 500
+
+    status_code = 200 if result.get("ok") else 400
+    return jsonify(result), status_code
+
+
 @app.route("/api/stats")
 def api_stats():
     stats = get_site_stats()
@@ -3187,13 +3547,6 @@ def api_stats():
 
 @app.route("/health")
 def health():
-    # Initialization is normally lazy (triggered by the first real search),
-    # so hitting /health before any search would otherwise show a
-    # misleading "not initialized" even when everything is configured
-    # correctly. Attempt it here so this endpoint gives a true answer.
-    if EARTH_ENGINE_ENABLED and ee is not None and not _ee_initialized:
-        initialize_earth_engine()
-
     return {
         "status": "ok",
         "service": "FloodGuard AI",
