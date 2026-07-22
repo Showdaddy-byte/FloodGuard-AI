@@ -2606,7 +2606,7 @@ def _compute_earth_engine_context(lat, lon):
     }
 
     try:
-        dem = ee.Image("COPERNICUS/DEM/GLO30").select("DEM")
+        dem = ee.Image("COPERNICUS/DEM/GLO30_2024_1").select("DEM")
         slope_img = ee.Terrain.slope(dem).rename("slope")
         terrain_stats = _ee_reduce_mean(dem.rename("elevation").addBands(slope_img), region, 30)
         result["gee_elevation_m"] = _round_or_none(terrain_stats.get("elevation"), 1)
