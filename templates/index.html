@@ -33,7 +33,7 @@
 
     <section id="global-alerts" class="watchlist-panel">
         <div class="watchlist-header">
-            <h2>{% if global_alerts.entries %}<span class="live-dot" aria-hidden="true"></span>{% endif %}Live Global Flood Alerts</h2>
+            <h2>{% if global_alerts.entries %}<span class="live-dot" aria-hidden="true"></span>{% endif %}🌍 Live Global Flood Alerts</h2>
             <span id="global-alerts-updated" class="watchlist-updated">{% if global_alerts.last_updated %}Last checked {{ global_alerts.last_updated }} UTC{% endif %}</span>
         </div>
         <p class="watchlist-subtitle">Real-time worldwide flood alerts from GDACS (Global Disaster Alert and Coordination System) — the same feed used by UN OCHA and humanitarian agencies. Independent of any location search.</p>
@@ -72,7 +72,7 @@
 
     <section id="active-alerts" class="watchlist-panel">
         <div class="watchlist-header">
-            <h2>{% if watchlist.active_alerts %}<span class="live-dot" aria-hidden="true"></span>{% endif %}Monitored Locations</h2>
+            <h2>{% if watchlist.active_alerts %}<span class="live-dot" aria-hidden="true"></span>{% endif %}📍 Monitored Locations</h2>
             <span id="watchlist-updated" class="watchlist-updated">{% if watchlist.last_updated %}Last checked {{ watchlist.last_updated }} UTC{% endif %}</span>
         </div>
         <p class="watchlist-subtitle">FloodGuard AI's own terrain-aware model — elevation, slope, water proximity, soil, urbanization, and coastal thresholds — applied continuously to {{ watchlist.entries | length }} tracked locations across every continent, plus anywhere visitors search.</p>
@@ -117,7 +117,7 @@
 
     <section id="route-safety" class="route-safety-panel">
         <div class="route-safety-header">
-            <h2>Can I Travel There Safely?</h2>
+            <h2>🚗 Can I Travel There Safely?</h2>
             <p>A real driving route (OSRM), checked point by point against live flood risk — terrain, water proximity, and current rainfall along the way. Not a "likely flooded roads" guess — every segment shown is backed by real elevation and water-proximity data.</p>
         </div>
 
@@ -132,8 +132,8 @@
 
     <section id="property-check" class="route-safety-panel">
         <div class="route-safety-header">
-            <h2>Thinking of Buying or Renting Here?</h2>
-            <p>A long-term flood exposure check for a specific address or neighborhood — based on elevation, distance to water, historical satellite water presence, and past community flood reports. This does not depend on today's weather, so it's useful to check any time of year, not just during a storm.</p>
+            <h2>Thinking of Renting or Buying Here?</h2>
+            <p>A long-term flood vulnerability check for a specific address or neighborhood — based on elevation, distance to water, historical satellite water presence, and past community flood reports. This does not depend on today's weather, so it's useful to check any time of year, not just during a storm.</p>
         </div>
 
         <form id="property-form" class="route-form">
@@ -220,6 +220,36 @@
                     <div class="risk-pill risk-{{ prediction.risk_color }}">{{ prediction.risk }}</div>
                 </div>
 
+                <div class="dual-score-grid">
+                    <div class="dual-score-card risk-border-{{ prediction.risk_color }}">
+                        <span class="dual-score-label">Live Flood Risk</span>
+                        <strong class="dual-score-value">{{ prediction.score }}/100</strong>
+                        <p>What's happening right now: rainfall, tide, river levels, and forecast. Changes hour to hour.</p>
+                    </div>
+                    <div class="dual-score-card risk-border-{{ prediction.vulnerability.color }}">
+                        <span class="dual-score-label">Flood Vulnerability</span>
+                        <strong class="dual-score-value">{{ prediction.vulnerability.score }}/100</strong>
+                        <p>How flood-prone this location inherently is: elevation, water proximity, and flood history. Does not depend on today's weather.</p>
+                    </div>
+                </div>
+
+                {% if prediction.vulnerability.rent_purchase_warning %}
+                <div class="rent-warning-banner risk-border-{{ prediction.vulnerability.color }}">
+                    {{ prediction.vulnerability.rent_purchase_warning }}
+                </div>
+                {% endif %}
+
+                {% if prediction.regional_context %}
+                <div class="regional-context-box">
+                    <strong>Regional context</strong>
+                    {% if prediction.regional_context.season_note %}<p>{{ prediction.regional_context.season_note }}</p>{% endif %}
+                    {% if prediction.regional_context.known_flood_years %}
+                    <p>Documented major flooding in this city: {{ prediction.regional_context.known_flood_years | join(", ") }}.</p>
+                    {% endif %}
+                    <p class="regional-disclaimer">{{ prediction.regional_context.disclaimer }}</p>
+                </div>
+                {% endif %}
+
                 <div class="travel-banner risk-border-{{ prediction.travel_recommendation.color }}">
                     <div class="travel-verdict risk-{{ prediction.travel_recommendation.color }}">{{ prediction.travel_recommendation.verdict }}</div>
                     <p>{{ prediction.travel_recommendation.headline }}</p>
@@ -277,7 +307,9 @@
                     </ul>
                     {% endif %}
                     {% else %}
-                    <p>{{ prediction.earth_engine.error or "Google Earth Engine is not configured for this deployment." }}</p>
+                    <p class="earth-engine-error">
+                        {{ prediction.earth_engine.error or "Google Earth Engine is not configured for this deployment." }}
+                    </p>
                     {% endif %}
                 </div>
                 {% endif %}
@@ -501,8 +533,58 @@
             </div>
         </div>
     </section>
+</section>
 
-    <section class="features">
+<section class="flood-reference">
+
+    <h2>🌧 FloodGuard AI Flood Risk Reference</h2>
+
+    <p>
+        Rainfall alone does not determine flood risk.
+        FloodGuard AI combines rainfall, terrain elevation,
+        drainage, proximity to rivers and lagoons,
+        historical flooding, soil saturation and tidal influence
+        before producing a flood risk assessment.
+    </p>
+
+    <table class="risk-table">
+
+        <tr>
+            <th>Rainfall</th>
+            <th>Typical Impact</th>
+        </tr>
+
+        <tr>
+            <td>15–30 mm/hour</td>
+            <td>Minor surface flooding may begin in poorly drained urban areas.</td>
+        </tr>
+
+        <tr>
+            <td>30–50 mm/hour</td>
+            <td>Flash flooding becomes increasingly likely in low-lying locations.</td>
+        </tr>
+
+        <tr>
+            <td>50–70 mm/hour</td>
+            <td>Severe flash flooding becomes increasingly likely.</td>
+        </tr>
+
+        <tr>
+            <td>60–90 mm in 24 hours</td>
+            <td>Widespread flooding of roads, drainage systems and vulnerable communities.</td>
+        </tr>
+
+        <tr>
+            <td>Above 90 mm in 24 hours</td>
+            <td>Major flooding is possible depending on terrain and drainage.</td>
+        </tr>
+
+    </table>
+
+</section>
+
+<section class="features">
+    
         <h2>Now Live in the Risk Model</h2>
         <div class="feature-grid">
             <div class="feature-card"><h3>Topography</h3><p>Real elevation and slope, computed per search — not just city-wide averages.</p></div>
@@ -583,7 +665,7 @@
     attachWatchlistButtons();
 
     function riskColorClass(level) {
-        const map = { LOW: "low", WATCH: "watch", MODERATE: "moderate", HIGH: "high", SEVERE: "severe", CRITICAL: "critical" };
+        const map = { LOW: "low", WATCH: "watch", HIGH: "high", SEVERE: "severe", CRITICAL: "critical" };
         return map[level] || "low";
     }
 
@@ -892,13 +974,17 @@
 
         const color = riskColorClassRoute(data.level);
         const factorsHtml = data.factors.map((f) => "<li>" + f + "</li>").join("");
+        const warningHtml = data.rent_purchase_warning
+            ? '<div class="rent-warning-banner risk-border-' + color + '">' + data.rent_purchase_warning + "</div>"
+            : "";
 
         resultsEl.innerHTML =
             '<div class="route-verdict-banner risk-border-' + color + '">' +
                 '<div class="travel-verdict risk-' + color + '">' + data.headline + "</div>" +
-                "<p>" + data.location + " — long-term exposure score " + data.score + "/100</p>" +
+                "<p>" + data.location + " — long-term vulnerability score " + data.score + "/100</p>" +
                 "<p>" + data.guidance + "</p>" +
             "</div>" +
+            warningHtml +
             '<div class="route-risky-list"><strong>What this is based on:</strong><ul>' + factorsHtml + "</ul></div>" +
             '<p class="property-disclaimer">' + data.disclaimer + "</p>";
     }
