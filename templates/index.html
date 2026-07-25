@@ -17,7 +17,6 @@
             <li><a href="#home">Home</a></li>
             <li><a href="#features">Features</a></li>
             <li><a href="#dashboard">Dashboard</a></li>
-            <li><a href="#intelligence">Intelligence</a></li>
             <li><a href="#contact">Contact</a></li>
         </ul>
     </nav>
@@ -284,36 +283,6 @@
                     <div><span>Nearest water</span><strong>{% if prediction.nearest_water_m is not none %}{{ prediction.nearest_water_m }} m{% else %}Unavailable{% endif %}</strong></div>
                 </div>
 
-                {% if prediction.earth_engine %}
-                <div class="earth-engine-panel">
-                    <div class="earth-engine-header">
-                        <h3>Earth Engine Intelligence</h3>
-                        <span>{% if prediction.earth_engine.available %}Active{% else %}Unavailable{% endif %}</span>
-                    </div>
-                    {% if prediction.earth_engine.available %}
-                    <div class="earth-engine-grid">
-                        <div><span>Sentinel-1 flood extent</span><strong>{% if prediction.earth_engine.sentinel1_flood_area_ha is not none %}{{ prediction.earth_engine.sentinel1_flood_area_ha }} ha{% else %}No recent radar pair{% endif %}</strong></div>
-                        <div><span>Sentinel-2 water index</span><strong>{% if prediction.earth_engine.sentinel2_ndwi is not none %}{{ prediction.earth_engine.sentinel2_ndwi }} NDWI{% else %}Cloudy/no image{% endif %}</strong></div>
-                        <div><span>CHIRPS rainfall</span><strong>{% if prediction.earth_engine.chirps_7d_mm is not none %}{{ prediction.earth_engine.chirps_7d_mm }} mm / 7d{% else %}Unavailable{% endif %}</strong></div>
-                        <div><span>JRC water occurrence</span><strong>{% if prediction.earth_engine.jrc_water_occurrence_pct is not none %}{{ prediction.earth_engine.jrc_water_occurrence_pct }}%{% else %}Unavailable{% endif %}</strong></div>
-                        <div><span>Dynamic World cover</span><strong>{{ prediction.earth_engine.dynamic_world_label or "Unavailable" }}</strong></div>
-                        <div><span>Watershed susceptibility</span><strong>{% if prediction.earth_engine.watershed_susceptibility_score is not none %}{{ prediction.earth_engine.watershed_susceptibility_score }}/10{% else %}Unavailable{% endif %}</strong></div>
-                    </div>
-                    {% if prediction.earth_engine.factors %}
-                    <ul class="earth-engine-factors">
-                        {% for factor in prediction.earth_engine.factors %}
-                        <li>{{ factor }}</li>
-                        {% endfor %}
-                    </ul>
-                    {% endif %}
-                    {% else %}
-                    <p class="earth-engine-error">
-                        {{ prediction.earth_engine.error or "Google Earth Engine is not configured for this deployment." }}
-                    </p>
-                    {% endif %}
-                </div>
-                {% endif %}
-
                 {% if prediction.priority_action %}
                 <div class="safety-action-box risk-border-{{ prediction.risk_color }}">
                     <strong>⚠ Safety action:</strong> {{ prediction.priority_action }}
@@ -344,40 +313,6 @@
                         </div>
                     </section>
                 </div>
-
-                <div class="layer-grid" id="intelligence">
-                    {% for key, layer in prediction.environment.items() %}
-                    {% if key != "summary" %}
-                    <div class="layer-card">
-                        <span>{{ layer.label }}</span>
-                        <strong>{{ layer.score }}/10</strong>
-                        <p>{{ layer.status }}</p>
-                    </div>
-                    {% endif %}
-                    {% endfor %}
-                </div>
-
-                {% set tide_info = prediction.environment.tide %}
-                {% if tide_info and (tide_info.next_high or tide_info.next_low) %}
-                <div class="tide-forecast-box">
-                    <strong>🌊 Tide Forecast</strong>
-                    <div class="tide-events">
-                        {% if tide_info.next_high %}
-                        <div class="tide-event">
-                            <span class="tide-event-label">Next High Tide</span>
-                            <span class="tide-event-value">{{ tide_info.next_high.height | round(1) }} m at {{ tide_info.next_high.time }}</span>
-                        </div>
-                        {% endif %}
-                        {% if tide_info.next_low %}
-                        <div class="tide-event">
-                            <span class="tide-event-label">Next Low Tide</span>
-                            <span class="tide-event-value">{{ tide_info.next_low.height | round(1) }} m at {{ tide_info.next_low.time }}</span>
-                        </div>
-                        {% endif %}
-                    </div>
-                    <p class="tide-source">Live data from WorldTides.</p>
-                </div>
-                {% endif %}
 
                 <section id="community" class="community-panel" data-city="{{ prediction.city }}">
                     <div class="community-header">
@@ -534,75 +469,6 @@
         </div>
     </section>
 </section>
-
-<section class="flood-reference">
-
-    <h2>🌧 FloodGuard AI Flood Risk Reference</h2>
-
-    <p>
-        Rainfall alone does not determine flood risk.
-        FloodGuard AI combines rainfall, terrain elevation,
-        drainage, proximity to rivers and lagoons,
-        historical flooding, soil saturation and tidal influence
-        before producing a flood risk assessment.
-    </p>
-
-    <table class="risk-table">
-
-        <tr>
-            <th>Rainfall</th>
-            <th>Typical Impact</th>
-        </tr>
-
-        <tr>
-            <td>15–30 mm/hour</td>
-            <td>Minor surface flooding may begin in poorly drained urban areas.</td>
-        </tr>
-
-        <tr>
-            <td>30–50 mm/hour</td>
-            <td>Flash flooding becomes increasingly likely in low-lying locations.</td>
-        </tr>
-
-        <tr>
-            <td>50–70 mm/hour</td>
-            <td>Severe flash flooding becomes increasingly likely.</td>
-        </tr>
-
-        <tr>
-            <td>60–90 mm in 24 hours</td>
-            <td>Widespread flooding of roads, drainage systems and vulnerable communities.</td>
-        </tr>
-
-        <tr>
-            <td>Above 90 mm in 24 hours</td>
-            <td>Major flooding is possible depending on terrain and drainage.</td>
-        </tr>
-
-    </table>
-
-</section>
-
-<section class="features">
-    
-        <h2>Now Live in the Risk Model</h2>
-        <div class="feature-grid">
-            <div class="feature-card"><h3>Topography</h3><p>Real elevation and slope, computed per search — not just city-wide averages.</p></div>
-            <div class="feature-card"><h3>Water Proximity</h3><p>Live distance to the nearest river, lake, or coastline via OpenStreetMap.</p></div>
-            <div class="feature-card"><h3>Soil & Urbanization</h3><p>Clay content from SoilGrids and building density from OpenStreetMap, both factored into the score.</p></div>
-            <div class="feature-card"><h3>Community Ground Truth</h3><p>Live visitor reports can override the model when people on the ground say it's flooding.</p></div>
-        </div>
-    </section>
-
-    <section class="features">
-        <h2>Next Live Data Layers</h2>
-        <div class="feature-grid">
-            <div class="feature-card"><h3>Live River Gauges</h3><p>Real-time river level data where national agencies publish it.</p></div>
-            <div class="feature-card"><h3>Demography</h3><p>Population density and vulnerable community mapping.</p></div>
-            <div class="feature-card"><h3>Satellite Flood Detection</h3><p>Remote-sensing confirmation of active flooding.</p></div>
-            <div class="feature-card"><h3>Live Traffic</h3><p>Blocked roads, route speed, and evacuation path guidance.</p></div>
-        </div>
-    </section>
 
     <footer id="contact">
         <h2>FloodGuard AI</h2>
