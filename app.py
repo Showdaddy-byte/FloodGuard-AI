@@ -2584,7 +2584,7 @@ def get_geo_context(city_key, lat, lon):
     if clay_percent is None and cached and cached["clay_percent"] is not None:
         clay_percent = cached["clay_percent"]
 
-    emergency_contacts = fetch_emergency_contacts(lat, lon)
+    emergency_contacts = []
     if not emergency_contacts and cached and cached["emergency_contacts"]:
         emergency_contacts = cached["emergency_contacts"]
 
