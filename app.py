@@ -3375,7 +3375,8 @@ def api_property_check():
         city_key = normalize_city(location_label)
 
         geo = get_geo_context(city_key, lat, lon)
-        earth_engine = get_earth_engine_context(city_key, lat, lon)
+        # Temporarily disable Earth Engine availability for assessments
+        earth_engine = {"available": False}
         historical_reports = get_historical_frequency(location_label)
 
         elevation = geo["elevation"]
