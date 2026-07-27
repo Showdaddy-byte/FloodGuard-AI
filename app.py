@@ -3029,6 +3029,7 @@ def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engi
 
 
 def build_prediction(query):
+    print("STEP 1: Geocoding")
     place = geocode_location(query)
 
     if place:
@@ -3041,6 +3042,7 @@ def build_prediction(query):
         # Geocoding failed (unrecognized place name) — nothing to look up.
         return None, []
 
+    print(f"STEP 2: Weather for {display_name} at {lat},{lon}")
     weather = get_weather(lat, lon, display_name=display_name)
     if not weather:
         return None, []
@@ -3050,6 +3052,7 @@ def build_prediction(query):
     # hour to hour — this is what keeps Overpass/SoilGrids call volume low
     # enough to avoid rate-limiting on repeated watchlist sweeps.
     city_key = normalize_city(weather["city"])
+    print("STEP 3: Geo Context")
     geo = get_geo_context(city_key, lat, lon)
     earth_engine = get_earth_engine_context(city_key, lat, lon)
 
@@ -3081,12 +3084,15 @@ def build_prediction(query):
 
     # Weather, tide, and river discharge genuinely change over time, so
     # these are still fetched fresh on every call.
+    print("STEP 4: Tide")
     tide_height = fetch_tide_status(lat, lon)
     tide = classify_tide(tide_height)
 
+    print("STEP 5: River")
     discharge_current, discharge_mean = fetch_river_discharge(lat, lon)
     river = classify_river_discharge(discharge_current, discharge_mean)
 
+    print("STEP 6: Soil Moisture")
     moisture_value = fetch_soil_moisture(lat, lon)
     moisture = classify_soil_moisture(moisture_value)
 
@@ -3121,8 +3127,10 @@ def build_prediction(query):
     # the same terrain/coastal-aware model as "right now" — this is what
     # lets the 5-day forecast warn ahead of time for vulnerable terrain,
     # instead of only reacting to rainfall alone.
+    print("STEP 7: Forecast")
     forecast, timeline = get_forecast(lat, lon, context)
 
+    print("STEP 8: Flood Model")
     flood_model = calculate_flood_score(weather, forecast, context)
     environment = estimate_environment(weather["city"], weather, community, context)
 
@@ -3152,7 +3160,7 @@ def build_prediction(query):
         }
 
     travel_recommendation = build_travel_recommendation(flood_model["risk"], flood_model["score"], timeline)
-
+    print("STEP 9: Completed")
     return {
         **weather,
         **flood_model,
