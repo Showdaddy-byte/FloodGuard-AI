@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+<meta charset="UTF-8">
+
+<title>FloodGuard AI Widget</title>
+
+<style>
+
+body{
+
+font-family:Arial;
+
+padding:20px;
+
+margin:0;
+
+}
+
+input{
+
+width:100%;
+
+padding:10px;
+
+margin-bottom:10px;
+
+}
+
+button{
+
+width:100%;
+
+padding:10px;
+
+}
+
+.result{
+
+margin-top:20px;
+
+padding:15px;
+
+border:1px solid #ddd;
+
+border-radius:6px;
+
+}
+
+</style>
+
+</head>
+
+<body>
+
+<h2>FloodGuard AI</h2>
+
+<form id="widget-form" method="POST">
+
+<input
+id="city"
+name="city"
+placeholder="Enter a location"
+required>
+
+<button type="submit">
+
+Check Flood Risk
+
+</button>
+
+</form>
+
+{% if error %}
+
+<p>{{ error }}</p>
+
+{% endif %}
+
+<div id="result" class="result"></div>
+<script>
+document.getElementById("widget-form").addEventListener("submit", async function(e){
+
+    e.preventDefault();
+
+    const city = document.getElementById("city").value;
+
+    const result = document.getElementById("result");
+
+    result.innerHTML = "<p>⏳ Checking flood risk...</p>";
+
+    const response = await fetch("/api/widget",{
+
+        method:"POST",
+
+        headers:{
+            "Content-Type":"application/x-www-form-urlencoded"
+        },
+
+        body:"city="+encodeURIComponent(city)
+
+    });
+
+    const data = await response.json();
+
+    if(!data.ok){
+
+        result.innerHTML =
+        "<p style='color:red;'>"
+        + data.error +
+        "</p>";
+
+        return;
+
+    }
+
+    const p = data.prediction;
+
+    result.innerHTML = `
+
+        <h3>${p.city}</h3>
+
+        <p><strong>Risk:</strong> ${p.risk}</p>
+
+        <p><strong>Score:</strong> ${p.score}/100</p>
+
+        <p>${p.description}</p>
+
+    `;
+
+});
+</script>
+</body>
+
+</html>

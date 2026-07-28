@@ -3227,7 +3227,29 @@ def home():
         global_alerts=get_global_alerts_status(),
         mapbox_token=MAPBOX_ACCESS_TOKEN,
     )
+@app.route("/api/widget", methods=["POST"])
+def widget_api():
 
+    city = request.form.get("city", "").strip()
+
+    if not city:
+        return jsonify({
+            "ok": False,
+            "error": "Please enter a city."
+        })
+
+    prediction, forecast = build_prediction(city)
+
+    if not prediction:
+        return jsonify({
+            "ok": False,
+            "error": "Location not found."
+        })
+
+    return jsonify({
+        "ok": True,
+        "prediction": prediction
+    })
 
 @app.route("/api/contribute", methods=["POST"])
 def api_contribute():
@@ -3442,7 +3464,41 @@ def health():
             "earth_engine_error": _ee_init_error,
         },
     }
+@app.route("/widget", methods=["GET", "POST"])
+def widget():
 
+    prediction = None
+    forecast = []
+    error = None
+    reports = []
+
+    if request.method == "POST":
+
+        city = request.form.get("city", "").strip()
+
+        if not city:
+            error = "Please enter a city."
+
+        elif not API_KEY:
+            error = "Weather API key is missing."
+
+        else:
+
+            prediction, forecast = build_prediction(city)
+
+            if prediction:
+                reports = get_city_contributions(prediction["city"])
+
+            else:
+                error = "Location not found."
+
+    return render_template(
+        "widget.html",
+        prediction=prediction,
+        forecast=forecast,
+        reports=reports,
+        error=error
+    )
 
 if __name__ == "__main__":
     app.run(debug=True)
