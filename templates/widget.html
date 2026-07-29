@@ -6,7 +6,89 @@
 <meta charset="UTF-8">
 
 <title>FloodGuard AI Widget</title>
+<style>
 
+body{
+
+font-family:Arial;
+
+padding:20px;
+
+margin:0;
+
+}
+
+input{
+
+width:100%;
+
+padding:10px;
+
+margin-bottom:10px;
+
+}
+
+button{
+
+width:100%;
+
+padding:10px;
+
+}
+
+.result{
+
+margin-top:20px;
+
+padding:15px;
+
+border:1px solid #ddd;
+
+border-radius:6px;
+
+}
+
+/* ← ADD THE NEW CSS HERE */
+
+/* Risk badge */
+.risk{
+    padding:6px 14px;
+    border-radius:20px;
+    color:white;
+    font-weight:bold;
+    display:inline-block;
+}
+
+.low{background:#2e7d32;}
+.medium{background:#f9a825;}
+.high{background:#ef6c00;}
+.extreme{background:#c62828;}
+
+/* Gauge */
+.gauge{
+    display:flex;
+    justify-content:center;
+    margin:20px 0;
+}
+
+.gauge-circle{
+    width:120px;
+    height:120px;
+    border-radius:50%;
+    border:10px solid #2196f3;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:white;
+}
+
+.gauge-value{
+    font-size:32px;
+    font-weight:bold;
+    color:#1565c0;
+}
+
+</style>
 <style>
 
 body{
@@ -88,7 +170,7 @@ document.getElementById("widget-form").addEventListener("submit", async function
     const city = document.getElementById("city").value;
 
     const result = document.getElementById("result");
-
+    result.classList.remove("show");
     result.innerHTML = "<p>⏳ Checking flood risk...</p>";
 
     const response = await fetch("/api/widget",{
@@ -117,18 +199,64 @@ document.getElementById("widget-form").addEventListener("submit", async function
     }
 
     const p = data.prediction;
-
+    console.log(p);
     result.innerHTML = `
 
-        <h3>${p.city}</h3>
+        <h3>📍 ${p.city}</h3>
 
-        <p><strong>Risk:</strong> ${p.risk}</p>
+        <div class="gauge">
+            <div class="gauge-circle">
+                <div class="gauge-value">${p.score}</div>
+            </div>
+        </div>
 
-        <p><strong>Score:</strong> ${p.score}/100</p>
+        <p>
+            <strong>Flood Risk:</strong>
+            <span class="risk ${p.risk.toLowerCase()}">
+                ${p.risk}
+            </span>
+        </p>
 
-        <p>${p.description}</p>
+        <hr>
+
+        <h4>📊 Why this score?</h4>
+
+        <p>🌧️ <strong>Rainfall Forecast:</strong> ${p.rainfall_mm} mm</p>
+
+        <p>🌡️ <strong>Temperature:</strong> ${p.temperature_c} °C</p>
+
+        <p>💧 <strong>Humidity:</strong> ${p.humidity_percent}%</p>
+
+        <p>💨 <strong>Wind Speed:</strong> ${p.wind_speed_kmh} km/h</p>
+
+        <p>☁️ <strong>Weather:</strong> ${p.weather_condition}</p>
+
+        <hr>
+
+        <p>🌊 <strong>Flood History:</strong> ${p.flood_history}</p>
+
+        <p>🗺️ <strong>Terrain:</strong> ${p.terrain_risk.label}</p>
+
+        <p>🏙️ <strong>Urban Density:</strong> ${p.drainage_status.label}</p>
+
+        <hr>
+
+        <p><strong>💡 AI Summary</strong></p>
+
+        <p>
+            Flood risk is currently
+            <b>${p.risk}</b>
+            because rainfall is forecast to be
+            <b>${p.rainfall_mm} mm</b>,
+            terrain conditions are
+            <b>${p.terrain_risk.label}</b>,
+            and the urban density is
+            <b>${p.drainage_status.label}</b>.
+        </p>
 
     `;
+
+    result.classList.add("show");
 
 });
 </script>

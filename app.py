@@ -2167,12 +2167,18 @@ def get_weather(lat, lon, display_name=None):
         "description": description,
         "weather_id": weather_id,
         "scene": scene,
+
         "temperature": round(data["main"]["temp"], 1),
         "feels_like": round(data["main"]["feels_like"], 1),
+
         "humidity": data["main"]["humidity"],
         "pressure": data["main"]["pressure"],
+
         "wind": data["wind"]["speed"],
+        "wind_speed": round(data["wind"]["speed"] * 3.6, 1),
+
         "rainfall": rainfall,
+
         "latitude": data["coord"]["lat"],
         "longitude": data["coord"]["lon"],
     }
@@ -3164,23 +3170,48 @@ def build_prediction(query):
     return {
         **weather,
         **flood_model,
+
         "environment": environment,
         "community": community,
         "ground_alert": ground_alert,
+
         "elevation": round(elevation) if elevation is not None else None,
         "slope_percent": slope_percent,
+
         "nearest_water_m": round(nearest_water_m) if nearest_water_m is not None else None,
         "nearest_coast_m": round(nearest_coast_m) if nearest_coast_m is not None else None,
+
         "nearest_water_lat": nearest_water_point[0] if nearest_water_point else None,
         "nearest_water_lon": nearest_water_point[1] if nearest_water_point else None,
         "nearest_water_label": nearest_water_label,
+
         "travel_recommendation": travel_recommendation,
         "timeline": timeline,
+
         "emergency_contacts": emergency_contacts,
+
         "historical_reports": historical_reports,
         "earth_engine": earth_engine,
+
         "vulnerability": vulnerability,
         "regional_context": regional_context,
+
+        # -----------------------------
+        # Dynamic values for the widget
+        # -----------------------------
+        "rainfall_mm": weather["rainfall"],
+        "temperature_c": weather["temperature"],
+        "humidity_percent": weather["humidity"],
+        "wind_speed_kmh": weather["wind_speed"],
+        "weather_condition": weather["description"],
+
+        "terrain_risk": terrain,
+        "drainage_status": urban,
+        "flood_history": historical_reports,
+        "soil_type": soil,
+        "river_status": river,
+        "tide_status": tide,
+        "soil_moisture": moisture,
     }, forecast
 
 

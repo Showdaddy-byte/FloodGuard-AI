@@ -1954,3 +1954,134 @@ footer h2 {
 .risk-table tr:nth-child(even){
     background:#13293d;
 }
+body{
+    font-family:Arial,sans-serif;
+    padding:20px;
+    margin:0;
+    background:linear-gradient(-45deg,#0f4c81,#1e88e5,#4fc3f7,#81d4fa);
+    background-size:400% 400%;
+    animation:waterFlow 12s ease infinite;
+}
+
+@keyframes waterFlow{
+    0%{background-position:0% 50%;}
+    50%{background-position:100% 50%;}
+    100%{background-position:0% 50%;}
+}
+
+.result{
+    margin-top:20px;
+    padding:15px;
+    border-radius:12px;
+    background:#ffffff;
+    box-shadow:0 10px 30px rgba(0,0,0,.15);
+    opacity:0;
+    transform:translateY(20px);
+    transition:all .5s ease;
+}
+
+.result.show{
+    opacity:1;
+    transform:translateY(0);
+}
+
+button{
+    width:100%;
+    padding:12px;
+    border:none;
+    border-radius:8px;
+    background:#1565c0;
+    color:white;
+    font-weight:bold;
+    cursor:pointer;
+    transition:.3s;
+}
+
+button:hover{
+    transform:scale(1.03);
+    box-shadow:0 0 20px rgba(33,150,243,.5);
+}
+
+input{
+    width:100%;
+    padding:12px;
+    border-radius:8px;
+    border:1px solid #ccc;
+    transition:.3s;
+}
+
+input:focus{
+    border-color:#2196f3;
+    box-shadow:0 0 10px rgba(33,150,243,.3);
+}
+.risk{
+    padding:6px 14px;
+    border-radius:20px;
+    color:white;
+    font-weight:bold;
+    display:inline-block;
+    animation:pulse 2s infinite;
+}
+
+.low{
+    background:#2e7d32;
+}
+
+.medium{
+    background:#f9a825;
+}
+
+.high{
+    background:#ef6c00;
+}
+
+.extreme{
+    background:#c62828;
+}
+
+@keyframes pulse{
+    0%{
+        transform:scale(1);
+    }
+    50%{
+        transform:scale(1.08);
+    }
+    100%{
+        transform:scale(1);
+    }
+}
+.gauge{
+    display:flex;
+    justify-content:center;
+    margin:20px 0;
+}
+
+.gauge-circle{
+    width:120px;
+    height:120px;
+    border-radius:50%;
+    border:10px solid #2196f3;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:white;
+    box-shadow:0 8px 20px rgba(0,0,0,.15);
+    animation:spinIn .8s ease;
+}
+
+.gauge-value{
+    font-size:32px;
+    font-weight:bold;
+    color:#1565c0;
+}
+
+@keyframes spinIn{
+    from{
+        transform:scale(.5) rotate(-180deg);
+        opacity:0;
+    }
+    to{
+        transform:scale(1) rotate(0deg);
+        opacity:1;
+    }
+}
