@@ -3214,7 +3214,19 @@ def build_prediction(query):
         "soil_moisture": moisture,
     }, forecast
 
+@app.route("/api/health", methods=["GET"])
+def api_health():
+    return jsonify({
+        "status": "online",
+        "service": "FloodGuard AI",
+        "version": "1.0.0",
+        "utc": datetime.utcnow().isoformat() + "Z"
+    })
 
+
+@app.route("/", methods=["GET", "POST"])
+def index():
+    ...
 @app.route("/", methods=["GET", "POST"])
 def home():
     prediction = None
