@@ -3530,6 +3530,12 @@ def widget():
         reports=reports,
         error=error
     )
-
+@app.route("/health")
+def health():
+    return {
+        "status": "ok",
+        "service": "FloodGuard AI",
+        "message": "Server is running normally"
+    }, 200
 if __name__ == "__main__":
     app.run(debug=True)
