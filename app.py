@@ -6,7 +6,7 @@ import sqlite3
 import threading
 import time
 import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import requests
 import urllib3.util.connection as urllib3_cn
@@ -33,6 +33,7 @@ CATEGORY_LABELS = {
 }
 
 API_KEY = os.getenv("OPENWEATHER_API_KEY")
+WEATHERAPI_KEY = os.getenv("WEATHERAPI_KEY")  # optional — WeatherAPI.com fallback, only used if OpenWeather fails
 TIDE_API_KEY = os.getenv("TIDE_API_KEY")  # optional — WorldTides free tier; tidal factor is skipped if unset
 MAPBOX_ACCESS_TOKEN = os.getenv("MAPBOX_ACCESS_TOKEN")  # optional — enables the live traffic map layer
 
@@ -43,6 +44,7 @@ GEE_PROJECT = os.getenv("GEE_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT")
 
 OPENWEATHER_URL = "https://api.openweathermap.org/data/2.5"
 OPENWEATHER_GEO_URL = "https://api.openweathermap.org/geo/1.0/direct"
+WEATHERAPI_URL = "https://api.weatherapi.com/v1"  # fallback only — see fetch_weatherapi_current/forecast
 ELEVATION_URL = "https://api.open-meteo.com/v1/elevation"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 SOILGRIDS_URL = "https://rest.isric.org/soilgrids/v2.0/properties/query"
@@ -212,6 +214,21 @@ def request_with_retry(
             raise
     if last_exc:
         raise last_exc
+
+
+def _parse_stored_datetime(value):
+    """Parse an ISO-format timestamp string pulled from the database into a
+    naive UTC datetime. datetime.utcnow() (used everywhere in this app to
+    write timestamps) always returns naive datetimes, but a stored row can
+    end up offset-aware — from an older code version, a manual edit, or any
+    other source that included tzinfo. Comparing a naive datetime.utcnow()
+    against an aware parsed value raises:
+    TypeError: can't subtract offset-naive and offset-aware datetimes
+    Normalizing here makes every age/staleness check tolerant of both."""
+    dt = datetime.fromisoformat(value)
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
 
 
 def get_db():
@@ -623,7 +640,7 @@ def maybe_refresh_watchlist_async():
     oldest = row[0] if row else None
     is_stale = True
     if oldest:
-        age_minutes = (datetime.utcnow() - datetime.fromisoformat(oldest)).total_seconds() / 60
+        age_minutes = (datetime.utcnow() - _parse_stored_datetime(oldest)).total_seconds() / 60
         is_stale = age_minutes >= WATCHLIST_REFRESH_MINUTES
 
     # Cache has fewer rows than monitored locations (first run, or a new
@@ -691,7 +708,7 @@ def get_watchlist_status():
     is_stale = False
     age_minutes = None
     if oldest_update:
-        age_minutes = (datetime.utcnow() - datetime.fromisoformat(oldest_update)).total_seconds() / 60
+        age_minutes = (datetime.utcnow() - _parse_stored_datetime(oldest_update)).total_seconds() / 60
         is_stale = age_minutes >= (WATCHLIST_REFRESH_MINUTES * 2)
 
     return {
@@ -843,7 +860,7 @@ def maybe_refresh_global_alerts_async():
     last = row[0] if row else None
     is_stale = True
     if last:
-        age_minutes = (datetime.utcnow() - datetime.fromisoformat(last)).total_seconds() / 60
+        age_minutes = (datetime.utcnow() - _parse_stored_datetime(last)).total_seconds() / 60
         is_stale = age_minutes >= GLOBAL_ALERTS_REFRESH_MINUTES
 
     if not is_stale:
@@ -893,7 +910,7 @@ def get_global_alerts_status():
     is_stale = False
     age_minutes = None
     if last_updated:
-        age_minutes = (datetime.utcnow() - datetime.fromisoformat(last_updated)).total_seconds() / 60
+        age_minutes = (datetime.utcnow() - _parse_stored_datetime(last_updated)).total_seconds() / 60
         is_stale = age_minutes >= (GLOBAL_ALERTS_REFRESH_MINUTES * 3)
 
     return {
@@ -920,6 +937,101 @@ def fetch_openweather(endpoint, params):
     except requests.RequestException as error:
         print(f"OpenWeather request failed: {error}")
         return None
+
+
+def fetch_weatherapi_current(lat, lon):
+    """Fallback current-conditions source. Only ever called when OpenWeather's
+    /weather call has already failed outright (see get_weather) — this is
+    not a primary source and never runs on the happy path. Returns the raw
+    WeatherAPI JSON payload, or None on any failure; get_weather() is
+    responsible for normalizing it into this app's internal weather shape."""
+    if not WEATHERAPI_KEY:
+        return None
+    try:
+        response = request_with_retry(
+            "GET",
+            f"{WEATHERAPI_URL}/current.json",
+            service_name="weatherapi",
+            params={"key": WEATHERAPI_KEY, "q": f"{lat},{lon}", "aqi": "no"},
+            timeout=10,
+        )
+        response.raise_for_status()
+        return response.json()
+    except (requests.RequestException, ValueError) as error:
+        print(f"WeatherAPI current-conditions fallback request failed: {error}")
+        return None
+
+
+def fetch_weatherapi_forecast(lat, lon, days=5):
+    """Fallback forecast source. Only ever called when OpenWeather's
+    /forecast call has already failed outright (see get_forecast).
+    WeatherAPI's free plan caps forecast length at 3 days — requesting 5
+    on the free tier just returns what's available rather than erroring,
+    so this degrades gracefully to a shorter forecast rather than failing."""
+    if not WEATHERAPI_KEY:
+        return None
+    try:
+        response = request_with_retry(
+            "GET",
+            f"{WEATHERAPI_URL}/forecast.json",
+            service_name="weatherapi",
+            params={"key": WEATHERAPI_KEY, "q": f"{lat},{lon}", "days": days, "aqi": "no", "alerts": "no"},
+            timeout=12,
+        )
+        response.raise_for_status()
+        return response.json()
+    except (requests.RequestException, ValueError) as error:
+        print(f"WeatherAPI forecast fallback request failed: {error}")
+        return None
+
+
+def _weatherapi_forecast_to_openweather_shape(lat, lon):
+    """Reshapes a WeatherAPI forecast into the same list-of-3-hour-items
+    format OpenWeather's /forecast endpoint returns (dt_txt, rain.3h,
+    main.humidity/pressure, wind.speed, weather[0].id/description) — so
+    get_forecast()'s existing scoring loop can consume either provider
+    without duplicating any scoring logic. WeatherAPI's hourly precip_mm
+    is a single hour's rainfall, so this sums three consecutive hours per
+    bucket to approximate OpenWeather's 3-hour accumulated rain.3h figure
+    (the scoring thresholds in _weather_bonus were calibrated against a
+    3-hour accumulation, not a single hour's reading — using raw 1-hour
+    values here would systematically under-score every fallback forecast)."""
+    raw = fetch_weatherapi_forecast(lat, lon, days=5)
+    if not raw:
+        return []
+
+    forecastdays = (raw.get("forecast", {}) or {}).get("forecastday", [])
+    items = []
+    for day in forecastdays:
+        hours = day.get("hour", [])
+        for bucket_start in range(0, len(hours), 3):
+            bucket = hours[bucket_start:bucket_start + 3]
+            if not bucket:
+                continue
+            last_hour = bucket[-1]
+            raw_time = last_hour.get("time")
+            if not raw_time:
+                continue  # can't place this bucket in the timeline without a timestamp
+
+            bucket_rain = sum(h.get("precip_mm", 0) or 0 for h in bucket)
+            condition_text = (last_hour.get("condition", {}) or {}).get("text", "")
+
+            items.append(
+                {
+                    "dt_txt": f"{raw_time}:00",  # WeatherAPI gives "YYYY-MM-DD HH:MM"; add seconds to match OpenWeather's format
+                    "rain": {"3h": round(bucket_rain, 1)},
+                    "main": {
+                        "temp": last_hour.get("temp_c", 0),
+                        "humidity": last_hour.get("humidity", 50),
+                        "pressure": round(last_hour.get("pressure_mb", 1013)),
+                    },
+                    "wind": {"speed": round((last_hour.get("wind_kph", 0) or 0) / 3.6, 1)},
+                    # id -1: WeatherAPI has no equivalent to OpenWeather's numeric condition
+                    # codes, so weather_scene() falls back to its description-keyword checks.
+                    "weather": [{"id": -1, "description": condition_text}],
+                }
+            )
+    return items
 
 
 def geocode_location(query):
@@ -2086,13 +2198,20 @@ def get_forecast(lat, lon, context=None):
         "forecast",
         {"lat": lat, "lon": lon, "appid": API_KEY, "units": "metric"},
     )
-    if not data:
-        return [], []
+    raw_items = data.get("list", []) if data else []
+
+    if not raw_items:
+        # OpenWeather's forecast endpoint failed outright (or returned an
+        # empty list) — fall back to WeatherAPI, reshaped into the same
+        # 3-hour item format so the scoring loop below runs unchanged
+        # regardless of which provider actually answered.
+        raw_items = _weatherapi_forecast_to_openweather_shape(lat, lon)
+        if not raw_items:
+            return [], []
 
     forecast = []
     timeline = []
     seen_dates = set()
-    raw_items = data.get("list", [])
 
     for item in raw_items:
         forecast_time = datetime.strptime(item["dt_txt"], "%Y-%m-%d %H:%M:%S")
@@ -2153,34 +2272,75 @@ def get_weather(lat, lon, display_name=None):
         "weather",
         {"lat": lat, "lon": lon, "appid": API_KEY, "units": "metric"},
     )
-    if not data:
+
+    if data:
+        description = data["weather"][0]["description"].title()
+        weather_id = data["weather"][0]["id"]
+        rainfall = data.get("rain", {}).get("1h", data.get("rain", {}).get("3h", 0))
+        scene = weather_scene(weather_id, description)
+
+        return {
+            "city": display_name or data["name"],
+            "country": data.get("sys", {}).get("country", ""),
+            "description": description,
+            "weather_id": weather_id,
+            "scene": scene,
+
+            "temperature": round(data["main"]["temp"], 1),
+            "feels_like": round(data["main"]["feels_like"], 1),
+
+            "humidity": data["main"]["humidity"],
+            "pressure": data["main"]["pressure"],
+
+            "wind": data["wind"]["speed"],
+            "wind_speed": round(data["wind"]["speed"] * 3.6, 1),
+
+            "rainfall": rainfall,
+
+            "latitude": data["coord"]["lat"],
+            "longitude": data["coord"]["lon"],
+
+            "source": "openweather",
+        }
+
+    # OpenWeather failed outright — fall back to WeatherAPI so a single
+    # provider outage doesn't take down every flood score. Normalized into
+    # the exact same dict shape as above, so nothing downstream (scoring,
+    # templates, watchlist caching) needs to know which provider answered.
+    fallback = fetch_weatherapi_current(lat, lon)
+    if not fallback:
         return None
 
-    description = data["weather"][0]["description"].title()
-    weather_id = data["weather"][0]["id"]
-    rainfall = data.get("rain", {}).get("1h", data.get("rain", {}).get("3h", 0))
-    scene = weather_scene(weather_id, description)
+    current = fallback.get("current", {}) or {}
+    location = fallback.get("location", {}) or {}
+    condition_text = (current.get("condition", {}) or {}).get("text", "")
+    wind_ms = (current.get("wind_kph", 0) or 0) / 3.6
+    # id -1: no OpenWeather-style numeric condition code from this provider,
+    # so weather_scene() falls back to its description-keyword checks.
+    scene = weather_scene(-1, condition_text)
 
     return {
-        "city": display_name or data["name"],
-        "country": data.get("sys", {}).get("country", ""),
-        "description": description,
-        "weather_id": weather_id,
+        "city": display_name or location.get("name") or "Unknown",
+        "country": location.get("country", ""),
+        "description": condition_text.title() if condition_text else "Unknown",
+        "weather_id": -1,
         "scene": scene,
 
-        "temperature": round(data["main"]["temp"], 1),
-        "feels_like": round(data["main"]["feels_like"], 1),
+        "temperature": round(current.get("temp_c", 0) or 0, 1),
+        "feels_like": round(current.get("feelslike_c", current.get("temp_c", 0)) or 0, 1),
 
-        "humidity": data["main"]["humidity"],
-        "pressure": data["main"]["pressure"],
+        "humidity": current.get("humidity", 50),
+        "pressure": round(current.get("pressure_mb", 1013) or 1013),
 
-        "wind": data["wind"]["speed"],
-        "wind_speed": round(data["wind"]["speed"] * 3.6, 1),
+        "wind": round(wind_ms, 1),
+        "wind_speed": round(current.get("wind_kph", 0) or 0, 1),
 
-        "rainfall": rainfall,
+        "rainfall": current.get("precip_mm", 0) or 0,
 
-        "latitude": data["coord"]["lat"],
-        "longitude": data["coord"]["lon"],
+        "latitude": location.get("lat", lat),
+        "longitude": location.get("lon", lon),
+
+        "source": "weatherapi_fallback",
     }
 
 
@@ -2495,7 +2655,7 @@ def get_earth_engine_context(city_key, lat, lon):
     conn.row_factory = sqlite3.Row
     row = conn.execute("SELECT * FROM earth_engine_cache WHERE city_key = ?", (city_key,)).fetchone()
     if row:
-        age_hours = (datetime.utcnow() - datetime.fromisoformat(row["updated_at"])).total_seconds() / 3600
+        age_hours = (datetime.utcnow() - _parse_stored_datetime(row["updated_at"])).total_seconds() / 3600
         if age_hours < EARTH_ENGINE_CONTEXT_TTL_HOURS:
             conn.close()
             try:
@@ -2561,7 +2721,7 @@ def get_geo_context(city_key, lat, lon):
             "emergency_contacts": cached_contacts,
         }
 
-        age_hours = (datetime.utcnow() - datetime.fromisoformat(row["updated_at"])).total_seconds() / 3600
+        age_hours = (datetime.utcnow() - _parse_stored_datetime(row["updated_at"])).total_seconds() / 3600
         if age_hours < GEO_CONTEXT_TTL_HOURS:
             conn.close()
             cached["building_count"] = cached["building_count"] or 0
@@ -3214,19 +3374,7 @@ def build_prediction(query):
         "soil_moisture": moisture,
     }, forecast
 
-@app.route("/api/health", methods=["GET"])
-def api_health():
-    return jsonify({
-        "status": "online",
-        "service": "FloodGuard AI",
-        "version": "1.0.0",
-        "utc": datetime.utcnow().isoformat() + "Z"
-    })
 
-
-@app.route("/", methods=["GET", "POST"])
-def index():
-    ...
 @app.route("/", methods=["GET", "POST"])
 def home():
     prediction = None
@@ -3498,6 +3646,7 @@ def health():
         "service": "FloodGuard AI",
         "config": {
             "openweather_configured": bool(API_KEY),
+            "weatherapi_fallback_configured": bool(WEATHERAPI_KEY),
             "tide_configured": bool(TIDE_API_KEY),
             "mapbox_configured": bool(MAPBOX_ACCESS_TOKEN),
             "earth_engine_enabled": bool(EARTH_ENGINE_ENABLED),
