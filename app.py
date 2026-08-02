@@ -1,4 +1,5 @@
 import json
+import secrets
 import math
 import os
 import socket
@@ -45,6 +46,16 @@ GEE_PROJECT = os.getenv("GEE_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT")
 OPENWEATHER_URL = "https://api.openweathermap.org/data/2.5"
 OPENWEATHER_GEO_URL = "https://api.openweathermap.org/geo/1.0/direct"
 WEATHERAPI_URL = "https://api.weatherapi.com/v1"  # fallback only — see fetch_weatherapi_current/forecast
+BREVO_API_URL = "https://api.brevo.com/v3/smtp/email"
+BREVO_API_KEY = os.getenv("BREVO_API_KEY")  # optional — flood alert emails are skipped entirely if unset
+BREVO_SENDER_EMAIL = os.getenv("BREVO_SENDER_EMAIL")  # must be a verified sender in your Brevo account
+BREVO_SENDER_NAME = os.getenv("BREVO_SENDER_NAME", "FloodGuard AI")
+# Used to build links inside alert emails (view-details link, unsubscribe
+# link). Defaults to the current production URL, but check_and_send_location_alerts
+# runs from a background thread with no Flask request context available, so
+# this can't be derived from request.url_root — override via env var if the
+# domain ever changes.
+SITE_BASE_URL = os.getenv("SITE_BASE_URL", "https://floodguard-ai-dq94.onrender.com")
 ELEVATION_URL = "https://api.open-meteo.com/v1/elevation"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 SOILGRIDS_URL = "https://rest.isric.org/soilgrids/v2.0/properties/query"
@@ -379,6 +390,33 @@ def init_db():
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS alert_subscribers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL UNIQUE,
+            phone TEXT,
+            whatsapp TEXT,
+            unsubscribe_token TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS alert_locations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            subscriber_id INTEGER NOT NULL,
+            label TEXT NOT NULL,
+            city_key TEXT NOT NULL,
+            city_label TEXT NOT NULL,
+            last_alerted_risk_level TEXT,
+            last_alerted_at TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (subscriber_id) REFERENCES alert_subscribers(id)
+        )
+        """
+    )
     conn.commit()
     conn.close()
 
@@ -551,14 +589,16 @@ _watchlist_refreshing = False
 
 def get_all_monitored_locations():
     """Static curated list, plus every distinct location anyone has ever
-    searched — so a place a visitor checks stays under continuous
+    searched, plus every distinct location an alert subscriber is watching —
+    so a place a visitor checks (or subscribes to) stays under continuous
     monitoring afterward instead of only being watched at the moment of
     that one search."""
     conn = sqlite3.connect(DB_PATH)
     rows = conn.execute("SELECT DISTINCT city_label FROM searches").fetchall()
+    alert_rows = conn.execute("SELECT DISTINCT city_label FROM alert_locations").fetchall()
     conn.close()
 
-    searched = [row[0] for row in rows]
+    searched = [row[0] for row in rows] + [row[0] for row in alert_rows]
     combined = list(MONITORED_LOCATIONS)
     seen = {normalize_city(loc) for loc in combined}
     for label in searched:
@@ -617,6 +657,11 @@ def cache_watchlist_entry_now(prediction):
     conn = sqlite3.connect(DB_PATH)
     _upsert_watchlist_row(conn, prediction, datetime.utcnow().isoformat())
     conn.close()
+    # If a subscriber's exact watched location (e.g. their "Home") gets
+    # searched directly and it's newly HIGH+, they should hear about it
+    # immediately rather than waiting for the next periodic sweep to reach
+    # this same location.
+    check_and_send_location_alerts(prediction)
 
 
 def refresh_watchlist_cache():
@@ -640,6 +685,7 @@ def refresh_watchlist_cache():
             continue
 
         _upsert_watchlist_row(conn, prediction, now)
+        check_and_send_location_alerts(prediction)
 
         # Stagger requests so a cold-cache sweep across many locations
         # doesn't burst-hit Overpass/SoilGrids all at once (that burst is
@@ -1067,6 +1113,178 @@ def _weatherapi_forecast_to_openweather_shape(lat, lon):
                 }
             )
     return items
+
+
+def send_alert_email(to_email, subject, html_content):
+    """Sends a transactional email via Brevo. Fails closed and silently if
+    not configured (BREVO_API_KEY/BREVO_SENDER_EMAIL unset) — matches the
+    pattern used for every other optional API key in this app (TIDE_API_KEY,
+    WEATHERAPI_KEY, etc.), so the alert-subscription feature can be deployed
+    and tested end-to-end (subscribe, unsubscribe, DB records) before email
+    sending is actually wired up with real credentials."""
+    if not BREVO_API_KEY or not BREVO_SENDER_EMAIL:
+        print(f"Brevo not configured — skipping email to {to_email}: '{subject}'")
+        return False
+
+    try:
+        response = request_with_retry(
+            "POST",
+            BREVO_API_URL,
+            service_name="brevo",
+            json={
+                "sender": {"name": BREVO_SENDER_NAME, "email": BREVO_SENDER_EMAIL},
+                "to": [{"email": to_email}],
+                "subject": subject,
+                "htmlContent": html_content,
+            },
+            headers={
+                "api-key": BREVO_API_KEY,
+                "content-type": "application/json",
+                "accept": "application/json",
+            },
+            timeout=12,
+        )
+        if response.status_code >= 300:
+            print(f"Brevo send to {to_email} failed ({response.status_code}): {response.text[:300]}")
+            return False
+        return True
+    except requests.RequestException as error:
+        print(f"Brevo send request to {to_email} failed: {error}")
+        return False
+
+
+def build_alert_email_html(prediction, label, unsubscribe_url):
+    """Builds the HTML body for a flood-risk-crossing alert email."""
+    priority_html = (
+        f"<p style='color:#b91c1c;font-weight:bold;'>⚠ {prediction['priority_action']}</p>"
+        if prediction.get("priority_action")
+        else ""
+    )
+    return f"""
+    <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;">
+        <h2 style="color:#dc2626;">⚠ {prediction['risk']} flood risk at {label}</h2>
+        <p><strong>{prediction['city']}</strong>{f", {prediction['country']}" if prediction.get('country') else ''}
+           is currently at <strong>{prediction['risk']}</strong> flood risk
+           (score {prediction['score']}/100).</p>
+        {priority_html}
+        <p>{prediction.get('advice', '')}</p>
+        <p><a href="{SITE_BASE_URL}/" style="color:#2563eb;">
+           View full details on FloodGuard AI</a></p>
+        <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;">
+        <p style="font-size:12px;color:#6b7280;">
+            You're receiving this because you subscribed to alerts for "{label}".
+            <a href="{unsubscribe_url}">Unsubscribe from all alerts</a>.
+        </p>
+    </div>
+    """
+
+
+def generate_unsubscribe_token():
+    return secrets.token_urlsafe(32)
+
+
+def get_or_create_subscriber(email, phone=None, whatsapp=None):
+    """Finds an existing subscriber by email, or creates one. Updates
+    phone/whatsapp on an existing subscriber only if new values were
+    actually provided this time, so re-subscribing to add a second location
+    doesn't accidentally wipe a phone number given during the first signup."""
+    db = get_db()
+    row = db.execute("SELECT id, unsubscribe_token FROM alert_subscribers WHERE email = ?", (email,)).fetchone()
+    if row:
+        if phone or whatsapp:
+            db.execute(
+                "UPDATE alert_subscribers SET phone = COALESCE(?, phone), whatsapp = COALESCE(?, whatsapp) WHERE id = ?",
+                (phone, whatsapp, row["id"]),
+            )
+            db.commit()
+        return row["id"], row["unsubscribe_token"]
+
+    token = generate_unsubscribe_token()
+    db.execute(
+        "INSERT INTO alert_subscribers (email, phone, whatsapp, unsubscribe_token, created_at) VALUES (?, ?, ?, ?, ?)",
+        (email, phone, whatsapp, token, datetime.utcnow().isoformat()),
+    )
+    db.commit()
+    new_row = db.execute("SELECT id FROM alert_subscribers WHERE email = ?", (email,)).fetchone()
+    return new_row["id"], token
+
+
+def add_alert_location(subscriber_id, label, city_label):
+    """Adds a watched location for a subscriber, deduplicated by city_key so
+    resubmitting the same location doesn't create duplicate rows (and
+    doesn't reset last_alerted_risk_level, which would cause a duplicate
+    alert for a crossing that was already reported)."""
+    db = get_db()
+    city_key = normalize_city(city_label)
+    existing = db.execute(
+        "SELECT id FROM alert_locations WHERE subscriber_id = ? AND city_key = ?",
+        (subscriber_id, city_key),
+    ).fetchone()
+    if existing:
+        return existing["id"], False
+
+    db.execute(
+        "INSERT INTO alert_locations (subscriber_id, label, city_key, city_label, created_at) VALUES (?, ?, ?, ?, ?)",
+        (subscriber_id, label.strip() or "Location", city_key, city_label.strip(), datetime.utcnow().isoformat()),
+    )
+    db.commit()
+    new_row = db.execute(
+        "SELECT id FROM alert_locations WHERE subscriber_id = ? AND city_key = ?",
+        (subscriber_id, city_key),
+    ).fetchone()
+    return new_row["id"], True
+
+
+def check_and_send_location_alerts(prediction):
+    """Checks every subscriber watching this location and emails anyone
+    whose saved location has just crossed INTO HIGH risk or above — not
+    everyone still sitting at HIGH on a later sweep, which would spam an
+    email every WATCHLIST_REFRESH_MINUTES while a flood event is ongoing.
+    last_alerted_risk_level tracks this: it's set on send, and cleared once
+    risk drops back below HIGH, so a future re-crossing triggers a fresh
+    alert instead of staying silently suppressed forever."""
+    city_key = normalize_city(prediction["city"])
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+
+    if prediction["risk"] not in ALERT_LEVELS:
+        conn.execute(
+            "UPDATE alert_locations SET last_alerted_risk_level = NULL WHERE city_key = ? AND last_alerted_risk_level IS NOT NULL",
+            (city_key,),
+        )
+        conn.commit()
+        conn.close()
+        return
+
+    rows = conn.execute(
+        """
+        SELECT al.id AS location_id, al.label, al.last_alerted_risk_level,
+               s.email, s.unsubscribe_token
+        FROM alert_locations al
+        JOIN alert_subscribers s ON al.subscriber_id = s.id
+        WHERE al.city_key = ?
+        """,
+        (city_key,),
+    ).fetchall()
+
+    for row in rows:
+        if row["last_alerted_risk_level"] in ALERT_LEVELS:
+            continue  # already alerted for this ongoing crossing — don't spam
+
+        unsubscribe_url = f"{SITE_BASE_URL}/unsubscribe/{row['unsubscribe_token']}"
+        sent = send_alert_email(
+            row["email"],
+            f"⚠ {prediction['risk']} flood risk at {row['label']} ({prediction['city']})",
+            build_alert_email_html(prediction, row["label"], unsubscribe_url),
+        )
+        if sent:
+            conn.execute(
+                "UPDATE alert_locations SET last_alerted_risk_level = ?, last_alerted_at = ? WHERE id = ?",
+                (prediction["risk"], datetime.utcnow().isoformat(), row["location_id"]),
+            )
+
+    conn.commit()
+    conn.close()
 
 
 def geocode_location(query):
@@ -3807,6 +4025,95 @@ def api_property_check():
         "historical_reports": historical_reports,
         **vulnerability,
     })
+
+
+@app.route("/api/alert-subscribe", methods=["POST"])
+def api_alert_subscribe():
+    """Subscribes an email to flood alerts for a specific location, sending
+    an email the moment that location crosses into HIGH risk or above
+    (checked every watchlist sweep — see check_and_send_location_alerts).
+    Location is validated via a real geocode lookup before saving, so a
+    typo'd or unrecognized place doesn't silently create a subscription
+    that can never actually match anything in the sweep."""
+    if not API_KEY:
+        return jsonify({"ok": False, "error": "OPENWEATHER_API_KEY is not configured."}), 400
+
+    payload = request.get_json(silent=True) or request.form
+    email = (payload.get("email") or "").strip().lower()
+    phone = (payload.get("phone") or "").strip() or None
+    whatsapp = (payload.get("whatsapp") or "").strip() or None
+    label = (payload.get("label") or "Location").strip()
+    city = (payload.get("city") or "").strip()
+
+    if not email or "@" not in email or "." not in email.split("@")[-1]:
+        return jsonify({"ok": False, "error": "A valid email address is required."}), 400
+    if not city:
+        return jsonify({"ok": False, "error": "A location is required."}), 400
+    if len(email) > 200 or len(city) > 150 or len(label) > 50:
+        return jsonify({"ok": False, "error": "One of the fields is too long."}), 400
+    if phone and len(phone) > 30:
+        return jsonify({"ok": False, "error": "Phone number is too long."}), 400
+    if whatsapp and len(whatsapp) > 30:
+        return jsonify({"ok": False, "error": "WhatsApp number is too long."}), 400
+
+    place = geocode_location(city)
+    if not place:
+        return jsonify({"ok": False, "error": f"Could not find '{city}'. Try being more specific, e.g. 'Ikoyi, Lagos'."}), 400
+
+    city_label = place["name"] + (f", {place['state']}" if place.get("state") else "")
+
+    try:
+        subscriber_id, token = get_or_create_subscriber(email, phone, whatsapp)
+        location_id, is_new = add_alert_location(subscriber_id, label, city_label)
+    except sqlite3.IntegrityError as error:
+        print(f"Alert subscribe DB error: {error}")
+        return jsonify({"ok": False, "error": "Something went wrong saving your subscription. Please try again."}), 500
+
+    if is_new:
+        unsubscribe_url = f"{SITE_BASE_URL}/unsubscribe/{token}"
+        send_alert_email(
+            email,
+            "You're now subscribed to FloodGuard AI alerts",
+            f"""
+            <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;">
+                <h2>You're subscribed ✅</h2>
+                <p>You'll get an email at this address whenever
+                   <strong>{label}</strong> ({city_label}) reaches
+                   <strong>HIGH</strong> flood risk or above.</p>
+                <p style="font-size:12px;color:#6b7280;">
+                    <a href="{unsubscribe_url}">Unsubscribe from all alerts</a> at any time.
+                </p>
+            </div>
+            """,
+        )
+
+    return jsonify({
+        "ok": True,
+        "message": f"Subscribed! We'll email {email} if {city_label} reaches HIGH risk or above."
+        if is_new else f"{city_label} is already on your alert list for {email}.",
+    })
+
+
+@app.route("/unsubscribe/<token>")
+def unsubscribe(token):
+    """Public unsubscribe link included in every alert email. Removes the
+    subscriber and all of their watched locations entirely — this app
+    doesn't yet support unsubscribing from a single location while keeping
+    others, only all-or-nothing."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT id, email FROM alert_subscribers WHERE unsubscribe_token = ?", (token,)).fetchone()
+
+    if not row:
+        conn.close()
+        return "This unsubscribe link is invalid or has already been used.", 404
+
+    conn.execute("DELETE FROM alert_locations WHERE subscriber_id = ?", (row["id"],))
+    conn.execute("DELETE FROM alert_subscribers WHERE id = ?", (row["id"],))
+    conn.commit()
+    conn.close()
+
+    return f"You've been unsubscribed ({row['email']}). You will no longer receive flood alerts from FloodGuard AI."
 
 
 @app.route("/api/stats")

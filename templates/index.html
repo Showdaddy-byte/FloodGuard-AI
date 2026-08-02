@@ -144,6 +144,24 @@
         <div id="property-results"></div>
     </section>
 
+    <section id="get-alerts" class="route-safety-panel">
+        <div class="route-safety-header">
+            <h2>Get Alerted Before It Floods</h2>
+            <p>Save your home, office, or any location you care about. We'll email you the moment it reaches HIGH flood risk or above — you don't have to keep checking back.</p>
+        </div>
+
+        <form id="alert-form" class="route-form alert-form">
+            <input type="email" id="alert-email" placeholder="Email address" required>
+            <input type="tel" id="alert-phone" placeholder="Phone number (optional)">
+            <input type="tel" id="alert-whatsapp" placeholder="WhatsApp number (optional)">
+            <input type="text" id="alert-label" placeholder="Label, e.g. Home, Office" required>
+            <input type="text" id="alert-city" placeholder="Location, e.g. Lekki, Lagos" required>
+            <button type="submit" id="alert-submit">Get Alerts</button>
+        </form>
+        <p class="search-hint">Phone/WhatsApp numbers are saved for when SMS and WhatsApp alerts launch — only email alerts are active right now. You can unsubscribe from any alert email at any time.</p>
+        <div id="alert-feedback" class="route-feedback"></div>
+    </section>
+
     <section id="features" class="features">
         <h2>Core Capabilities</h2>
         <div class="feature-grid">
@@ -919,6 +937,47 @@
             } finally {
                 submitBtn.disabled = false;
                 submitBtn.textContent = "Check Location";
+            }
+        });
+    }
+
+    const alertForm = document.getElementById("alert-form");
+    if (alertForm) {
+        alertForm.addEventListener("submit", async function (event) {
+            event.preventDefault();
+            const email = document.getElementById("alert-email").value.trim();
+            const phone = document.getElementById("alert-phone").value.trim();
+            const whatsapp = document.getElementById("alert-whatsapp").value.trim();
+            const label = document.getElementById("alert-label").value.trim();
+            const city = document.getElementById("alert-city").value.trim();
+            const submitBtn = document.getElementById("alert-submit");
+            const feedbackEl = document.getElementById("alert-feedback");
+
+            if (!email || !label || !city) return;
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = "Subscribing...";
+            feedbackEl.textContent = "";
+            feedbackEl.className = "route-feedback";
+
+            try {
+                const response = await fetch("/api/alert-subscribe", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email: email, phone: phone, whatsapp: whatsapp, label: label, city: city })
+                });
+                const data = await response.json();
+                feedbackEl.textContent = data.ok ? data.message : (data.error || "Something went wrong. Please try again.");
+                feedbackEl.className = data.ok ? "route-feedback success" : "route-feedback error";
+                if (data.ok) {
+                    alertForm.reset();
+                }
+            } catch (err) {
+                feedbackEl.textContent = "Network error. Please try again.";
+                feedbackEl.className = "route-feedback error";
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = "Get Alerts";
             }
         });
     }
