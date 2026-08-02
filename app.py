@@ -2722,7 +2722,27 @@ def get_geo_context(city_key, lat, lon):
         }
 
         age_hours = (datetime.utcnow() - _parse_stored_datetime(row["updated_at"])).total_seconds() / 3600
-        if age_hours < GEO_CONTEXT_TTL_HOURS:
+        # None (not 0, not a real value) in elevation/building_count/clay_percent
+        # is this codebase's own signal that the underlying fetch failed
+        # outright on this row's last write, with no prior cache to fall back
+        # to at the time — e.g. fetch_elevation_grid returns (None, None) on
+        # failure, and building_count is documented as "None only when the
+        # Overpass call failed outright" (a successful call always returns an
+        # int, even 0). A row written that way still gets a fresh updated_at,
+        # so without this check it would be replayed as valid for a full
+        # GEO_CONTEXT_TTL_HOURS — this is exactly the bug that caused Falomo's
+        # nearest_water_m (and building_count) to show "Unavailable" live
+        # while working locally. Any of these being None routes past the
+        # early-return below and falls through to the live-fetch section
+        # further down, which already retries each field individually and
+        # only falls back to (still-None) cached values if it fails again.
+        critical_fields_missing = (
+            cached["elevation"] is None
+            or cached["building_count"] is None
+            or cached["clay_percent"] is None
+        )
+
+        if age_hours < GEO_CONTEXT_TTL_HOURS and not critical_fields_missing:
             if cached["emergency_contacts"]:
                 conn.close()
                 cached["building_count"] = cached["building_count"] or 0
