@@ -76,6 +76,28 @@ GROUND_TRUTH_WINDOW_HOURS = 12
 # visitors without anyone needing to search that exact place first.
 WATCHLIST_REFRESH_MINUTES = 15
 
+# Seconds to wait between each monitored location during a full watchlist
+# sweep. Widened from an earlier 1.5s: on a fresh deploy (no persistent
+# disk => empty cache), a full sweep hits Overpass for every one of
+# MONITORED_LOCATIONS in quick succession, which is enough to trip
+# Overpass's own rate limiting and, in turn, this app's circuit breaker —
+# cascading failures across unrelated live visitor searches for the
+# following SERVICE_COOLDOWN_SECONDS each time it retrips. A wider stagger
+# trades a slower cold-cache warmup for a much lower chance of tripping
+# that cascade in the first place.
+WATCHLIST_SWEEP_STAGGER_SECONDS = 4
+
+# How long to wait after process startup before the watchlist sweep is
+# allowed to trigger at all. Without a persistent disk, every deploy starts
+# with an empty cache, and the very first visitor's page load would
+# otherwise kick off a ~29-location Overpass burst within seconds of the
+# app coming online — exactly the scenario that tripped the cascade seen
+# in production. This grace period just lets that burst happen a little
+# later and only once real, naturally-spaced traffic has started arriving,
+# rather than as a single concentrated burst the instant the app boots.
+WATCHLIST_STARTUP_GRACE_MINUTES = 2
+_process_started_at = datetime.utcnow()
+
 # Elevation, slope, water proximity, soil type, and urbanization barely
 # change hour to hour — there's no reason to re-hit Overpass/SoilGrids for
 # them on every watchlist sweep. Caching this static geospatial context for
@@ -623,7 +645,7 @@ def refresh_watchlist_cache():
         # doesn't burst-hit Overpass/SoilGrids all at once (that burst is
         # what triggers their rate limiting in the first place).
         if index < len(locations) - 1:
-            time.sleep(1.5)
+            time.sleep(WATCHLIST_SWEEP_STAGGER_SECONDS)
 
     conn.close()
 
@@ -652,6 +674,19 @@ def maybe_refresh_watchlist_async():
         is_stale = True
 
     if not is_stale:
+        return
+
+    # Without a persistent disk, every deploy starts with an empty cache, so
+    # is_stale is almost always True on the very first request after a
+    # restart. Without this check, that first visitor's page load would
+    # immediately kick off a full ~29-location sweep within seconds of
+    # startup — a concentrated Overpass burst that's what tripped the
+    # cascading circuit-breaker failures seen in production. Waiting out a
+    # short grace period lets that same warmup happen a little later, once
+    # a bit of natural, spaced-out traffic has started arriving, instead of
+    # all at once the instant the process comes online.
+    minutes_since_start = (datetime.utcnow() - _process_started_at).total_seconds() / 60
+    if minutes_since_start < WATCHLIST_STARTUP_GRACE_MINUTES:
         return
 
     # Fast local check first (cheap, avoids a DB round-trip most of the time)...
