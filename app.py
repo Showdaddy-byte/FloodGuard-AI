@@ -3180,6 +3180,100 @@ def get_regional_flood_context(country_code, city_label):
     }
 
 
+# ---------------------------------------------------------------------------
+# Official emergency telephone numbers — a static, curated supplement to the
+# live OSM-based "nearest facility" lookup above (fetch_emergency_contacts).
+# This exists specifically because the live OSM lookup depends on Overpass
+# being reachable and rate-limit-free at the moment of the request, which in
+# production has proven unreliable; these numbers work regardless of
+# Overpass's status, since they're static reference data, not a live query.
+#
+# Every number below is sourced from an official government/agency page or
+# a reputable secondary source, not invented — matching the same
+# never-fabricate-contact-details principle already used in
+# fetch_emergency_contacts(). Coverage is intentionally incomplete rather
+# than guessed: NATIONAL_EMERGENCY_NUMBERS covers commonly-known, well
+# -documented national lines for the countries in MONITORED_LOCATIONS plus
+# a few other major countries; STATE_EMERGENCY_NUMBERS currently only has a
+# verified entry for Lagos State, Nigeria (source: lasema.lagosstate.gov.ng)
+# as the flagship example. Extend both dicts as more state/province-level
+# numbers get verified — do not add entries here without a real source.
+# ---------------------------------------------------------------------------
+NATIONAL_EMERGENCY_NUMBERS = {
+    "NG": {"general": "112", "notes": "112 connects to police, fire, medical, and disaster response nationwide."},
+    "US": {"general": "911"},
+    "CA": {"general": "911"},
+    "GB": {"general": "999", "notes": "112 also works nationwide."},
+    "IE": {"general": "112", "notes": "999 also works nationwide."},
+    "AU": {"general": "000", "notes": "112 also works from mobile phones."},
+    "NZ": {"general": "111"},
+    "IN": {"general": "112", "notes": "Unifies former separate lines: police 100, fire 101, ambulance 108."},
+    "PK": {"general": "15", "notes": "Rescue services (Punjab and other provinces) — 1122."},
+    "BD": {"general": "999"},
+    "PH": {"general": "911"},
+    "ID": {"general": "112", "notes": "Police direct line — 110."},
+    "TH": {"police": "191", "fire": "199", "ambulance": "1669"},
+    "VN": {"police": "113", "fire": "114", "ambulance": "115", "notes": "112 also in use nationwide."},
+    "CN": {"police": "110", "ambulance": "120", "fire": "119"},
+    "JP": {"police": "110", "fire_ambulance": "119"},
+    "KR": {"police": "112", "fire_ambulance": "119"},
+    "EG": {"police": "122", "ambulance": "123", "fire": "180"},
+    "ZA": {"general": "10111", "ambulance": "10177", "notes": "112 also works from mobile phones."},
+    "KE": {"general": "999", "notes": "112 also works nationwide."},
+    "GH": {"general": "112"},
+    "BR": {"police": "190", "ambulance": "192", "fire": "193"},
+    "AR": {"general": "911"},
+    "IT": {"general": "112", "police": "113", "fire": "115", "ambulance": "118"},
+    "NL": {"general": "112"},
+    "DE": {"general": "112", "police": "110"},
+}
+
+# (country_code, normalized state/region name) -> agency info. Matched via
+# normalize_city() against the "state" field OpenWeather's geocoder returns,
+# so this only fires when that state name is present and matches.
+STATE_EMERGENCY_NUMBERS = {
+    ("NG", "lagos"): {
+        "agency": "Lagos State Emergency Management Agency (LASEMA)",
+        "general": "112 / 767",
+        "notes": "Toll-free lines for any emergency within Lagos State — disaster response, medical, fire, security.",
+        "source": "lasema.lagosstate.gov.ng",
+    },
+}
+
+
+def get_official_emergency_numbers(country_code, state_name=None):
+    """Looks up static, verified official emergency numbers for a country
+    and, where available, a specific state/region. Returns None if the
+    country isn't in the curated set — this deliberately does not fall back
+    to a generic guess (e.g. assuming 911 or 112 works everywhere), since a
+    wrong emergency number is worse than none."""
+    country_code = (country_code or "").upper()
+    national = NATIONAL_EMERGENCY_NUMBERS.get(country_code)
+
+    state_info = None
+    if state_name:
+        state_key = (country_code, normalize_city(state_name))
+        state_info = STATE_EMERGENCY_NUMBERS.get(state_key)
+        if not state_info:
+            # Loose match: OpenWeather's state names aren't always an exact
+            # match to our keys (e.g. "Lagos State" vs "Lagos") — check
+            # substring containment in both directions before giving up.
+            normalized_input = normalize_city(state_name)
+            for (cc, key_state), info in STATE_EMERGENCY_NUMBERS.items():
+                if cc == country_code and (key_state in normalized_input or normalized_input in key_state):
+                    state_info = info
+                    break
+
+    if not national and not state_info:
+        return None
+
+    return {
+        "national": national,
+        "state": state_info,
+        "disclaimer": "Official reference numbers, not verified live — always confirm locally, as these can change.",
+    }
+
+
 def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engine, historical_reports):
     """Flood VULNERABILITY — how flood-prone this location inherently is —
     as a separate metric from the Live Flood Risk score above. This is
@@ -3332,6 +3426,11 @@ def build_prediction(query):
 
     emergency_contacts = geo.get("emergency_contacts", [])
 
+    # Static, verified official emergency numbers — independent of Overpass
+    # entirely, so this reflects even when the live nearest-facility lookup
+    # above is empty or Overpass is temporarily unreachable/rate-limited.
+    official_emergency_numbers = get_official_emergency_numbers(weather.get("country"), place.get("state"))
+
     # Weather, tide, and river discharge genuinely change over time, so
     # these are still fetched fresh on every call.
     print("STEP 4: Tide")
@@ -3433,6 +3532,7 @@ def build_prediction(query):
         "timeline": timeline,
 
         "emergency_contacts": emergency_contacts,
+        "official_emergency_numbers": official_emergency_numbers,
 
         "historical_reports": historical_reports,
         "earth_engine": earth_engine,

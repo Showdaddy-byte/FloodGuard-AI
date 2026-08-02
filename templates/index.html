@@ -397,6 +397,50 @@
                     </div>
                 </section>
 
+                {% if prediction.official_emergency_numbers %}
+                <section class="emergency-panel emergency-official-panel">
+                    <h3>🚨 Official Emergency Numbers</h3>
+                    <div class="emergency-grid">
+                        {% if prediction.official_emergency_numbers.state %}
+                        <div class="emergency-card emergency-card-official">
+                            <span class="emergency-label">{{ prediction.official_emergency_numbers.state.agency }}</span>
+                            <strong class="emergency-phone-row">
+                                {% for number in prediction.official_emergency_numbers.state.general.split(' / ') %}
+                                <a href="tel:{{ number }}" class="emergency-phone">📞 {{ number }}</a>
+                                {% endfor %}
+                            </strong>
+                            {% if prediction.official_emergency_numbers.state.notes %}<p class="emergency-note">{{ prediction.official_emergency_numbers.state.notes }}</p>{% endif %}
+                        </div>
+                        {% endif %}
+
+                        {% if prediction.official_emergency_numbers.national %}
+                        <div class="emergency-card emergency-card-official">
+                            <span class="emergency-label">National Emergency Line{% if prediction.country %} — {{ prediction.country }}{% endif %}</span>
+                            <strong class="emergency-phone-row">
+                                {% if prediction.official_emergency_numbers.national.general %}
+                                <a href="tel:{{ prediction.official_emergency_numbers.national.general }}" class="emergency-phone">📞 {{ prediction.official_emergency_numbers.national.general }}</a>
+                                {% endif %}
+                                {% if prediction.official_emergency_numbers.national.police %}
+                                <a href="tel:{{ prediction.official_emergency_numbers.national.police }}" class="emergency-phone">👮 Police {{ prediction.official_emergency_numbers.national.police }}</a>
+                                {% endif %}
+                                {% if prediction.official_emergency_numbers.national.ambulance %}
+                                <a href="tel:{{ prediction.official_emergency_numbers.national.ambulance }}" class="emergency-phone">🚑 Ambulance {{ prediction.official_emergency_numbers.national.ambulance }}</a>
+                                {% endif %}
+                                {% if prediction.official_emergency_numbers.national.fire %}
+                                <a href="tel:{{ prediction.official_emergency_numbers.national.fire }}" class="emergency-phone">🚒 Fire {{ prediction.official_emergency_numbers.national.fire }}</a>
+                                {% endif %}
+                                {% if prediction.official_emergency_numbers.national.fire_ambulance %}
+                                <a href="tel:{{ prediction.official_emergency_numbers.national.fire_ambulance }}" class="emergency-phone">🚒 Fire/Ambulance {{ prediction.official_emergency_numbers.national.fire_ambulance }}</a>
+                                {% endif %}
+                            </strong>
+                            {% if prediction.official_emergency_numbers.national.notes %}<p class="emergency-note">{{ prediction.official_emergency_numbers.national.notes }}</p>{% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    <p class="emergency-note">{{ prediction.official_emergency_numbers.disclaimer }}</p>
+                </section>
+                {% endif %}
+
                 {% if prediction.emergency_contacts %}
                 <section class="emergency-panel">
                     <h3>Nearby Emergency Contacts</h3>
