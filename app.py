@@ -2723,6 +2723,35 @@ def get_geo_context(city_key, lat, lon):
 
         age_hours = (datetime.utcnow() - _parse_stored_datetime(row["updated_at"])).total_seconds() / 3600
         if age_hours < GEO_CONTEXT_TTL_HOURS:
+            if cached["emergency_contacts"]:
+                conn.close()
+                cached["building_count"] = cached["building_count"] or 0
+                return cached
+
+            # Terrain/water/soil/building data is still fresh and reused as
+            # normal, but emergency_contacts came back empty on this row's
+            # last fetch. An empty result here is ambiguous — it could mean
+            # "genuinely nothing tagged within range" or "that one Overpass
+            # call failed/returned nothing" — and public-safety data is
+            # cheap enough to double-check on every fresh-cache hit rather
+            # than silently trust a single empty result for a full day.
+            # Only this one field gets re-verified; everything else in the
+            # row stays exactly as cached, so this doesn't reintroduce the
+            # original Overpass rate-limiting problem the 24h TTL exists to
+            # prevent.
+            print(f"Emergency contacts cache empty for '{city_key}' — re-checking Overpass")
+            fresh_contacts = fetch_emergency_contacts(lat, lon)
+            if fresh_contacts:
+                conn.execute(
+                    "UPDATE geo_context_cache SET emergency_contacts_json = ? WHERE city_key = ?",
+                    (json.dumps(fresh_contacts), city_key),
+                )
+                conn.commit()
+                cached["emergency_contacts"] = fresh_contacts
+                print(f"Emergency contacts re-check for '{city_key}' found {len(fresh_contacts)} facilities — cache updated")
+            else:
+                print(f"Emergency contacts re-check for '{city_key}' still empty — will re-check again on next search")
+
             conn.close()
             cached["building_count"] = cached["building_count"] or 0
             return cached
