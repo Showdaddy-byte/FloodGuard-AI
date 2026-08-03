@@ -3839,9 +3839,17 @@ def widget_api():
             "error": "Location not found."
         })
 
+    reports = get_city_contributions(prediction["city"])
+    log_search(prediction["city"], prediction["risk"], prediction["score"])
+    cache_watchlist_entry_now(prediction)
+
     return jsonify({
         "ok": True,
-        "prediction": prediction
+        "prediction": prediction,
+        "forecast": forecast,
+        "reports": reports,
+        "category_labels": CATEGORY_LABELS,
+        "mapbox_token": MAPBOX_ACCESS_TOKEN,
     })
 
 @app.route("/api/contribute", methods=["POST"])

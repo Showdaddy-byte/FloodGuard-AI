@@ -6,51 +6,47 @@
 <meta charset="UTF-8">
 
 <title>FloodGuard AI Widget</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
 
 body{
-
 font-family:Arial;
-
 padding:20px;
-
 margin:0;
-
 }
 
-input{
-
+input, select, textarea{
 width:100%;
-
 padding:10px;
-
 margin-bottom:10px;
-
+box-sizing:border-box;
+font-family:Arial;
 }
 
 button{
-
 width:100%;
-
 padding:10px;
+cursor:pointer;
+}
 
+hr{
+border:none;
+border-top:1px solid #e5e7eb;
+margin:16px 0;
 }
 
 .result{
-
 margin-top:20px;
-
 padding:15px;
-
 border:1px solid #ddd;
-
 border-radius:6px;
-
 }
 
-/* ← ADD THE NEW CSS HERE */
-
-/* Risk badge */
+/* Risk badge — class names match prediction.risk.toLowerCase(), i.e. the
+   5 real risk levels (low/watch/high/severe/critical). Colors match
+   classify_risk()'s map_color values in app.py for consistency with the
+   main dashboard. */
 .risk{
     padding:6px 14px;
     border-radius:20px;
@@ -59,10 +55,11 @@ border-radius:6px;
     display:inline-block;
 }
 
-.low{background:#2e7d32;}
-.medium{background:#f9a825;}
-.high{background:#ef6c00;}
-.extreme{background:#c62828;}
+.low{background:#16a34a;}
+.watch{background:#f59e0b;}
+.high{background:#dc2626;}
+.severe{background:#b91c1c;}
+.critical{background:#7f1d1d;}
 
 /* Gauge */
 .gauge{
@@ -88,47 +85,195 @@ border-radius:6px;
     color:#1565c0;
 }
 
-</style>
-<style>
-
-body{
-
-font-family:Arial;
-
-padding:20px;
-
-margin:0;
-
+/* Safety action + official emergency numbers */
+.safety-action{
+    margin-top:16px;
+    padding:12px 14px;
+    border-radius:6px;
+    background:#fef2f2;
+    border:1px solid #fecaca;
+    color:#991b1b;
 }
 
-input{
-
-width:100%;
-
-padding:10px;
-
-margin-bottom:10px;
-
+.emergency-box{
+    margin-top:16px;
+    padding:12px 14px;
+    border-radius:6px;
+    background:#fff7ed;
+    border:1px solid #fed7aa;
 }
 
-button{
-
-width:100%;
-
-padding:10px;
-
+.emergency-box h4{
+    margin:0 0 8px 0;
 }
 
-.result{
+.emergency-number{
+    display:inline-block;
+    margin:2px 8px 2px 0;
+    padding:4px 10px;
+    border-radius:14px;
+    background:#1565c0;
+    color:white;
+    text-decoration:none;
+    font-size:14px;
+}
 
-margin-top:20px;
+.emergency-note{
+    font-size:12px;
+    color:#6b7280;
+    margin-top:8px;
+}
 
-padding:15px;
+/* Vulnerability score */
+.vuln-box{
+    margin-top:16px;
+    padding:12px 14px;
+    border-radius:6px;
+    background:#eff6ff;
+    border:1px solid #bfdbfe;
+}
 
-border:1px solid #ddd;
+.vuln-score{
+    font-size:22px;
+    font-weight:bold;
+}
 
-border-radius:6px;
+.vuln-warning{
+    margin-top:10px;
+    padding:10px;
+    border-radius:6px;
+    background:#fef2f2;
+    border:1px solid #fecaca;
+    color:#991b1b;
+    font-size:14px;
+}
 
+.disclaimer{
+    font-size:12px;
+    color:#6b7280;
+    margin-top:8px;
+}
+
+/* Map */
+#widget-map{
+    height:280px;
+    margin:16px 0;
+    border-radius:6px;
+}
+
+/* Forecast + timeline scroll rows */
+.scroll-row{
+    display:flex;
+    gap:8px;
+    overflow-x:auto;
+    padding-bottom:8px;
+}
+
+.mini-card{
+    min-width:110px;
+    flex-shrink:0;
+    border:1px solid #ddd;
+    border-radius:6px;
+    padding:8px;
+    text-align:center;
+    font-size:12px;
+}
+
+.mini-card strong{
+    display:block;
+    font-size:13px;
+    margin-bottom:4px;
+}
+
+.mini-risk{
+    display:inline-block;
+    margin-top:4px;
+    padding:2px 8px;
+    border-radius:10px;
+    color:white;
+    font-size:11px;
+}
+
+/* Community reports */
+.community-box{
+    margin-top:16px;
+    padding:12px 14px;
+    border-radius:6px;
+    background:#f9fafb;
+    border:1px solid #e5e7eb;
+}
+
+.community-stats{
+    display:flex;
+    gap:16px;
+    margin-bottom:12px;
+    flex-wrap:wrap;
+}
+
+.community-stat{
+    font-size:13px;
+}
+
+.community-stat strong{
+    display:block;
+    font-size:18px;
+}
+
+.star-rating{
+    font-size:24px;
+    cursor:pointer;
+    margin-bottom:10px;
+}
+
+.star{
+    color:#d1d5db;
+    cursor:pointer;
+}
+
+.star.active{
+    color:#f59e0b;
+}
+
+.report-item{
+    padding:8px 0;
+    border-bottom:1px solid #e5e7eb;
+    font-size:13px;
+}
+
+.report-item:last-child{
+    border-bottom:none;
+}
+
+.report-top{
+    display:flex;
+    justify-content:space-between;
+    font-weight:bold;
+}
+
+.feedback{
+    font-size:13px;
+    margin-top:8px;
+}
+
+.feedback.success{
+    color:#16a34a;
+}
+
+.feedback.error{
+    color:#dc2626;
+}
+
+/* Alert signup */
+.alert-section{
+    margin-top:24px;
+    padding:15px;
+    border:1px solid #ddd;
+    border-radius:6px;
+    background:#fafafa;
+}
+
+.alert-section h3{
+    margin-top:0;
 }
 
 </style>
@@ -162,7 +307,271 @@ Check Flood Risk
 {% endif %}
 
 <div id="result" class="result"></div>
+
+<div class="alert-section">
+    <h3>Get Alerted Before It Floods</h3>
+    <p style="font-size:13px;color:#555;">Save a location and we'll email you the moment it reaches HIGH flood risk or above.</p>
+    <form id="alert-form">
+        <input type="email" id="alert-email" placeholder="Email address" required>
+        <input type="tel" id="alert-phone" placeholder="Phone number (optional)">
+        <input type="tel" id="alert-whatsapp" placeholder="WhatsApp number (optional)">
+        <input type="text" id="alert-label" placeholder="Label, e.g. Home, Office" required>
+        <input type="text" id="alert-city" placeholder="Location, e.g. Lekki, Lagos" required>
+        <button type="submit" id="alert-submit">Get Alerts</button>
+    </form>
+    <p style="font-size:11px;color:#888;">Phone/WhatsApp numbers are saved for when those alert channels launch — only email alerts are active right now.</p>
+    <div id="alert-feedback" class="feedback"></div>
+</div>
+
 <script>
+
+let widgetMap = null;
+let currentCity = "";
+let currentCategoryLabels = {};
+
+function riskHex(color) {
+    const map = { low: "#16a34a", watch: "#f59e0b", high: "#dc2626", severe: "#b91c1c", critical: "#7f1d1d" };
+    return map[color] || "#f59e0b";
+}
+
+function initWidgetMap(p, mapboxToken) {
+    if (widgetMap) {
+        widgetMap.remove();
+        widgetMap = null;
+    }
+    if (typeof p.latitude !== "number" || typeof p.longitude !== "number") return;
+
+    widgetMap = L.map("widget-map").setView([p.latitude, p.longitude], 12);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap contributors"
+    }).addTo(widgetMap);
+
+    const riskCircle = L.circle([p.latitude, p.longitude], {
+        color: p.map_color || "#f59e0b",
+        fillColor: p.map_color || "#f59e0b",
+        fillOpacity: 0.22,
+        radius: 4500 + (p.score * 80)
+    }).addTo(widgetMap);
+    riskCircle.bindTooltip("Estimated flood-prone zone — " + p.risk + " risk", { sticky: true });
+
+    const mainMarker = L.marker([p.latitude, p.longitude]).addTo(widgetMap);
+    mainMarker.bindPopup("<b>" + p.city + "</b><br>" + p.risk + " flood risk (score " + p.score + "/100)");
+    mainMarker.openPopup();
+
+    if (typeof p.nearest_water_lat === "number" && typeof p.nearest_water_lon === "number") {
+        const waterPoint = [p.nearest_water_lat, p.nearest_water_lon];
+        const waterMarker = L.circleMarker(waterPoint, {
+            radius: 7, color: "#38bdf8", fillColor: "#38bdf8", fillOpacity: 0.85, weight: 2
+        }).addTo(widgetMap);
+        waterMarker.bindTooltip((p.nearest_water_label || "Nearest water body") + " (~" + p.nearest_water_m + " m)");
+        L.polyline([[p.latitude, p.longitude], waterPoint], {
+            color: "#38bdf8", weight: 2, dashArray: "6, 8", opacity: 0.7
+        }).addTo(widgetMap);
+    }
+
+    if (p.community && p.community.flooding_reports > 0) {
+        const communityPoint = [p.latitude + 0.0025, p.longitude + 0.0025];
+        const communityMarker = L.circleMarker(communityPoint, {
+            radius: 9, color: "#f87171", fillColor: "#dc2626", fillOpacity: 0.9, weight: 2
+        }).addTo(widgetMap);
+        communityMarker.bindTooltip(p.community.flooding_reports + " community flood report(s)");
+    }
+
+    setTimeout(() => { widgetMap.invalidateSize(); }, 250);
+}
+
+function renderForecast(forecast) {
+    if (!forecast || !forecast.length) return "";
+    const cards = forecast.map((item) => {
+        return '<div class="mini-card">' +
+            "<strong>" + item.day + "</strong>" +
+            "<div>" + item.temp + "&deg;C</div>" +
+            "<div>" + item.rain + "mm rain</div>" +
+            '<span class="mini-risk" style="background:' + riskHex(item.risk_color) + '">' + item.risk + "</span>" +
+        "</div>";
+    }).join("");
+    return '<h4>&#128197; 5-Day Forecast</h4><div class="scroll-row">' + cards + "</div>";
+}
+
+function renderTimeline(timeline) {
+    if (!timeline || !timeline.length) return "";
+    const cards = timeline.slice(0, 8).map((slot) => {
+        return '<div class="mini-card">' +
+            "<strong>" + slot.hour_label + "</strong>" +
+            "<div>" + slot.rain + "mm</div>" +
+            '<span class="mini-risk" style="background:' + riskHex(slot.risk_color) + '">' + slot.risk + "</span>" +
+        "</div>";
+    }).join("");
+    return '<h4>&#8987; Next 24 Hours</h4><div class="scroll-row">' + cards + "</div>";
+}
+
+function renderVulnerability(v) {
+    if (!v) return "";
+    let warningHtml = "";
+    if (v.rent_purchase_warning) {
+        warningHtml = '<div class="vuln-warning">' + v.rent_purchase_warning + "</div>";
+    }
+    return '<div class="vuln-box">' +
+        "<div>Flood Vulnerability (long-term, weather-independent)</div>" +
+        '<div class="vuln-score">' + v.score + "/100 — " + v.headline + "</div>" +
+        "<p>" + v.guidance + "</p>" +
+        warningHtml +
+        '<p class="disclaimer">' + v.disclaimer + "</p>" +
+    "</div>";
+}
+
+function paintStars(value) {
+    document.querySelectorAll("#widget-star-rating .star").forEach((star) => {
+        const starValue = parseInt(star.dataset.star, 10);
+        star.classList.toggle("active", starValue <= value);
+    });
+}
+
+function renderReportsList(reports, cityLabel) {
+    const listEl = document.getElementById("widget-reports-list");
+    if (!listEl) return;
+    if (!reports || !reports.length) {
+        listEl.innerHTML = '<p style="font-size:13px;color:#888;">No community reports yet for ' + cityLabel + ". Be the first to contribute.</p>";
+        return;
+    }
+    listEl.innerHTML = reports.map((r) => {
+        const label = currentCategoryLabels[r.category] || r.category;
+        let meta = "";
+        if (r.water_depth_cm) meta += "&#128167; ~" + r.water_depth_cm + " cm deep &nbsp; ";
+        if (r.roads_affected) meta += "&#128679; " + r.roads_affected;
+        const comment = r.comment ? "<p>" + r.comment + "</p>" : "";
+        return '<div class="report-item">' +
+            '<div class="report-top"><span>' + label + "</span><span>" + r.rating + "/5</span></div>" +
+            (meta ? "<div>" + meta + "</div>" : "") +
+            comment +
+        "</div>";
+    }).join("");
+}
+
+async function refreshCommunityFeed(cityLabel) {
+    try {
+        const response = await fetch("/api/contributions/" + encodeURIComponent(cityLabel));
+        const data = await response.json();
+        if (data.ok) {
+            document.getElementById("widget-community-count").textContent = data.stats.total;
+            document.getElementById("widget-community-avg").textContent = data.stats.average_rating + "/5";
+            renderReportsList(data.reports, cityLabel);
+        }
+    } catch (err) {
+        // silent fail on background refresh
+    }
+}
+
+function wireCommunityHandlers(cityLabel) {
+    const starWrap = document.getElementById("widget-star-rating");
+    const ratingInput = document.getElementById("widget-rating");
+    if (starWrap) {
+        starWrap.querySelectorAll(".star").forEach((star) => {
+            star.addEventListener("click", () => {
+                const value = parseInt(star.dataset.star, 10);
+                ratingInput.value = value;
+                paintStars(value);
+            });
+            star.addEventListener("mouseenter", () => paintStars(parseInt(star.dataset.star, 10)));
+        });
+        starWrap.addEventListener("mouseleave", () => paintStars(parseInt(ratingInput.value, 10)));
+    }
+
+    const contributeForm = document.getElementById("widget-contribute-form");
+    if (contributeForm) {
+        contributeForm.addEventListener("submit", async function (event) {
+            event.preventDefault();
+            const rating = parseInt(ratingInput.value, 10);
+            const feedback = document.getElementById("widget-contribute-feedback");
+            const submitBtn = document.getElementById("widget-contribute-submit");
+
+            if (!rating) {
+                feedback.textContent = "Please select a star rating before submitting.";
+                feedback.className = "feedback error";
+                return;
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = "Submitting...";
+            feedback.textContent = "";
+            feedback.className = "feedback";
+
+            const payload = {
+                city: cityLabel,
+                category: document.getElementById("widget-category").value,
+                rating: rating,
+                comment: document.getElementById("widget-comment").value,
+                water_depth_cm: document.getElementById("widget-water-depth").value,
+                roads_affected: document.getElementById("widget-roads-affected").value
+            };
+
+            try {
+                const response = await fetch("/api/contribute", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (data.ok) {
+                    document.getElementById("widget-community-count").textContent = data.stats.total;
+                    document.getElementById("widget-community-avg").textContent = data.stats.average_rating + "/5";
+                    renderReportsList(data.reports, cityLabel);
+                    feedback.textContent = "Thanks! Your live report has been added.";
+                    feedback.className = "feedback success";
+                    contributeForm.reset();
+                    ratingInput.value = 0;
+                    paintStars(0);
+                } else {
+                    feedback.textContent = data.error || "Something went wrong.";
+                    feedback.className = "feedback error";
+                }
+            } catch (err) {
+                feedback.textContent = "Network error. Please try again.";
+                feedback.className = "feedback error";
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = "Submit Live Report";
+            }
+        });
+    }
+}
+
+function renderCommunitySection(cityLabel, stats, reports, categoryLabels) {
+    currentCategoryLabels = categoryLabels || {};
+    const options = Object.keys(currentCategoryLabels).map((key) => {
+        return '<option value="' + key + '">' + currentCategoryLabels[key] + "</option>";
+    }).join("");
+
+    return '<div class="community-box">' +
+        "<h4>Community Intelligence</h4>" +
+        '<div class="community-stats">' +
+            '<div class="community-stat">Reports<strong id="widget-community-count">' + stats.total + "</strong></div>" +
+            '<div class="community-stat">Avg. risk<strong id="widget-community-avg">' + stats.average_rating + "/5</strong></div>" +
+        "</div>" +
+        '<form id="widget-contribute-form">' +
+            '<select id="widget-category">' + options + "</select>" +
+            '<div class="star-rating" id="widget-star-rating">' +
+                [1, 2, 3, 4, 5].map((n) => '<span class="star" data-star="' + n + '">&#9733;</span>').join("") +
+            "</div>" +
+            '<input type="hidden" id="widget-rating" value="0">' +
+            '<select id="widget-water-depth">' +
+                '<option value="">Water depth (optional)</option>' +
+                '<option value="5">Ankle-deep (~5 cm)</option>' +
+                '<option value="20">Shin-deep (~20 cm)</option>' +
+                '<option value="45">Knee-deep (~45 cm)</option>' +
+                '<option value="90">Waist-deep (~90 cm)</option>' +
+                '<option value="150">Chest-deep+ (~150 cm)</option>' +
+            "</select>" +
+            '<input type="text" id="widget-roads-affected" placeholder="Roads affected (optional)">' +
+            '<textarea id="widget-comment" placeholder="What are you seeing? (optional)" rows="2"></textarea>' +
+            '<button type="submit" id="widget-contribute-submit">Submit Live Report</button>' +
+            '<div id="widget-contribute-feedback" class="feedback"></div>' +
+        "</form>" +
+        '<div id="widget-reports-list"></div>' +
+    "</div>";
+}
+
 document.getElementById("widget-form").addEventListener("submit", async function(e){
 
     e.preventDefault();
@@ -199,7 +608,50 @@ document.getElementById("widget-form").addEventListener("submit", async function
     }
 
     const p = data.prediction;
+    currentCity = p.city;
     console.log(p);
+
+    let safetyActionHtml = "";
+    if (p.priority_action) {
+        safetyActionHtml = `
+        <div class="safety-action">
+            ⚠ <strong>Safety action:</strong> ${p.priority_action}
+        </div>`;
+    }
+
+    let emergencyHtml = "";
+    if (p.official_emergency_numbers) {
+        const oen = p.official_emergency_numbers;
+        let numbersHtml = "";
+
+        if (oen.state) {
+            const stateNumbers = oen.state.general.split(" / ").map(
+                n => `<a href="tel:${n}" class="emergency-number">📞 ${n}</a>`
+            ).join("");
+            numbersHtml += `<p><strong>${oen.state.agency}</strong><br>${stateNumbers}</p>`;
+        }
+
+        if (oen.national) {
+            const nat = oen.national;
+            let natNumbers = "";
+            if (nat.general) natNumbers += `<a href="tel:${nat.general}" class="emergency-number">📞 ${nat.general}</a>`;
+            if (nat.police) natNumbers += `<a href="tel:${nat.police}" class="emergency-number">👮 ${nat.police}</a>`;
+            if (nat.ambulance) natNumbers += `<a href="tel:${nat.ambulance}" class="emergency-number">🚑 ${nat.ambulance}</a>`;
+            if (nat.fire) natNumbers += `<a href="tel:${nat.fire}" class="emergency-number">🚒 ${nat.fire}</a>`;
+            if (nat.fire_ambulance) natNumbers += `<a href="tel:${nat.fire_ambulance}" class="emergency-number">🚒 ${nat.fire_ambulance}</a>`;
+            numbersHtml += `<p><strong>National${p.country ? " — " + p.country : ""}</strong><br>${natNumbers}</p>`;
+        }
+
+        if (numbersHtml) {
+            emergencyHtml = `
+            <div class="emergency-box">
+                <h4>🚨 Official Emergency Numbers</h4>
+                ${numbersHtml}
+                <p class="emergency-note">${oen.disclaimer}</p>
+            </div>`;
+        }
+    }
+
     result.innerHTML = `
 
         <h3>📍 ${p.city}</h3>
@@ -216,6 +668,10 @@ document.getElementById("widget-form").addEventListener("submit", async function
                 ${p.risk}
             </span>
         </p>
+
+        ${safetyActionHtml}
+
+        <div id="widget-map"></div>
 
         <hr>
 
@@ -239,6 +695,22 @@ document.getElementById("widget-form").addEventListener("submit", async function
 
         <p>🏙️ <strong>Urban Density:</strong> ${p.drainage_status.label}</p>
 
+        ${emergencyHtml}
+
+        ${renderVulnerability(p.vulnerability)}
+
+        <hr>
+
+        ${renderForecast(data.forecast)}
+
+        <hr>
+
+        ${renderTimeline(p.timeline)}
+
+        <hr>
+
+        ${renderCommunitySection(p.city, p.community, data.reports, data.category_labels)}
+
         <hr>
 
         <p><strong>💡 AI Summary</strong></p>
@@ -258,7 +730,61 @@ document.getElementById("widget-form").addEventListener("submit", async function
 
     result.classList.add("show");
 
+    initWidgetMap(p, data.mapbox_token);
+    wireCommunityHandlers(p.city);
+    renderReportsList(data.reports, p.city);
+
+    const alertCityField = document.getElementById("alert-city");
+    if (alertCityField && !alertCityField.value) {
+        alertCityField.value = p.city;
+    }
+
 });
+
+const alertForm = document.getElementById("alert-form");
+if (alertForm) {
+    alertForm.addEventListener("submit", async function (event) {
+        event.preventDefault();
+        const email = document.getElementById("alert-email").value.trim();
+        const phone = document.getElementById("alert-phone").value.trim();
+        const whatsapp = document.getElementById("alert-whatsapp").value.trim();
+        const label = document.getElementById("alert-label").value.trim();
+        const city = document.getElementById("alert-city").value.trim();
+        const submitBtn = document.getElementById("alert-submit");
+        const feedbackEl = document.getElementById("alert-feedback");
+
+        if (!email || !label || !city) return;
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Subscribing...";
+        feedbackEl.textContent = "";
+        feedbackEl.className = "feedback";
+
+        try {
+            const response = await fetch("/api/alert-subscribe", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email: email, phone: phone, whatsapp: whatsapp, label: label, city: city })
+            });
+            const data = await response.json();
+            feedbackEl.textContent = data.ok ? data.message : (data.error || "Something went wrong. Please try again.");
+            feedbackEl.className = data.ok ? "feedback success" : "feedback error";
+            if (data.ok) {
+                document.getElementById("alert-email").value = "";
+                document.getElementById("alert-phone").value = "";
+                document.getElementById("alert-whatsapp").value = "";
+                document.getElementById("alert-label").value = "";
+            }
+        } catch (err) {
+            feedbackEl.textContent = "Network error. Please try again.";
+            feedbackEl.className = "feedback error";
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.textContent = "Get Alerts";
+        }
+    });
+}
+
 </script>
 </body>
 
