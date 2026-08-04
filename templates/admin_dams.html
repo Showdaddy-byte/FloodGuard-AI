@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Dam Status Admin — FloodGuard AI</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f3f4f6; margin: 0; padding: 24px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        h1 { font-size: 22px; margin: 0; }
+        a.logout { color: #6b7280; text-decoration: none; font-size: 14px; }
+        .message { background: #dcfce7; border: 1px solid #86efac; color: #166534; padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; }
+        .dam-card { background: white; border-radius: 8px; padding: 18px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .dam-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+        .dam-name { font-size: 17px; font-weight: bold; }
+        .status-badge { padding: 4px 12px; border-radius: 14px; color: white; font-size: 13px; font-weight: bold; }
+        .status-NORMAL { background: #16a34a; }
+        .status-MONITORING { background: #f59e0b; }
+        .status-RELEASE_IN_PROGRESS { background: #dc2626; }
+        .location { color: #6b7280; font-size: 13px; margin-bottom: 8px; }
+        .downstream { font-size: 13px; color: #374151; margin-bottom: 12px; }
+        .downstream strong { display: block; margin-bottom: 4px; }
+        .current-notes { font-size: 13px; color: #4b5563; margin-bottom: 10px; font-style: italic; }
+        form.update-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+        select, input[type="text"], input[type="url"] { padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-family: Arial; }
+        select { flex: 0 0 auto; }
+        input[type="text"] { flex: 1 1 200px; }
+        input[type="url"] { flex: 1 1 200px; }
+        button { padding: 8px 16px; background: #1565c0; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0d47a1; }
+        .updated-at { font-size: 12px; color: #9ca3af; margin-top: 8px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🏗 Dam Status Admin</h1>
+        <a class="logout" href="{{ url_for('admin_logout') }}">Log out</a>
+    </div>
+
+    {% if message %}<div class="message">{{ message }}</div>{% endif %}
+
+    <p style="color:#6b7280;font-size:13px;max-width:640px;">
+        Only update a dam's status here after a real official notice
+        (e.g. a NIHSA or NEMA statement, or a Cameroonian authority
+        announcement for Lagdo). This board is manually curated —
+        nothing here is auto-detected.
+    </p>
+
+    {% for dam in dams %}
+    <div class="dam-card">
+        <div class="dam-top">
+            <span class="dam-name">{{ dam.name }}</span>
+            <span class="status-badge status-{{ dam.status }}">{{ dam.status.replace('_', ' ') }}</span>
+        </div>
+        <div class="location">{{ dam.location }}</div>
+        <div class="downstream">
+            <strong>Downstream watch (nearest to dam first):</strong>
+            {{ dam.downstream | join(" → ") }}
+        </div>
+        {% if dam.notes %}<div class="current-notes">Current note: {{ dam.notes }}</div>{% endif %}
+
+        <form method="POST" class="update-form">
+            <input type="hidden" name="dam_key" value="{{ dam.dam_key }}">
+            <select name="status">
+                {% for level in status_levels %}
+                <option value="{{ level }}" {% if level == dam.status %}selected{% endif %}>{{ level.replace('_', ' ') }}</option>
+                {% endfor %}
+            </select>
+            <input type="text" name="notes" placeholder="Notes (optional)" value="{{ dam.notes or '' }}">
+            <input type="url" name="source_url" placeholder="Source URL (optional)" value="{{ dam.source_url or '' }}">
+            <button type="submit">Update</button>
+        </form>
+
+        {% if dam.updated_at %}<div class="updated-at">Last updated {{ dam.updated_at }} UTC</div>{% endif %}
+    </div>
+    {% endfor %}
+</body>
+</html>

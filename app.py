@@ -1,5 +1,6 @@
 import json
 import secrets
+from functools import wraps
 import math
 import os
 import socket
@@ -11,7 +12,8 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 import urllib3.util.connection as urllib3_cn
-from flask import Flask, g, jsonify, render_template, request
+from flask import Flask, g, jsonify, redirect, render_template, request, session, url_for
+from werkzeug.security import check_password_hash, generate_password_hash
 from dotenv import load_dotenv
 try:
     import ee
@@ -20,6 +22,21 @@ except ImportError:
 
 load_dotenv()
 app = Flask(__name__)
+
+# Required for admin session cookies to work (Flask signs session data with
+# this). Falls back to a random key if unset, but that means every deploy
+# invalidates all sessions and logs the admin out — set SECRET_KEY as a
+# real env var (same pattern as your other keys) for a stable admin login.
+_secret_key_env = os.getenv("SECRET_KEY")
+if not _secret_key_env:
+    print("WARNING: SECRET_KEY is not set — using a random key. Admin sessions will not survive a restart/deploy until SECRET_KEY is configured.")
+app.secret_key = _secret_key_env or secrets.token_hex(32)
+
+# Admin login for posting dam status updates (see /admin/login). No default
+# password — if ADMIN_PASSWORD_HASH isn't set, admin login is disabled
+# entirely rather than falling back to something guessable.
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH")
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "community.db")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -118,46 +135,119 @@ GEO_CONTEXT_TTL_HOURS = 24
 EARTH_ENGINE_CONTEXT_TTL_HOURS = 6
 
 # Locations actively monitored for the homepage alert banner, independent of
-# whether any visitor has searched them. Edit this list to match the areas
-# that matter most for your audience — it doesn't need to be Lagos-only.
-MONITORED_LOCATIONS = [
-    # Lagos, Nigeria — original coastal/lowland focus
-    "Ikoyi, Lagos",
-    "Lekki, Lagos",
-    "Victoria Island, Lagos",
-    "Ajah, Lagos",
-    "Bariga, Lagos",
-    "Iyana Oworo, Lagos",
-    "Gbagada, Lagos",
-    "Somolu, Lagos",
-    "Lagos Island, Lagos",
-    "Apapa, Lagos",
-    # Africa
-    "Alexandria, Egypt",
-    "Maputo, Mozambique",
-    "Durban, South Africa",
-    # Asia
-    "Jakarta, Indonesia",
-    "Dhaka, Bangladesh",
-    "Mumbai, India",
-    "Manila, Philippines",
-    "Bangkok, Thailand",
-    "Ho Chi Minh City, Vietnam",
-    "Guangzhou, China",
-    # Europe
-    "Venice, Italy",
-    "Amsterdam, Netherlands",
-    "Hamburg, Germany",
-    # North America
-    "Miami, Florida",
-    "New Orleans, Louisiana",
-    "Houston, Texas",
-    # South America
-    "Rio de Janeiro, Brazil",
-    "Buenos Aires, Argentina",
-    # Oceania
-    "Brisbane, Australia",
+# whether any visitor has searched them.
+#
+# Each entry carries VERIFIED FIXED COORDINATES rather than relying on
+# OpenWeather's free-text geocoder at sweep time. This exists because that
+# geocoder has been observed, in this exact app, to mismatch Nigerian place
+# names to the wrong location entirely — "Apapa, Lagos" resolved to Kaduna
+# State, "Victoria Island, Lagos" resolved to the Canadian Arctic. Storing
+# real coordinates here sidesteps that failure mode for every curated
+# location (see build_prediction's known_place parameter).
+#
+# Confidence varies by entry — flagged per group below:
+#   VERIFIED  = individually confirmed via web search this session
+#   CITY      = well-known major city/state capital, high confidence from
+#               general geographic knowledge (~city-center accuracy)
+#   LGA-APPROX = a Local Government Area rather than a single town center;
+#               no one obvious coordinate exists, lower confidence — worth
+#               spot-checking via the map feature before fully trusting
+CURATED_LOCATIONS = [
+    # ---- Tier 1: Critical National Flood Watch — Coastal & Urban ----
+    {"label": "Lagos Island, Lagos", "lat": 6.4550, "lon": 3.3945, "category": "coastal"},
+    {"label": "Victoria Island, Lagos", "lat": 6.4253, "lon": 3.4095, "category": "coastal"},  # VERIFIED
+    {"label": "Ikoyi, Lagos", "lat": 6.4474, "lon": 3.4356, "category": "coastal"},
+    {"label": "Lekki, Lagos", "lat": 6.4698, "lon": 3.5852, "category": "coastal"},
+    {"label": "Ajah, Lagos", "lat": 6.4670, "lon": 3.6010, "category": "coastal"},
+    {"label": "Apapa, Lagos", "lat": 6.4500, "lon": 3.3650, "category": "coastal"},  # VERIFIED
+    {"label": "Bariga, Lagos", "lat": 6.5310, "lon": 3.3860, "category": "coastal"},
+    {"label": "Gbagada, Lagos", "lat": 6.5482, "lon": 3.3859, "category": "coastal"},
+    {"label": "Somolu, Lagos", "lat": 6.5392, "lon": 3.3790, "category": "coastal"},
+    {"label": "Iyana Oworo, Lagos", "lat": 6.5270, "lon": 3.3890, "category": "coastal"},
+    {"label": "Ikorodu, Lagos", "lat": 6.6018, "lon": 3.5106, "category": "coastal"},
+    {"label": "Ojota, Lagos", "lat": 6.5850, "lon": 3.3850, "category": "coastal"},  # VERIFIED
+    {"label": "Badagry, Lagos", "lat": 6.4149, "lon": 2.8811, "category": "coastal"},
+    {"label": "Epe, Lagos", "lat": 6.5832, "lon": 3.9836, "category": "coastal"},
+    {"label": "Port Harcourt, Rivers", "lat": 4.8156, "lon": 7.0498, "category": "coastal"},
+    {"label": "Warri, Delta", "lat": 5.5160, "lon": 5.7500, "category": "coastal"},
+    {"label": "Yenagoa, Bayelsa", "lat": 4.9247, "lon": 6.2642, "category": "coastal"},
+    {"label": "Calabar, Cross River", "lat": 4.9757, "lon": 8.3417, "category": "coastal"},
+    {"label": "Uyo, Akwa Ibom", "lat": 5.0377, "lon": 7.9128, "category": "coastal"},
+
+    # ---- Tier 2: River Flooding — Niger & Benue Basins ----
+    {"label": "Lokoja, Kogi", "lat": 7.8023, "lon": 6.7337, "category": "river_basin"},
+    {"label": "Idah, Kogi", "lat": 7.1069, "lon": 6.7333, "category": "river_basin"},
+    {"label": "Makurdi, Benue", "lat": 7.7322, "lon": 8.5391, "category": "river_basin"},
+    {"label": "Yola, Adamawa", "lat": 9.2035, "lon": 12.4954, "category": "river_basin"},
+    {"label": "Numan, Adamawa", "lat": 9.4667, "lon": 12.0333, "category": "river_basin"},
+    {"label": "Onitsha, Anambra", "lat": 6.1667, "lon": 6.7833, "category": "river_basin"},
+    {"label": "Ogbaru, Anambra", "lat": 6.0500, "lon": 6.7000, "category": "river_basin"},  # LGA-APPROX
+    {"label": "Asaba, Delta", "lat": 6.2000, "lon": 6.7333, "category": "river_basin"},
+    {"label": "Jebba, Kwara", "lat": 9.1333, "lon": 4.8333, "category": "river_basin"},
+    {"label": "Baro, Niger", "lat": 8.5833, "lon": 6.7500, "category": "river_basin"},
+    {"label": "Mokwa, Niger", "lat": 9.2933, "lon": 5.0592, "category": "river_basin"},
+
+    # ---- Tier 3: Lagdo Dam downstream watch (Benue basin) ----
+    # LGA-APPROX confidence for most of these — administrative areas
+    # without one obvious town-center coordinate. Spot-check before
+    # fully trusting.
+    {"label": "Demsa, Adamawa", "lat": 9.4333, "lon": 12.1500, "category": "dam_watch"},
+    {"label": "Lamurde, Adamawa", "lat": 9.2667, "lon": 11.8500, "category": "dam_watch"},
+    {"label": "Girei, Adamawa", "lat": 9.2833, "lon": 12.4667, "category": "dam_watch"},
+    {"label": "Fufore, Adamawa", "lat": 9.3167, "lon": 12.7000, "category": "dam_watch"},
+    {"label": "Logo, Benue", "lat": 7.3667, "lon": 9.0000, "category": "dam_watch"},
+    {"label": "Buruku, Benue", "lat": 7.6500, "lon": 9.1500, "category": "dam_watch"},
+    {"label": "Guma, Benue", "lat": 7.8667, "lon": 8.6333, "category": "dam_watch"},
+    {"label": "Agatu, Benue", "lat": 7.4167, "lon": 7.9500, "category": "dam_watch"},
+
+    # ---- Tier 4: Major Nigerian Cities (population-driven priority) ----
+    {"label": "Abuja, FCT", "lat": 9.0765, "lon": 7.3986, "category": "urban"},
+    {"label": "Ibadan, Oyo", "lat": 7.3775, "lon": 3.9470, "category": "urban"},
+    {"label": "Kano, Kano", "lat": 12.0022, "lon": 8.5920, "category": "urban"},
+    {"label": "Kaduna, Kaduna", "lat": 10.5222, "lon": 7.4383, "category": "urban"},
+    {"label": "Benin City, Edo", "lat": 6.3350, "lon": 5.6037, "category": "urban"},
+    {"label": "Aba, Abia", "lat": 5.1066, "lon": 7.3667, "category": "urban"},
+    {"label": "Enugu, Enugu", "lat": 6.5244, "lon": 7.5086, "category": "urban"},
+    {"label": "Ilorin, Kwara", "lat": 8.4966, "lon": 4.5426, "category": "urban"},
+    {"label": "Jos, Plateau", "lat": 9.8965, "lon": 8.8583, "category": "urban"},
+    {"label": "Maiduguri, Borno", "lat": 11.8333, "lon": 13.1500, "category": "urban"},
+    {"label": "Sokoto, Sokoto", "lat": 13.0059, "lon": 5.2476, "category": "urban"},
+
+    # ---- International showcase locations ----
+    {"label": "Alexandria, Egypt", "lat": 31.2001, "lon": 29.9187, "category": "international"},
+    {"label": "Maputo, Mozambique", "lat": -25.9692, "lon": 32.5732, "category": "international"},
+    {"label": "Durban, South Africa", "lat": -29.8587, "lon": 31.0218, "category": "international"},
+    {"label": "Jakarta, Indonesia", "lat": -6.2088, "lon": 106.8456, "category": "international"},
+    {"label": "Dhaka, Bangladesh", "lat": 23.8103, "lon": 90.4125, "category": "international"},
+    {"label": "Mumbai, India", "lat": 19.0760, "lon": 72.8777, "category": "international"},
+    {"label": "Manila, Philippines", "lat": 14.5995, "lon": 120.9842, "category": "international"},
+    {"label": "Bangkok, Thailand", "lat": 13.7563, "lon": 100.5018, "category": "international"},
+    {"label": "Ho Chi Minh City, Vietnam", "lat": 10.8231, "lon": 106.6297, "category": "international"},
+    {"label": "Guangzhou, China", "lat": 23.1291, "lon": 113.2644, "category": "international"},
+    {"label": "Venice, Italy", "lat": 45.4408, "lon": 12.3155, "category": "international"},
+    {"label": "Amsterdam, Netherlands", "lat": 52.3676, "lon": 4.9041, "category": "international"},
+    {"label": "Hamburg, Germany", "lat": 53.5511, "lon": 9.9937, "category": "international"},
+    {"label": "Miami, Florida", "lat": 25.7617, "lon": -80.1918, "category": "international"},
+    {"label": "New Orleans, Louisiana", "lat": 29.9511, "lon": -90.0715, "category": "international"},
+    {"label": "Houston, Texas", "lat": 29.7604, "lon": -95.3698, "category": "international"},
+    {"label": "Rio de Janeiro, Brazil", "lat": -22.9068, "lon": -43.1729, "category": "international"},
+    {"label": "Buenos Aires, Argentina", "lat": -34.6037, "lon": -58.3816, "category": "international"},
+    {"label": "Brisbane, Australia", "lat": -27.4698, "lon": 153.0251, "category": "international"},
 ]
+
+CATEGORY_DISPLAY_NAMES = {
+    "coastal": "🌊 Coastal & Urban Flood Watch",
+    "river_basin": "🏞 River Basin Watch (Niger & Benue)",
+    "dam_watch": "🏗 Lagdo Dam Downstream Watch",
+    "urban": "🏙 Major City Watch",
+    "international": "🌍 International Watch",
+}
+
+# Derived flat list (backward-compatible with the rest of the app, which
+# already treats monitored locations as plain "City, State" strings).
+MONITORED_LOCATIONS = [loc["label"] for loc in CURATED_LOCATIONS]
+
+
 
 # A real, independent, worldwide flood-alert feed (Global Disaster Alert and
 # Coordination System — used by UN OCHA and humanitarian agencies) so the
@@ -402,6 +492,22 @@ def init_db():
         )
         """
     )
+    try:
+        conn.execute("ALTER TABLE alert_subscribers ADD COLUMN name TEXT")
+    except sqlite3.OperationalError:
+        pass  # column already exists — fine on repeated startups
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS dam_subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            subscriber_id INTEGER NOT NULL,
+            dam_key TEXT NOT NULL,
+            last_alerted_status TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (subscriber_id) REFERENCES alert_subscribers(id)
+        )
+        """
+    )
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS alert_locations (
@@ -414,6 +520,17 @@ def init_db():
             last_alerted_at TEXT,
             created_at TEXT NOT NULL,
             FOREIGN KEY (subscriber_id) REFERENCES alert_subscribers(id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS dam_status (
+            dam_key TEXT PRIMARY KEY,
+            status TEXT NOT NULL DEFAULT 'NORMAL',
+            notes TEXT,
+            source_url TEXT,
+            updated_at TEXT NOT NULL
         )
         """
     )
@@ -456,6 +573,43 @@ def release_lock(lock_name):
 
 def normalize_city(city):
     return " ".join(city.strip().lower().split())
+
+
+# city_key -> full curated entry, for O(1) lookup during the sweep so
+# refresh_watchlist_cache() can pass verified coordinates straight into
+# build_prediction() instead of re-geocoding a location we already know.
+CURATED_LOCATION_LOOKUP = {normalize_city(loc["label"]): loc for loc in CURATED_LOCATIONS}
+
+# name-only (before the first comma) -> entry, for matching bare queries
+# like "Apapa" or "Victoria Island" against the curated "Apapa, Lagos" /
+# "Victoria Island, Lagos" entries. Visitors searching the dashboard rarely
+# type the full "Name, State" form — this is what actually made the
+# verified-coordinates fix apply to real visitor searches, not just the
+# background sweep (which always used the full stored label already).
+# If two curated entries happen to share the same bare name, the first one
+# defined in CURATED_LOCATIONS wins — none currently collide.
+CURATED_LOCATION_NAME_ONLY_LOOKUP = {}
+for _loc in CURATED_LOCATIONS:
+    _name_only = normalize_city(_loc["label"].partition(",")[0])
+    CURATED_LOCATION_NAME_ONLY_LOOKUP.setdefault(_name_only, _loc)
+del _loc, _name_only
+
+
+def _known_place_for_curated_location(label):
+    """Builds the known_place dict build_prediction() expects, from a
+    curated location's verified coordinates. Tries an exact full-label
+    match first (e.g. 'Apapa, Lagos'), then falls back to a bare-name
+    match (e.g. just 'Apapa') — this second path is what makes the fix
+    apply to what visitors actually type into the search box, not just the
+    curated label string itself. Splits the matched entry's label on its
+    first comma so the resulting display_name matches the exact format
+    already used throughout searches/watchlist_cache."""
+    normalized = normalize_city(label)
+    entry = CURATED_LOCATION_LOOKUP.get(normalized) or CURATED_LOCATION_NAME_ONLY_LOOKUP.get(normalized)
+    if not entry:
+        return None
+    name, _, state = entry["label"].partition(",")
+    return {"lat": entry["lat"], "lon": entry["lon"], "name": name.strip(), "state": state.strip() or None}
 
 
 def save_contribution(city, category, rating, comment, water_depth_cm=None, roads_affected=None):
@@ -675,8 +829,9 @@ def refresh_watchlist_cache():
 
     for index, location in enumerate(locations):
         try:
+            known_place = _known_place_for_curated_location(location)
             with app.app_context():
-                prediction, _ = build_prediction(location)
+                prediction, _ = build_prediction(location, known_place=known_place)
         except Exception as error:  # noqa: BLE001 — one bad location must not break the rest
             print(f"Watchlist refresh failed for {location}: {error}")
             continue
@@ -1153,8 +1308,22 @@ def send_alert_email(to_email, subject, html_content):
         return False
 
 
-def build_alert_email_html(prediction, label, unsubscribe_url):
-    """Builds the HTML body for a flood-risk-crossing alert email."""
+TIER_COLORS = {"watch": "#f59e0b", "warning": "#dc2626", "emergency": "#7f1d1d"}
+TIER_MESSAGES = {
+    "watch": "Heavy rainfall is forecast that could lead to flooding. Flooding is not currently expected, but conditions could worsen — stay informed.",
+    "warning": "Conditions now indicate flooding is plausible. Avoid unnecessary travel, move valuables to higher ground, and charge your phone.",
+    "emergency": "Flooding is occurring or imminent. Leave low-lying areas immediately, avoid flooded roads, and follow instructions from emergency authorities.",
+}
+
+
+def build_tiered_alert_email_html(prediction, label, tier_name, unsubscribe_url):
+    """Builds the HTML body for a tiered flood alert email — Watch, Warning,
+    or Emergency, matching how urgently the person should act, rather than
+    a single generic 'flood risk' message regardless of severity."""
+    color = TIER_COLORS[tier_name]
+    headline = RISK_TIER_HEADLINE[tier_name]
+    tier_message = TIER_MESSAGES[tier_name]
+
     priority_html = (
         f"<p style='color:#b91c1c;font-weight:bold;'>⚠ {prediction['priority_action']}</p>"
         if prediction.get("priority_action")
@@ -1162,10 +1331,11 @@ def build_alert_email_html(prediction, label, unsubscribe_url):
     )
     return f"""
     <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;">
-        <h2 style="color:#dc2626;">⚠ {prediction['risk']} flood risk at {label}</h2>
-        <p><strong>{prediction['city']}</strong>{f", {prediction['country']}" if prediction.get('country') else ''}
+        <h2 style="color:{color};">{RISK_TIER_EMOJI[tier_name]} {headline}</h2>
+        <p><strong>{label}</strong> ({prediction['city']}{f", {prediction['country']}" if prediction.get('country') else ''})
            is currently at <strong>{prediction['risk']}</strong> flood risk
            (score {prediction['score']}/100).</p>
+        <p>{tier_message}</p>
         {priority_html}
         <p>{prediction.get('advice', '')}</p>
         <p><a href="{SITE_BASE_URL}/" style="color:#2563eb;">
@@ -1179,30 +1349,106 @@ def build_alert_email_html(prediction, label, unsubscribe_url):
     """
 
 
+DAM_STATUS_LABELS = {
+    "NORMAL": "Normal",
+    "MONITORING": "Being Monitored",
+    "RELEASE_IN_PROGRESS": "Controlled Water Release In Progress",
+}
+
+
+def build_dam_alert_email_html(dam, new_status, notes, source_url, unsubscribe_url):
+    """Builds the HTML body for a dam status-change alert email."""
+    color = "#dc2626" if new_status == "RELEASE_IN_PROGRESS" else "#f59e0b" if new_status == "MONITORING" else "#16a34a"
+    notes_html = f"<p>{notes}</p>" if notes else ""
+    source_html = f'<p><a href="{source_url}" style="color:#2563eb;">Official source</a></p>' if source_url else ""
+    downstream_html = " → ".join(dam["downstream"])
+
+    return f"""
+    <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;">
+        <h2 style="color:{color};">🌊 {dam['name']} — {DAM_STATUS_LABELS.get(new_status, new_status)}</h2>
+        <p>{dam['location']}</p>
+        {notes_html}
+        {source_html}
+        <p><strong>Downstream communities to watch (nearest to the dam first):</strong><br>{downstream_html}</p>
+        <p style="font-size:13px;color:#6b7280;">This is a manually-confirmed status update, not an automated detection — always follow official guidance for your area.</p>
+        <p><a href="{SITE_BASE_URL}/" style="color:#2563eb;">View full details on FloodGuard AI</a></p>
+        <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;">
+        <p style="font-size:12px;color:#6b7280;">
+            You're receiving this because you subscribed to dam alerts for {dam['name']}.
+            <a href="{unsubscribe_url}">Unsubscribe from all alerts</a>.
+        </p>
+    </div>
+    """
+
+
+def check_and_send_dam_alerts(dam_key, new_status, notes, source_url):
+    """Emails every subscriber to this dam whenever its status changes to
+    something different from what was last alerted to them. Unlike the
+    location-tier alerts, this fires on every change (including
+    de-escalation back to NORMAL, e.g. "the release has ended") rather than
+    only on escalation — dam status changes are infrequent and
+    manually-curated, so there's no spam risk, and a "release has ended"
+    update is itself genuinely useful news to the people who opted in."""
+    dam = DAM_REGISTRY.get(dam_key)
+    if not dam:
+        return
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        """
+        SELECT ds.id AS sub_id, ds.last_alerted_status, s.email, s.unsubscribe_token
+        FROM dam_subscriptions ds
+        JOIN alert_subscribers s ON ds.subscriber_id = s.id
+        WHERE ds.dam_key = ?
+        """,
+        (dam_key,),
+    ).fetchall()
+
+    for row in rows:
+        if row["last_alerted_status"] == new_status:
+            continue
+
+        unsubscribe_url = f"{SITE_BASE_URL}/unsubscribe/{row['unsubscribe_token']}"
+        sent = send_alert_email(
+            row["email"],
+            f"🌊 {dam['name']}: {DAM_STATUS_LABELS.get(new_status, new_status)}",
+            build_dam_alert_email_html(dam, new_status, notes, source_url, unsubscribe_url),
+        )
+        if sent:
+            conn.execute(
+                "UPDATE dam_subscriptions SET last_alerted_status = ? WHERE id = ?",
+                (new_status, row["sub_id"]),
+            )
+
+    conn.commit()
+    conn.close()
+
+
 def generate_unsubscribe_token():
     return secrets.token_urlsafe(32)
 
 
-def get_or_create_subscriber(email, phone=None, whatsapp=None):
+def get_or_create_subscriber(email, phone=None, whatsapp=None, name=None):
     """Finds an existing subscriber by email, or creates one. Updates
-    phone/whatsapp on an existing subscriber only if new values were
+    phone/whatsapp/name on an existing subscriber only if new values were
     actually provided this time, so re-subscribing to add a second location
-    doesn't accidentally wipe a phone number given during the first signup."""
+    doesn't accidentally wipe details given during the first signup."""
     db = get_db()
     row = db.execute("SELECT id, unsubscribe_token FROM alert_subscribers WHERE email = ?", (email,)).fetchone()
     if row:
-        if phone or whatsapp:
+        if phone or whatsapp or name:
             db.execute(
-                "UPDATE alert_subscribers SET phone = COALESCE(?, phone), whatsapp = COALESCE(?, whatsapp) WHERE id = ?",
-                (phone, whatsapp, row["id"]),
+                "UPDATE alert_subscribers SET phone = COALESCE(?, phone), whatsapp = COALESCE(?, whatsapp), name = COALESCE(?, name) WHERE id = ?",
+                (phone, whatsapp, name, row["id"]),
             )
             db.commit()
         return row["id"], row["unsubscribe_token"]
 
     token = generate_unsubscribe_token()
     db.execute(
-        "INSERT INTO alert_subscribers (email, phone, whatsapp, unsubscribe_token, created_at) VALUES (?, ?, ?, ?, ?)",
-        (email, phone, whatsapp, token, datetime.utcnow().isoformat()),
+        "INSERT INTO alert_subscribers (email, phone, whatsapp, name, unsubscribe_token, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (email, phone, whatsapp, name, token, datetime.utcnow().isoformat()),
     )
     db.commit()
     new_row = db.execute("SELECT id FROM alert_subscribers WHERE email = ?", (email,)).fetchone()
@@ -1235,19 +1481,67 @@ def add_alert_location(subscriber_id, label, city_label):
     return new_row["id"], True
 
 
+def add_dam_subscription(subscriber_id, dam_key):
+    """Subscribes a subscriber to status-change alerts for one dam,
+    deduplicated the same way as add_alert_location."""
+    db = get_db()
+    existing = db.execute(
+        "SELECT id FROM dam_subscriptions WHERE subscriber_id = ? AND dam_key = ?",
+        (subscriber_id, dam_key),
+    ).fetchone()
+    if existing:
+        return existing["id"], False
+
+    db.execute(
+        "INSERT INTO dam_subscriptions (subscriber_id, dam_key, created_at) VALUES (?, ?, ?)",
+        (subscriber_id, dam_key, datetime.utcnow().isoformat()),
+    )
+    db.commit()
+    new_row = db.execute(
+        "SELECT id FROM dam_subscriptions WHERE subscriber_id = ? AND dam_key = ?",
+        (subscriber_id, dam_key),
+    ).fetchone()
+    return new_row["id"], True
+
+
+# Three-tier alert system. Deliberately built on top of the existing 5-level
+# classify_risk() output rather than a separate rainfall-mm threshold table
+# — calculate_flood_score() already combines rainfall with terrain, rivers,
+# drainage, tides, and soil, so a parallel rainfall-only table would risk
+# giving a conflicting signal for the same location (e.g. 60mm somewhere
+# flat/coastal/saturated vs. 60mm somewhere elevated and well-drained
+# shouldn't read as equally urgent, but a flat mm table can't tell them
+# apart the way the existing model already does).
+RISK_TIER_LEVEL = {"WATCH": 1, "HIGH": 2, "SEVERE": 3, "CRITICAL": 3}
+RISK_TIER_NAME = {"WATCH": "watch", "HIGH": "warning", "SEVERE": "emergency", "CRITICAL": "emergency"}
+RISK_TIER_EMOJI = {"watch": "🌧️", "warning": "⚠️", "emergency": "🚨"}
+RISK_TIER_HEADLINE = {
+    "watch": "Heavy Rain Watch",
+    "warning": "Flash Flood Warning",
+    "emergency": "Emergency Flood Alert",
+}
+
+
 def check_and_send_location_alerts(prediction):
     """Checks every subscriber watching this location and emails anyone
-    whose saved location has just crossed INTO HIGH risk or above — not
-    everyone still sitting at HIGH on a later sweep, which would spam an
-    email every WATCHLIST_REFRESH_MINUTES while a flood event is ongoing.
-    last_alerted_risk_level tracks this: it's set on send, and cleared once
-    risk drops back below HIGH, so a future re-crossing triggers a fresh
-    alert instead of staying silently suppressed forever."""
+    whose saved location has just crossed INTO a NEW, HIGHER tier than
+    whatever was last alerted for the current episode — not everyone still
+    sitting at the same tier on a later sweep (spam), but also not
+    suppressing a real escalation (e.g. WATCH already sent, risk climbs to
+    HIGH — that should still send a fresh, more urgent alert, since tier
+    level 2 > the previously-alerted tier level 1).
+    last_alerted_risk_level stores the actual risk string (WATCH/HIGH/
+    SEVERE/CRITICAL) so RISK_TIER_LEVEL can rank it; it's cleared once risk
+    drops back to LOW, so a future re-crossing alerts fresh from tier 1
+    again instead of staying suppressed forever."""
     city_key = normalize_city(prediction["city"])
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
 
-    if prediction["risk"] not in ALERT_LEVELS:
+    risk = prediction["risk"]
+    current_tier_level = RISK_TIER_LEVEL.get(risk, 0)
+
+    if current_tier_level == 0:
         conn.execute(
             "UPDATE alert_locations SET last_alerted_risk_level = NULL WHERE city_key = ? AND last_alerted_risk_level IS NOT NULL",
             (city_key,),
@@ -1267,20 +1561,23 @@ def check_and_send_location_alerts(prediction):
         (city_key,),
     ).fetchall()
 
+    tier_name = RISK_TIER_NAME[risk]
+
     for row in rows:
-        if row["last_alerted_risk_level"] in ALERT_LEVELS:
-            continue  # already alerted for this ongoing crossing — don't spam
+        previous_tier_level = RISK_TIER_LEVEL.get(row["last_alerted_risk_level"], 0)
+        if current_tier_level <= previous_tier_level:
+            continue  # no new, higher tier reached this episode — don't resend
 
         unsubscribe_url = f"{SITE_BASE_URL}/unsubscribe/{row['unsubscribe_token']}"
         sent = send_alert_email(
             row["email"],
-            f"⚠ {prediction['risk']} flood risk at {row['label']} ({prediction['city']})",
-            build_alert_email_html(prediction, row["label"], unsubscribe_url),
+            f"{RISK_TIER_EMOJI[tier_name]} {RISK_TIER_HEADLINE[tier_name]}: {row['label']} ({prediction['city']})",
+            build_tiered_alert_email_html(prediction, row["label"], tier_name, unsubscribe_url),
         )
         if sent:
             conn.execute(
                 "UPDATE alert_locations SET last_alerted_risk_level = ?, last_alerted_at = ? WHERE id = ?",
-                (prediction["risk"], datetime.utcnow().isoformat(), row["location_id"]),
+                (risk, datetime.utcnow().isoformat(), row["location_id"]),
             )
 
     conn.commit()
@@ -3492,6 +3789,131 @@ def get_official_emergency_numbers(country_code, state_name=None):
     }
 
 
+# ---------------------------------------------------------------------------
+# Dam Intelligence — a MANUALLY-CURATED status board, deliberately not an
+# automated detector. There is no free, structured, machine-readable feed
+# for dam release announcements (Lagdo Dam releases, and Nigeria's own dam
+# operations, are announced via press statements/news — see NIHSA
+# statements — not an API). Auto-scraping news sites to *guess* release
+# status would risk exactly the kind of fabricated/unreliable signal this
+# app has avoided elsewhere (see get_regional_flood_context's module note).
+#
+# Instead: DAM_REGISTRY is static reference data (which dams exist, which
+# downstream communities to watch, ordered nearest-to-the-dam first — a
+# DISTANCE ordering, not a time/ETA estimate, since real travel times need
+# river-gauge/hydrology data this app doesn't have). Live STATUS on top of
+# that registry is entered by an admin (see /admin/dams) after a real
+# official notice — e.g. a NIHSA statement — so a release is only ever
+# shown here because someone with access confirmed it happened, not
+# because the system inferred it.
+# ---------------------------------------------------------------------------
+DAM_REGISTRY = {
+    "lagdo": {
+        "name": "Lagdo Dam",
+        "location": "Cameroon (Benue River) — releases affect northeastern Nigeria downstream",
+        "downstream": [
+            "Yola, Adamawa", "Numan, Adamawa", "Demsa, Adamawa", "Lamurde, Adamawa",
+            "Makurdi, Benue", "Lokoja, Kogi", "Onitsha, Anambra",
+        ],
+    },
+    "oyan": {
+        "name": "Oyan Dam",
+        "location": "Ogun State, Nigeria — supplies raw water to Lagos and Abeokuta",
+        "downstream": ["Ikorodu, Lagos", "Isheri, Lagos", "Majidun, Lagos", "Agboyi, Lagos", "Owode, Lagos", "Ogolonto, Lagos"],
+    },
+    "kainji": {
+        "name": "Kainji Dam",
+        "location": "Niger State, Nigeria (Niger River)",
+        "downstream": ["Jebba, Kwara", "Baro, Niger", "Lokoja, Kogi"],
+    },
+    "jebba": {
+        "name": "Jebba Dam",
+        "location": "Kwara/Niger States, Nigeria (Niger River)",
+        "downstream": ["Jebba, Kwara", "Baro, Niger"],
+    },
+    "shiroro": {
+        "name": "Shiroro Dam",
+        "location": "Niger State, Nigeria",
+        "downstream": ["Suleja, Niger", "Minna, Niger"],
+    },
+    "tiga": {
+        "name": "Tiga Dam",
+        "location": "Kano State, Nigeria",
+        "downstream": ["Kano, Kano"],
+    },
+    "challawa_gorge": {
+        "name": "Challawa Gorge Dam",
+        "location": "Kano State, Nigeria",
+        "downstream": ["Kano, Kano"],
+    },
+    "dadin_kowa": {
+        "name": "Dadin Kowa Dam",
+        "location": "Gombe State, Nigeria",
+        "downstream": ["Gombe, Gombe", "Numan, Adamawa"],
+    },
+    "bakolori": {
+        "name": "Bakolori Dam",
+        "location": "Zamfara State, Nigeria",
+        "downstream": ["Talata Mafara, Zamfara", "Sokoto, Sokoto"],
+    },
+}
+
+DAM_STATUS_LEVELS = ("NORMAL", "MONITORING", "RELEASE_IN_PROGRESS")
+
+
+def get_dam_status_board():
+    """Merges the static DAM_REGISTRY with live status rows from the DB.
+    Any dam with no status row yet defaults to NORMAL — the whole point of
+    this being admin-curated is that silence means no one has reported a
+    release, not that one is confirmed absent, so the UI should present
+    NORMAL as 'nothing reported' rather than an assured all-clear."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    rows = {row["dam_key"]: dict(row) for row in conn.execute("SELECT * FROM dam_status").fetchall()}
+    conn.close()
+
+    board = []
+    for dam_key, dam in DAM_REGISTRY.items():
+        status_row = rows.get(dam_key)
+        board.append({
+            "dam_key": dam_key,
+            "name": dam["name"],
+            "location": dam["location"],
+            "downstream": dam["downstream"],
+            "status": status_row["status"] if status_row else "NORMAL",
+            "notes": status_row["notes"] if status_row else None,
+            "source_url": status_row["source_url"] if status_row else None,
+            "updated_at": status_row["updated_at"] if status_row else None,
+        })
+    return board
+
+
+def set_dam_status(dam_key, status, notes=None, source_url=None):
+    if dam_key not in DAM_REGISTRY:
+        return False
+    if status not in DAM_STATUS_LEVELS:
+        return False
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        """
+        INSERT INTO dam_status (dam_key, status, notes, source_url, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(dam_key) DO UPDATE SET
+            status=excluded.status,
+            notes=excluded.notes,
+            source_url=excluded.source_url,
+            updated_at=excluded.updated_at
+        """,
+        (dam_key, status, notes, source_url, datetime.utcnow().isoformat()),
+    )
+    conn.commit()
+    conn.close()
+    return True
+
+
+
+
 def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engine, historical_reports):
     """Flood VULNERABILITY — how flood-prone this location inherently is —
     as a separate metric from the Live Flood Risk score above. This is
@@ -3590,9 +4012,23 @@ def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engi
     }
 
 
-def build_prediction(query):
-    print("STEP 1: Geocoding")
-    place = geocode_location(query)
+def build_prediction(query, known_place=None):
+    """query is used for live geocoding unless known_place is supplied, in
+    which case geocoding is skipped entirely and these verified coordinates
+    are used directly. This exists because OpenWeather's free-text geocoder
+    has been observed to mismatch some Nigerian place names to the wrong
+    state/country entirely (e.g. 'Apapa' resolving to Kaduna State instead
+    of Lagos, 'Victoria Island' resolving to the Canadian Arctic) — curated
+    MONITORED_LOCATIONS entries use verified fixed coordinates to sidestep
+    that failure mode; ad-hoc visitor searches still go through live
+    geocoding as before, since there's no way to pre-verify an arbitrary
+    typed query."""
+    if known_place:
+        place = known_place
+        print(f"STEP 1: Using verified coordinates for {place['name']}")
+    else:
+        print("STEP 1: Geocoding")
+        place = geocode_location(query)
 
     if place:
         lat, lon = place["lat"], place["lon"]
@@ -3798,7 +4234,7 @@ def home():
         elif not API_KEY:
             error = "Weather API key is missing. Add OPENWEATHER_API_KEY to your hosting environment variables."
         else:
-            prediction, forecast = build_prediction(city)
+            prediction, forecast = build_prediction(city, known_place=_known_place_for_curated_location(city))
             if not prediction:
                 error = "City not found or weather service unavailable."
             else:
@@ -3831,7 +4267,7 @@ def widget_api():
             "error": "Please enter a city."
         })
 
-    prediction, forecast = build_prediction(city)
+    prediction, forecast = build_prediction(city, known_place=_known_place_for_curated_location(city))
 
     if not prediction:
         return jsonify({
@@ -4037,21 +4473,34 @@ def api_property_check():
 
 @app.route("/api/alert-subscribe", methods=["POST"])
 def api_alert_subscribe():
-    """Subscribes an email to flood alerts for a specific location, sending
-    an email the moment that location crosses into HIGH risk or above
-    (checked every watchlist sweep — see check_and_send_location_alerts).
-    Location is validated via a real geocode lookup before saving, so a
-    typo'd or unrecognized place doesn't silently create a subscription
-    that can never actually match anything in the sweep."""
+    """Subscribes an email to flood alerts for a specific location — Watch,
+    Warning, or Emergency tier, whichever is newly reached (checked every
+    watchlist sweep — see check_and_send_location_alerts) — and optionally
+    to status-change alerts for one or more dams. Location is validated via
+    a real geocode lookup before saving, so a typo'd or unrecognized place
+    doesn't silently create a subscription that can never actually match
+    anything in the sweep."""
     if not API_KEY:
         return jsonify({"ok": False, "error": "OPENWEATHER_API_KEY is not configured."}), 400
 
     payload = request.get_json(silent=True) or request.form
+    name = (payload.get("name") or "").strip() or None
     email = (payload.get("email") or "").strip().lower()
     phone = (payload.get("phone") or "").strip() or None
     whatsapp = (payload.get("whatsapp") or "").strip() or None
     label = (payload.get("label") or "Location").strip()
     city = (payload.get("city") or "").strip()
+
+    # dam_keys can arrive as a JSON list, or as repeated form fields /
+    # comma-separated string depending on how the frontend submits it.
+    raw_dam_keys = payload.get("dam_keys")
+    if isinstance(raw_dam_keys, list):
+        dam_keys = [k.strip() for k in raw_dam_keys if k and k.strip()]
+    elif isinstance(raw_dam_keys, str) and raw_dam_keys.strip():
+        dam_keys = [k.strip() for k in raw_dam_keys.split(",") if k.strip()]
+    else:
+        dam_keys = []
+    invalid_dam_keys = [k for k in dam_keys if k not in DAM_REGISTRY]
 
     if not email or "@" not in email or "." not in email.split("@")[-1]:
         return jsonify({"ok": False, "error": "A valid email address is required."}), 400
@@ -4059,10 +4508,14 @@ def api_alert_subscribe():
         return jsonify({"ok": False, "error": "A location is required."}), 400
     if len(email) > 200 or len(city) > 150 or len(label) > 50:
         return jsonify({"ok": False, "error": "One of the fields is too long."}), 400
+    if name and len(name) > 100:
+        return jsonify({"ok": False, "error": "Name is too long."}), 400
     if phone and len(phone) > 30:
         return jsonify({"ok": False, "error": "Phone number is too long."}), 400
     if whatsapp and len(whatsapp) > 30:
         return jsonify({"ok": False, "error": "WhatsApp number is too long."}), 400
+    if invalid_dam_keys:
+        return jsonify({"ok": False, "error": f"Unknown dam selection: {', '.join(invalid_dam_keys)}."}), 400
 
     place = geocode_location(city)
     if not place:
@@ -4071,23 +4524,37 @@ def api_alert_subscribe():
     city_label = place["name"] + (f", {place['state']}" if place.get("state") else "")
 
     try:
-        subscriber_id, token = get_or_create_subscriber(email, phone, whatsapp)
+        subscriber_id, token = get_or_create_subscriber(email, phone, whatsapp, name)
         location_id, is_new = add_alert_location(subscriber_id, label, city_label)
+        newly_subscribed_dams = []
+        for dam_key in dam_keys:
+            _, dam_is_new = add_dam_subscription(subscriber_id, dam_key)
+            if dam_is_new:
+                newly_subscribed_dams.append(DAM_REGISTRY[dam_key]["name"])
     except sqlite3.IntegrityError as error:
         print(f"Alert subscribe DB error: {error}")
         return jsonify({"ok": False, "error": "Something went wrong saving your subscription. Please try again."}), 500
 
-    if is_new:
+    if is_new or newly_subscribed_dams:
         unsubscribe_url = f"{SITE_BASE_URL}/unsubscribe/{token}"
+        location_line = (
+            f"<p>You'll get an email whenever <strong>{label}</strong> ({city_label}) "
+            "reaches Heavy Rain Watch, Flash Flood Warning, or Emergency Flood Alert level.</p>"
+            if is_new else ""
+        )
+        dam_line = (
+            f"<p>You're now also subscribed to status updates for: <strong>{', '.join(newly_subscribed_dams)}</strong>.</p>"
+            if newly_subscribed_dams else ""
+        )
         send_alert_email(
             email,
             "You're now subscribed to FloodGuard AI alerts",
             f"""
             <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;">
                 <h2>You're subscribed ✅</h2>
-                <p>You'll get an email at this address whenever
-                   <strong>{label}</strong> ({city_label}) reaches
-                   <strong>HIGH</strong> flood risk or above.</p>
+                {f"<p>Hi {name},</p>" if name else ""}
+                {location_line}
+                {dam_line}
                 <p style="font-size:12px;color:#6b7280;">
                     <a href="{unsubscribe_url}">Unsubscribe from all alerts</a> at any time.
                 </p>
@@ -4095,10 +4562,13 @@ def api_alert_subscribe():
             """,
         )
 
+    dam_message = f" Also subscribed to dam alerts: {', '.join(newly_subscribed_dams)}." if newly_subscribed_dams else ""
     return jsonify({
         "ok": True,
-        "message": f"Subscribed! We'll email {email} if {city_label} reaches HIGH risk or above."
-        if is_new else f"{city_label} is already on your alert list for {email}.",
+        "message": (
+            f"Subscribed! We'll email {email} if {city_label} reaches Watch, Warning, or Emergency level.{dam_message}"
+            if is_new else f"{city_label} is already on your alert list for {email}.{dam_message}"
+        ),
     })
 
 
@@ -4129,6 +4599,67 @@ def api_stats():
     stats = get_site_stats()
     stats["total_contributions"] = total_contributions_count()
     return jsonify({"ok": True, **stats})
+
+
+def login_required(view_func):
+    """Guards admin-only routes. Redirects to /admin/login rather than
+    returning a bare 403, since these are also normal browser-navigated
+    pages (not just API endpoints)."""
+    @wraps(view_func)
+    def wrapped(*args, **kwargs):
+        if not session.get("is_admin"):
+            return redirect(url_for("admin_login"))
+        return view_func(*args, **kwargs)
+    return wrapped
+
+
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    error = None
+    if request.method == "POST":
+        if not ADMIN_PASSWORD_HASH:
+            error = "Admin login is not configured (ADMIN_PASSWORD_HASH is not set)."
+        else:
+            username = request.form.get("username", "")
+            password = request.form.get("password", "")
+            if username == ADMIN_USERNAME and check_password_hash(ADMIN_PASSWORD_HASH, password):
+                session["is_admin"] = True
+                return redirect(url_for("admin_dams"))
+            error = "Incorrect username or password."
+    return render_template("admin_login.html", error=error)
+
+
+@app.route("/api/dam-status")
+def api_dam_status():
+    return jsonify({"ok": True, "dams": get_dam_status_board()})
+
+
+@app.route("/admin/dams", methods=["GET", "POST"])
+@login_required
+def admin_dams():
+    message = None
+    if request.method == "POST":
+        dam_key = request.form.get("dam_key", "")
+        status = request.form.get("status", "")
+        notes = request.form.get("notes", "").strip() or None
+        source_url = request.form.get("source_url", "").strip() or None
+
+        if dam_key not in DAM_REGISTRY:
+            message = "Unknown dam."
+        elif status not in DAM_STATUS_LEVELS:
+            message = "Invalid status."
+        else:
+            set_dam_status(dam_key, status, notes, source_url)
+            check_and_send_dam_alerts(dam_key, status, notes, source_url)
+            message = f"Updated {DAM_REGISTRY[dam_key]['name']}."
+
+    return render_template("admin_dams.html", dams=get_dam_status_board(), status_levels=DAM_STATUS_LEVELS, message=message)
+
+
+@app.route("/admin/logout")
+def admin_logout():
+    session.pop("is_admin", None)
+    return redirect(url_for("admin_login"))
 
 
 @app.route("/health")
@@ -4175,7 +4706,7 @@ def widget():
 
         else:
 
-            prediction, forecast = build_prediction(city)
+            prediction, forecast = build_prediction(city, known_place=_known_place_for_curated_location(city))
 
             if prediction:
                 reports = get_city_contributions(prediction["city"])
