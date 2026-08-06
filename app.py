@@ -126,6 +126,14 @@ WATCHLIST_SWEEP_STAGGER_SECONDS = 4
 WATCHLIST_STARTUP_GRACE_MINUTES = 2
 _process_started_at = datetime.utcnow()
 
+# Twice-daily weather digest send times, in UTC hour-of-day. Defaults
+# approximate 6am/6pm West Africa Time (UTC+1) — the primary audience per
+# MONITORED_LOCATIONS — but every subscriber gets the same two send times
+# regardless of their own timezone, since no per-subscriber timezone is
+# currently collected. Override via env vars if the audience shifts.
+DIGEST_MORNING_UTC_HOUR = int(os.getenv("DIGEST_MORNING_UTC_HOUR", "5"))
+DIGEST_EVENING_UTC_HOUR = int(os.getenv("DIGEST_EVENING_UTC_HOUR", "17"))
+
 # Elevation, slope, water proximity, soil type, and urbanization barely
 # change hour to hour — there's no reason to re-hit Overpass/SoilGrids for
 # them on every watchlist sweep. Caching this static geospatial context for
@@ -531,6 +539,14 @@ def init_db():
             notes TEXT,
             source_url TEXT,
             updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS digest_sends (
+            digest_key TEXT PRIMARY KEY,
+            sent_at TEXT NOT NULL
         )
         """
     )
@@ -1423,6 +1439,151 @@ def check_and_send_dam_alerts(dam_key, new_status, notes, source_url):
 
     conn.commit()
     conn.close()
+
+
+DIGEST_GREETING = {"morning": "Good morning", "evening": "Good evening"}
+
+
+def build_digest_location_advice(prediction, label):
+    """Builds one short, practical advisory line for a single location,
+    reusing fields build_prediction() already computes — no new scoring
+    logic, no new thresholds. Prefers the most specific, actionable signal
+    available: an active/imminent risk tier first, then an upcoming
+    rainfall_warning, then current light rain, then a plain all-clear."""
+    risk = prediction["risk"]
+    rain_now = prediction.get("rainfall_mm", 0) or 0
+    warning = prediction.get("rainfall_warning")
+    display_label = f"{label} ({prediction['city']})" if label != prediction["city"] else label
+
+    if risk in RISK_TIER_LEVEL:
+        action = prediction.get("priority_action") or "Stay alert and monitor conditions."
+        return f"<strong>{display_label}</strong> — {risk} flood risk right now. {action}"
+
+    if warning:
+        when = "later today" if warning["hours_from_now"] <= 12 else "in the next couple of days"
+        if warning["peak_risk"] in ("SEVERE", "CRITICAL"):
+            return f"<strong>{display_label}</strong> — Heavy rain expected {when} (~{warning['expected_rainfall_mm']}mm). Consider postponing travel through low-lying roads."
+        return f"<strong>{display_label}</strong> — Rain expected {when} (~{warning['expected_rainfall_mm']}mm). Worth carrying an umbrella."
+
+    if rain_now >= 2:
+        return f"<strong>{display_label}</strong> — Light rain currently ({rain_now}mm). Carry an umbrella if heading out."
+
+    return f"<strong>{display_label}</strong> — Clear, no significant rain expected. {prediction.get('description', '')}."
+
+
+def build_digest_email_html(name, digest_type, location_lines, unsubscribe_url):
+    greeting = DIGEST_GREETING.get(digest_type, "Hello")
+    lines_html = "".join(f"<li style='margin-bottom:8px;'>{line}</li>" for line in location_lines)
+    return f"""
+    <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;">
+        <h2>{greeting}{f", {name}" if name else ""} 🌤️</h2>
+        <p>Here's your FloodGuard AI weather check-in:</p>
+        <ul style="padding-left:20px;">{lines_html}</ul>
+        <p><a href="{SITE_BASE_URL}/" style="color:#2563eb;">View full details on FloodGuard AI</a></p>
+        <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;">
+        <p style="font-size:12px;color:#6b7280;">
+            You're receiving this twice-daily check-in because you're subscribed to FloodGuard AI alerts.
+            <a href="{unsubscribe_url}">Unsubscribe from all alerts</a>.
+        </p>
+    </div>
+    """
+
+
+def send_daily_digests(digest_type):
+    """Sends the twice-daily weather digest to every subscriber. Computes
+    each distinct watched location's prediction ONCE and reuses it across
+    every subscriber watching that same place (common for curated/popular
+    locations), rather than recomputing per-subscriber — keeps this
+    reasonably scoped even as the subscriber base grows."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        """
+        SELECT s.id AS subscriber_id, s.name, s.email, s.unsubscribe_token,
+               al.label, al.city_label
+        FROM alert_subscribers s
+        JOIN alert_locations al ON al.subscriber_id = s.id
+        ORDER BY s.id
+        """
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        return
+
+    prediction_cache = {}
+
+    def get_prediction_for(city_label):
+        key = normalize_city(city_label)
+        if key not in prediction_cache:
+            known_place = _known_place_for_curated_location(city_label)
+            try:
+                with app.app_context():
+                    prediction, _ = build_prediction(city_label, known_place=known_place)
+            except Exception as error:  # noqa: BLE001 — one bad location must not break the whole digest run
+                print(f"Digest prediction failed for '{city_label}': {error}")
+                prediction = None
+            prediction_cache[key] = prediction
+        return prediction_cache[key]
+
+    subscribers = {}
+    for row in rows:
+        subscribers.setdefault(row["subscriber_id"], {
+            "name": row["name"], "email": row["email"], "unsubscribe_token": row["unsubscribe_token"], "locations": [],
+        })["locations"].append((row["label"], row["city_label"]))
+
+    for subscriber in subscribers.values():
+        location_lines = []
+        for label, city_label in subscriber["locations"]:
+            prediction = get_prediction_for(city_label)
+            if prediction:
+                location_lines.append(build_digest_location_advice(prediction, label))
+
+        if not location_lines:
+            continue  # every location failed to resolve this run — skip rather than send an empty digest
+
+        unsubscribe_url = f"{SITE_BASE_URL}/unsubscribe/{subscriber['unsubscribe_token']}"
+        send_alert_email(
+            subscriber["email"],
+            f"{DIGEST_GREETING.get(digest_type, 'Hello')} — your FloodGuard AI weather check-in",
+            build_digest_email_html(subscriber["name"], digest_type, location_lines, unsubscribe_url),
+        )
+
+
+def maybe_send_daily_digests():
+    """Opportunistically sends the morning/evening digest if the current UTC
+    hour matches a configured send time and it hasn't already gone out
+    today. Best-effort trigger tied to normal page traffic — for guaranteed
+    delivery even with zero visitors at the target hour, pair this with an
+    external scheduler hitting /api/send-digest, same pattern already
+    documented for /api/refresh-watchlist."""
+    now = datetime.utcnow()
+    current_hour = now.hour
+    today_str = now.strftime("%Y-%m-%d")
+
+    digest_type = None
+    if current_hour == DIGEST_MORNING_UTC_HOUR:
+        digest_type = "morning"
+    elif current_hour == DIGEST_EVENING_UTC_HOUR:
+        digest_type = "evening"
+
+    if not digest_type:
+        return
+
+    digest_key = f"{digest_type}:{today_str}"
+    if not try_acquire_lock(f"digest_send:{digest_key}", max_age_minutes=90):
+        return  # already sent (or currently sending) this digest today
+
+    def _run():
+        try:
+            send_daily_digests(digest_type)
+        finally:
+            pass  # deliberately do NOT release this lock — it's a once-per-day dedup marker, not a mutex to reclaim
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+
 
 
 def generate_unsubscribe_token():
@@ -4289,6 +4450,7 @@ def home():
 
     if API_KEY:
         maybe_refresh_watchlist_async()
+        maybe_send_daily_digests()
 
     if request.method == "POST":
         city = request.form.get("city", "").strip()
@@ -4418,6 +4580,7 @@ def api_watchlist_status():
     # whatever was cached the last time someone happened to reload the page.
     if API_KEY:
         maybe_refresh_watchlist_async()
+        maybe_send_daily_digests()
     return jsonify({"ok": True, **get_watchlist_status()})
 
 
@@ -4464,6 +4627,28 @@ def api_refresh_global_alerts():
         release_lock("global_alerts_refresh")
 
     return jsonify({"ok": True, **get_global_alerts_status()})
+
+
+@app.route("/api/send-digest", methods=["GET", "POST"])
+def api_send_digest():
+    """Triggers the twice-daily subscriber weather digest. Intended for an
+    external scheduler (cron-job.org, GitHub Actions) to hit twice a day at
+    DIGEST_MORNING_UTC_HOUR / DIGEST_EVENING_UTC_HOUR — this is the
+    reliable path; maybe_send_daily_digests() (tied to page traffic) is
+    only a best-effort fallback for when no scheduler is configured.
+    Requires ?type=morning or ?type=evening; still deduplicated by
+    digest_sends so calling this more than once in the target hour is safe."""
+    digest_type = (request.args.get("type") or request.form.get("type") or "").strip().lower()
+    if digest_type not in ("morning", "evening"):
+        return jsonify({"ok": False, "error": "Query param 'type' must be 'morning' or 'evening'."}), 400
+
+    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+    digest_key = f"{digest_type}:{today_str}"
+    if not try_acquire_lock(f"digest_send:{digest_key}", max_age_minutes=90):
+        return jsonify({"ok": True, "note": f"{digest_type} digest already sent (or in progress) today."})
+
+    send_daily_digests(digest_type)
+    return jsonify({"ok": True, "note": f"{digest_type} digest sent."})
 
 
 @app.route("/api/route-safety", methods=["POST"])
