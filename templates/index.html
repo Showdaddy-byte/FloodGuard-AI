@@ -34,7 +34,7 @@
     <section id="global-alerts" class="watchlist-panel">
         <div class="watchlist-header">
             <h2>{% if global_alerts.entries %}<span class="live-dot" aria-hidden="true"></span>{% endif %}🌍 Live Global Flood Alerts</h2>
-            <span id="global-alerts-updated" class="watchlist-updated">{% if global_alerts.last_updated %}Last checked {{ global_alerts.last_updated }} UTC{% endif %}</span>
+            <span id="global-alerts-updated" class="watchlist-updated" data-last-updated="{{ global_alerts.last_updated or '' }}">{% if global_alerts.last_updated %}Last checked {{ global_alerts.last_updated }} UTC{% endif %}</span>
         </div>
         <p class="watchlist-subtitle">Real-time worldwide flood alerts from GDACS (Global Disaster Alert and Coordination System) — the same feed used by UN OCHA and humanitarian agencies. Independent of any location search.</p>
 
@@ -73,7 +73,7 @@
     <section id="active-alerts" class="watchlist-panel">
         <div class="watchlist-header">
             <h2>{% if watchlist.active_alerts %}<span class="live-dot" aria-hidden="true"></span>{% endif %}📍 Monitored Locations</h2>
-            <span id="watchlist-updated" class="watchlist-updated">{% if watchlist.last_updated %}Last checked {{ watchlist.last_updated }} UTC{% endif %}</span>
+            <span id="watchlist-updated" class="watchlist-updated" data-last-updated="{{ watchlist.last_updated or '' }}">{% if watchlist.last_updated %}Last checked {{ watchlist.last_updated }} UTC{% endif %}</span>
         </div>
         <p class="watchlist-subtitle">FloodGuard AI's own terrain-aware model — elevation, slope, water proximity, soil, urbanization, and coastal thresholds — applied continuously to {{ watchlist.entries | length }} tracked locations across every continent, plus anywhere visitors search.</p>
 
@@ -574,6 +574,35 @@
     }
     attachWatchlistButtons();
 
+    // Formats every [data-last-updated] element as a live relative time
+    // ("Last checked just now" / "2 minutes ago" / "1 hour ago") instead of
+    // a static UTC timestamp that only changes when a poll happens to land.
+    // Runs on its own ticker so the displayed age visibly counts up between
+    // polls too, not just when new data arrives.
+    function formatRelativeTime(isoString) {
+        if (!isoString) return "";
+        const then = new Date(isoString + "Z"); // stored as naive UTC; force UTC parsing
+        const seconds = Math.floor((Date.now() - then.getTime()) / 1000);
+        if (seconds < 0 || isNaN(seconds)) return "Last checked just now";
+        if (seconds < 60) return "Last checked just now";
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) return "Last checked " + minutes + " minute" + (minutes === 1 ? "" : "s") + " ago";
+        const hours = Math.floor(minutes / 60);
+        return "Last checked " + hours + " hour" + (hours === 1 ? "" : "s") + " ago";
+    }
+
+    function tickRelativeTimestamps() {
+        document.querySelectorAll("[data-last-updated]").forEach((el) => {
+            const value = el.dataset.lastUpdated;
+            if (value) {
+                el.textContent = formatRelativeTime(value);
+            }
+        });
+    }
+
+    tickRelativeTimestamps();
+    setInterval(tickRelativeTimestamps, 20000);
+
     function riskColorClass(level) {
         const map = { LOW: "low", WATCH: "watch", HIGH: "high", SEVERE: "severe", CRITICAL: "critical" };
         return map[level] || "low";
@@ -584,7 +613,8 @@
         const updatedEl = document.getElementById("watchlist-updated");
 
         if (data.last_updated) {
-            updatedEl.textContent = "Last checked " + data.last_updated + " UTC";
+            updatedEl.dataset.lastUpdated = data.last_updated;
+            updatedEl.textContent = formatRelativeTime(data.last_updated);
         }
 
         if (!data.initialized) {
@@ -670,7 +700,8 @@
         const updatedEl = document.getElementById("global-alerts-updated");
 
         if (data.last_updated) {
-            updatedEl.textContent = "Last checked " + data.last_updated + " UTC";
+            updatedEl.dataset.lastUpdated = data.last_updated;
+            updatedEl.textContent = formatRelativeTime(data.last_updated);
         }
 
         if (!data.initialized) {

@@ -2417,6 +2417,67 @@ def build_travel_recommendation(risk_level, score, timeline):
     }
 
 
+def build_rainfall_warning(timeline, coastal=False):
+    """Scans the already-computed 3-hour timeline (see get_forecast) for the
+    next window where risk rises to WATCH or above, and summarizes it as a
+    single early-warning message: when it starts, roughly how long it lasts,
+    total expected rainfall over that window, and the recommended action.
+
+    Deliberately built on top of the SAME terrain-aware scoring already
+    used everywhere else in this app (classify_day_score -> classify_risk)
+    rather than a separate raw-rainfall-mm threshold table — that's what
+    lets a low-lying coastal spot warn earlier than an inland one for the
+    identical rainfall amount, consistent with how the rest of the model
+    already treats coastal risk.
+
+    'confidence' reuses the exact same heuristic already shown elsewhere on
+    this app (see calculate_flood_score's 'confidence' field) rather than
+    inventing a new, different-sounding number — there's no real
+    ensemble/probabilistic forecast data available from the free APIs this
+    app uses, so presenting a differently-labeled 'confidence' here would
+    imply a precision that doesn't exist."""
+    if not timeline:
+        return None
+
+    start_index = None
+    for i, slot in enumerate(timeline):
+        if slot["risk"] != "LOW":
+            start_index = i
+            break
+
+    if start_index is None:
+        return None  # no elevated risk anywhere in the available forecast window
+
+    end_index = start_index
+    for i in range(start_index, len(timeline)):
+        if timeline[i]["risk"] == "LOW":
+            break
+        end_index = i
+
+    window = timeline[start_index:end_index + 1]
+    total_rain = round(sum(slot["rain"] for slot in window), 1)
+    worst_slot = max(window, key=lambda s: s["score"])
+    worst_risk_meta = classify_risk(worst_slot["score"], coastal=coastal)
+
+    return {
+        "starts_at": window[0]["time"],
+        "ends_at": window[-1]["time"],
+        "hours_from_now": start_index * 3,  # timeline slots are ~3h apart
+        "is_starting_now": start_index == 0,
+        "expected_rainfall_mm": total_rain,
+        "peak_risk": worst_slot["risk"],
+        "peak_risk_color": worst_slot["risk_color"],
+        "peak_score": worst_slot["score"],
+        "confidence": min(95, 68 + worst_slot["score"] // 3),
+        "recommended_action": worst_risk_meta["priority_action"],
+        "headline": (
+            "Heavy rainfall expected now — conditions may lead to flooding."
+            if start_index == 0
+            else f"Heavy rainfall expected in about {start_index * 3} hours — conditions may lead to flooding."
+        ),
+    }
+
+
 def estimate_environment(city, weather, community=None, context=None):
     rainfall = weather["rainfall"]
     community = community or {"total": 0, "average_rating": 0, "construction_reports": 0, "flooding_reports": 0}
@@ -4163,6 +4224,7 @@ def build_prediction(query, known_place=None):
         }
 
     travel_recommendation = build_travel_recommendation(flood_model["risk"], flood_model["score"], timeline)
+    rainfall_warning = build_rainfall_warning(timeline, coastal=coastal)
     print("STEP 9: Completed")
     return {
         **weather,
@@ -4183,6 +4245,7 @@ def build_prediction(query, known_place=None):
         "nearest_water_label": nearest_water_label,
 
         "travel_recommendation": travel_recommendation,
+        "rainfall_warning": rainfall_warning,
         "timeline": timeline,
 
         "emergency_contacts": emergency_contacts,
@@ -4347,6 +4410,14 @@ def api_contributions(city):
 
 @app.route("/api/watchlist-status")
 def api_watchlist_status():
+    # Without this, a visitor who leaves the tab open (never reloading "/")
+    # polls this endpoint every 45s forever and gets back the exact same
+    # stale snapshot each time — nothing ever re-triggers the sweep, since
+    # previously only a full page load did. This is what actually makes
+    # background polling keep the data fresh, not just keep re-displaying
+    # whatever was cached the last time someone happened to reload the page.
+    if API_KEY:
+        maybe_refresh_watchlist_async()
     return jsonify({"ok": True, **get_watchlist_status()})
 
 
@@ -4372,6 +4443,10 @@ def api_refresh_watchlist():
 
 @app.route("/api/global-alerts")
 def api_global_alerts():
+    # Same fix as /api/watchlist-status above — this is the endpoint the
+    # frontend's 60s poll hits, and it needs to be able to trigger its own
+    # staleness check rather than only ever refreshing on a full page load.
+    maybe_refresh_global_alerts_async()
     return jsonify({"ok": True, **get_global_alerts_status()})
 
 
