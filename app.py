@@ -1287,7 +1287,6 @@ def _weatherapi_forecast_to_openweather_shape(lat, lon):
 
 
 def send_alert_email(to_email, subject, html_content):
-    def send_alert_email(to_email, subject, html_content):
     print(f"=== send_alert_email() called for {to_email} ===")
 
     if not BREVO_API_KEY or not BREVO_SENDER_EMAIL:
@@ -1332,7 +1331,6 @@ def send_alert_email(to_email, subject, html_content):
     except Exception as e:
         print(f"❌ Exception sending email: {e}")
         return False
-    print(f"=== send_alert_email() called for {to_email} ===")
     """Sends a transactional email via Brevo. Fails closed and silently if
     not configured (BREVO_API_KEY/BREVO_SENDER_EMAIL unset) — matches the
     pattern used for every other optional API key in this app (TIDE_API_KEY,
