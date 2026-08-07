@@ -1287,6 +1287,52 @@ def _weatherapi_forecast_to_openweather_shape(lat, lon):
 
 
 def send_alert_email(to_email, subject, html_content):
+    def send_alert_email(to_email, subject, html_content):
+    print(f"=== send_alert_email() called for {to_email} ===")
+
+    if not BREVO_API_KEY or not BREVO_SENDER_EMAIL:
+        print("❌ Brevo is not configured.")
+        return False
+
+    print(f"Using sender: {BREVO_SENDER_EMAIL}")
+    print(f"API URL: {BREVO_API_URL}")
+
+    try:
+        response = request_with_retry(
+            "POST",
+            BREVO_API_URL,
+            service_name="brevo",
+            json={
+                "sender": {
+                    "name": BREVO_SENDER_NAME,
+                    "email": BREVO_SENDER_EMAIL
+                },
+                "to": [{"email": to_email}],
+                "subject": subject,
+                "htmlContent": html_content,
+            },
+            headers={
+                "api-key": BREVO_API_KEY,
+                "content-type": "application/json",
+                "accept": "application/json",
+            },
+            timeout=12,
+        )
+
+        print(f"Brevo Response Code: {response.status_code}")
+        print(f"Brevo Response Body: {response.text}")
+
+        if response.status_code >= 300:
+            print(f"❌ Brevo send failed ({response.status_code})")
+            return False
+
+        print("✅ Email sent successfully.")
+        return True
+
+    except Exception as e:
+        print(f"❌ Exception sending email: {e}")
+        return False
+    print(f"=== send_alert_email() called for {to_email} ===")
     """Sends a transactional email via Brevo. Fails closed and silently if
     not configured (BREVO_API_KEY/BREVO_SENDER_EMAIL unset) — matches the
     pattern used for every other optional API key in this app (TIDE_API_KEY,
