@@ -4665,13 +4665,16 @@ def api_send_digest():
 
     today_str = datetime.utcnow().strftime("%Y-%m-%d")
     digest_key = f"{digest_type}:{today_str}"
+
     print(f"DIGEST: /api/send-digest hit for '{digest_type}' (key={digest_key})")
-    if not try_acquire_lock(f"digest_send:{digest_key}", max_age_minutes=90):
-        print(f"DIGEST: '{digest_key}' already sent (or in progress) today — skipping")
-        return jsonify({"ok": True, "note": f"{digest_type} digest already sent (or in progress) today."})
+    print("DIGEST: TEST MODE — daily lock temporarily bypassed")
 
     send_daily_digests(digest_type)
-    return jsonify({"ok": True, "note": f"{digest_type} digest sent."})
+
+    return jsonify({
+        "ok": True,
+        "note": f"{digest_type} digest test finished."
+    })
 
 
 @app.route("/api/route-safety", methods=["POST"])
