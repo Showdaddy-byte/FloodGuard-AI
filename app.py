@@ -1287,50 +1287,6 @@ def _weatherapi_forecast_to_openweather_shape(lat, lon):
 
 
 def send_alert_email(to_email, subject, html_content):
-    print(f"=== send_alert_email() called for {to_email} ===")
-
-    if not BREVO_API_KEY or not BREVO_SENDER_EMAIL:
-        print("❌ Brevo is not configured.")
-        return False
-
-    print(f"Using sender: {BREVO_SENDER_EMAIL}")
-    print(f"API URL: {BREVO_API_URL}")
-
-    try:
-        response = request_with_retry(
-            "POST",
-            BREVO_API_URL,
-            service_name="brevo",
-            json={
-                "sender": {
-                    "name": BREVO_SENDER_NAME,
-                    "email": BREVO_SENDER_EMAIL
-                },
-                "to": [{"email": to_email}],
-                "subject": subject,
-                "htmlContent": html_content,
-            },
-            headers={
-                "api-key": BREVO_API_KEY,
-                "content-type": "application/json",
-                "accept": "application/json",
-            },
-            timeout=12,
-        )
-
-        print(f"Brevo Response Code: {response.status_code}")
-        print(f"Brevo Response Body: {response.text}")
-
-        if response.status_code >= 300:
-            print(f"❌ Brevo send failed ({response.status_code})")
-            return False
-
-        print("✅ Email sent successfully.")
-        return True
-
-    except Exception as e:
-        print(f"❌ Exception sending email: {e}")
-        return False
     """Sends a transactional email via Brevo. Fails closed and silently if
     not configured (BREVO_API_KEY/BREVO_SENDER_EMAIL unset) — matches the
     pattern used for every other optional API key in this app (TIDE_API_KEY,
@@ -1539,6 +1495,8 @@ def send_daily_digests(digest_type):
     every subscriber watching that same place (common for curated/popular
     locations), rather than recomputing per-subscriber — keeps this
     reasonably scoped even as the subscriber base grows."""
+    print(f"DIGEST: starting {digest_type} digest run")
+
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
@@ -1553,7 +1511,17 @@ def send_daily_digests(digest_type):
     conn.close()
 
     if not rows:
+        print(f"DIGEST: {digest_type} run found ZERO subscriber locations — nothing to send. "
+              "(No one has completed /api/alert-subscribe with a saved location yet.)")
         return
+
+    subscribers = {}
+    for row in rows:
+        subscribers.setdefault(row["subscriber_id"], {
+            "name": row["name"], "email": row["email"], "unsubscribe_token": row["unsubscribe_token"], "locations": [],
+        })["locations"].append((row["label"], row["city_label"]))
+
+    print(f"DIGEST: {digest_type} run found {len(subscribers)} subscriber(s) across {len(rows)} location row(s)")
 
     prediction_cache = {}
 
@@ -1565,16 +1533,13 @@ def send_daily_digests(digest_type):
                 with app.app_context():
                     prediction, _ = build_prediction(city_label, known_place=known_place)
             except Exception as error:  # noqa: BLE001 — one bad location must not break the whole digest run
-                print(f"Digest prediction failed for '{city_label}': {error}")
+                print(f"DIGEST: prediction failed for '{city_label}': {error}")
                 prediction = None
             prediction_cache[key] = prediction
         return prediction_cache[key]
 
-    subscribers = {}
-    for row in rows:
-        subscribers.setdefault(row["subscriber_id"], {
-            "name": row["name"], "email": row["email"], "unsubscribe_token": row["unsubscribe_token"], "locations": [],
-        })["locations"].append((row["label"], row["city_label"]))
+    sent_count = 0
+    skipped_count = 0
 
     for subscriber in subscribers.values():
         location_lines = []
@@ -1584,14 +1549,25 @@ def send_daily_digests(digest_type):
                 location_lines.append(build_digest_location_advice(prediction, label))
 
         if not location_lines:
-            continue  # every location failed to resolve this run — skip rather than send an empty digest
+            skipped_count += 1
+            print(f"DIGEST: skipping {subscriber['email']} — every one of their locations failed to resolve this run")
+            continue
 
         unsubscribe_url = f"{SITE_BASE_URL}/unsubscribe/{subscriber['unsubscribe_token']}"
-        send_alert_email(
+        sent = send_alert_email(
             subscriber["email"],
             f"{DIGEST_GREETING.get(digest_type, 'Hello')} — your FloodGuard AI weather check-in",
             build_digest_email_html(subscriber["name"], digest_type, location_lines, unsubscribe_url),
         )
+        if sent:
+            sent_count += 1
+            print(f"DIGEST: sent to {subscriber['email']} ({len(location_lines)} location(s))")
+        else:
+            skipped_count += 1
+            print(f"DIGEST: send_alert_email returned False for {subscriber['email']} — see Brevo error above, if any")
+
+    print(f"DIGEST: {digest_type} run complete — {sent_count} sent, {skipped_count} skipped, "
+          f"{len(prediction_cache)} unique location(s) computed")
 
 
 def maybe_send_daily_digests():
@@ -4688,7 +4664,9 @@ def api_send_digest():
 
     today_str = datetime.utcnow().strftime("%Y-%m-%d")
     digest_key = f"{digest_type}:{today_str}"
+    print(f"DIGEST: /api/send-digest hit for '{digest_type}' (key={digest_key})")
     if not try_acquire_lock(f"digest_send:{digest_key}", max_age_minutes=90):
+        print(f"DIGEST: '{digest_key}' already sent (or in progress) today — skipping")
         return jsonify({"ok": True, "note": f"{digest_type} digest already sent (or in progress) today."})
 
     send_daily_digests(digest_type)
