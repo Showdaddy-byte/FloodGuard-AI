@@ -1293,6 +1293,7 @@ def send_alert_email(to_email, subject, html_content):
     WEATHERAPI_KEY, etc.), so the alert-subscription feature can be deployed
     and tested end-to-end (subscribe, unsubscribe, DB records) before email
     sending is actually wired up with real credentials."""
+    print(f"📧 EMAIL FUNCTION CALLED -> {to_email}")
     if not BREVO_API_KEY or not BREVO_SENDER_EMAIL:
         print(f"Brevo not configured — skipping email to {to_email}: '{subject}'")
         return False
