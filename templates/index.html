@@ -3,19 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FloodGuard AI</title>
+    <title>{% if prediction %}{{ prediction.city }} flood risk | FloodGuard AI{% else %}FloodGuard AI{% endif %}</title>
+    {% if prediction %}
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="{{ prediction.city }}: {{ prediction.risk }} flood risk">
+    <meta property="og:description" content="Live flood score {{ prediction.score }}/100. Check conditions before travel.">
+    <meta property="og:url" content="{{ request.url_root.rstrip('/') }}{{ url_for('home', location=prediction.city) }}">
+    <meta property="og:image" content="{{ request.url_root.rstrip('/') }}{{ url_for('share_card', card=share_card_token) }}">
+    <meta name="twitter:card" content="summary_large_image">
+    {% endif %}
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body class="{% if prediction %}weather-{{ prediction.scene.code }}{% else %}weather-clouds{% endif %}">
-    <div class="spinner" id="spinner"><div class="loader"></div></div>
+    <div class="spinner" id="spinner" aria-live="polite" aria-busy="true">
+        <div class="scan-loader">
+            <div class="scan-radar" aria-hidden="true"><span></span></div>
+            <p class="scan-kicker">FloodGuard AI is checking</p>
+            <h2 id="scan-location">your location</h2>
+            <div class="scan-steps" aria-label="Analysis in progress">
+                <span>Locating terrain</span>
+                <span>Reading live rainfall</span>
+                <span>Checking water &amp; drainage</span>
+                <span>Building your safety brief</span>
+            </div>
+            <p class="scan-note">A few seconds now can make the next journey safer.</p>
+        </div>
+    </div>
 
     <nav class="navbar">
         <div class="logo">FloodGuard AI</div>
         <ul class="nav-links">
             <li><a href="#home">Home</a></li>
-            <li><a href="#features">Features</a></li>
             <li><a href="#dashboard">Dashboard</a></li>
             <li><a href="https://floodguardai.blogspot.com/" target="_blank" rel="noopener noreferrer">📰 Blog</a></li>
             <li><a href="#contact">Contact</a></li>
@@ -31,43 +51,82 @@
         </div>
     </section>
 
-    <section id="global-alerts" class="watchlist-panel">
-        <div class="watchlist-header">
-            <h2>{% if global_alerts.entries %}<span class="live-dot" aria-hidden="true"></span>{% endif %}🌍 Live Global Flood Alerts</h2>
-            <span id="global-alerts-updated" class="watchlist-updated" data-last-updated="{{ global_alerts.last_updated or '' }}">{% if global_alerts.last_updated %}Last checked {{ global_alerts.last_updated }} UTC{% endif %}</span>
+    <section id="global-now" class="global-now-section" aria-labelledby="global-now-title">
+        <div class="global-now-heading">
+            <div>
+                <p class="global-kicker">The Living Flood Map</p>
+                <h2 id="global-now-title">What is happening around the world now?</h2>
+                <p>Explore major flood alerts, broad satellite rain estimates, and the places that matter to you. Every layer is labelled with its source and coverage.</p>
+            </div>
+            <button type="button" id="experience-switch" class="experience-switch" aria-pressed="false">Simple view</button>
         </div>
-        <p class="watchlist-subtitle">Real-time worldwide flood alerts from GDACS (Global Disaster Alert and Coordination System) — the same feed used by UN OCHA and humanitarian agencies. Independent of any location search.</p>
 
-        <div id="global-alerts-body">
-            {% if not global_alerts.initialized %}
-            <div class="watchlist-state watchlist-pending">
-                <p>Connecting to the global flood monitor — the first check runs automatically on page load.</p>
-                <button type="button" id="global-refresh-btn">Check now</button>
-            </div>
-            {% elif global_alerts.entries %}
-            <div class="watchlist-state watchlist-active" id="global-alerts-list">
-                {% if global_alerts.is_stale %}
-                <p class="watchlist-stale-note">⚠ This data is {{ global_alerts.age_minutes }} minute(s) old and refreshing now.</p>
-                {% endif %}
-                {% for alert in global_alerts.entries %}
-                <div class="watchlist-alert-card risk-border-{{ alert.risk_color }}">
-                    <div class="watchlist-alert-top">
-                        <strong>{{ alert.country or "Unknown location" }}</strong>
-                        <span class="risk-pill risk-{{ alert.risk_color }}">{{ alert.risk_level }}</span>
-                    </div>
-                    <p>{{ alert.title }}</p>
-                    {% if alert.event_url %}
-                    <a href="{{ alert.event_url }}" target="_blank" rel="noopener" class="watchlist-check-btn" style="display:inline-block;text-decoration:none;">GDACS report ↗</a>
-                    {% endif %}
-                </div>
-                {% endfor %}
-            </div>
-            {% else %}
-            <div class="watchlist-state watchlist-clear" id="global-alerts-list">
-                <p>✅ No active flood events reported by GDACS worldwide right now. Last checked {{ global_alerts.age_minutes }} minute(s) ago.</p>
-            </div>
-            {% endif %}
+        <div class="global-situation-grid" aria-live="polite">
+            <article class="global-situation-card">
+                <span>Major flood alerts</span>
+                <strong id="global-alert-count">{{ global_alerts.entries | length }}</strong>
+                <small>GDACS worldwide events</small>
+            </article>
+            <article class="global-situation-card">
+                <span>Places monitored</span>
+                <strong id="global-monitored-count">{{ watchlist.entries | length }}</strong>
+                <small>FloodGuard location checks</small>
+            </article>
+            <article class="global-situation-card">
+                <span>Elevated place signals</span>
+                <strong id="global-elevated-count">—</strong>
+                <small>HIGH risk or above</small>
+            </article>
+            <article class="global-situation-card">
+                <span>Recent local reports</span>
+                <strong id="global-report-count">—</strong>
+                <small>Last 12 hours</small>
+            </article>
         </div>
+
+        <div class="global-map-layout">
+            <div class="global-map-main">
+                    <div class="global-map-toolbar">
+                        <div>
+                            <strong>Global Now</strong>
+                            <span id="global-map-status">Loading source-labelled global signals…</span>
+                        </div>
+                    <div class="global-map-actions">
+                        <button type="button" id="global-pin-button" class="global-pin-button" aria-pressed="false">Pin a point</button>
+                        <button type="button" id="global-refresh-button" class="global-refresh-button">Refresh</button>
+                    </div>
+                    </div>
+                <div id="global-map" role="region" aria-label="Global flood situation map"></div>
+                <p class="global-map-attribution">Map layers: OpenStreetMap; optional NASA GPM IMERG satellite precipitation estimate; GDACS flood alerts. Satellite rain is a broad estimate, not street-level radar.</p>
+            </div>
+
+            <aside class="my-places-panel" aria-labelledby="my-places-title">
+                <div class="my-places-heading">
+                    <div>
+                        <p class="global-kicker">Personal safety</p>
+                        <h3 id="my-places-title">My Places</h3>
+                    </div>
+                    <span>Stored only in this browser</span>
+                </div>
+                <p>Save home, work, family, or a travel destination anywhere in the world. Select one to run FloodGuard's full location check.</p>
+                <form id="my-places-form" class="my-places-form">
+                    <input id="my-place-search" type="search" placeholder="City, address, or neighbourhood" required>
+                    <input id="my-place-label" type="text" placeholder="Label (optional: Home, Mum)">
+                    <button type="submit">Add place</button>
+                </form>
+                <p id="my-places-feedback" class="my-places-feedback" aria-live="polite"></p>
+                <div id="my-places-list" class="my-places-list"></div>
+            </aside>
+        </div>
+
+        <details class="global-coverage-details">
+            <summary>How to read global coverage</summary>
+            <div>
+                <p><strong>Global baseline:</strong> GDACS events and satellite rainfall estimates provide broad awareness.</p>
+                <p><strong>Location assessment:</strong> search or save a place for FloodGuard's weather, terrain, water-proximity, route, and property analysis.</p>
+                <p><strong>Community evidence:</strong> local reports are shown as counts until they can be verified and safely mapped without exposing a reporter's precise location.</p>
+            </div>
+        </details>
     </section>
 
     <section id="active-alerts" class="watchlist-panel">
@@ -162,16 +221,6 @@
         <div id="alert-feedback" class="route-feedback"></div>
     </section>
 
-    <section id="features" class="features">
-        <h2>Core Capabilities</h2>
-        <div class="feature-grid">
-            <div class="feature-card"><h3>Live Weather</h3><p>Animated condition display for the searched location.</p></div>
-            <div class="feature-card"><h3>Flood Risk Scoring</h3><p>Weighted analysis combining rainfall, forecast, elevation, slope, water proximity, soil, and urbanization.</p></div>
-            <div class="feature-card"><h3>Flood Map</h3><p>Interactive map showing an estimated risk radius around the searched location.</p></div>
-            <div class="feature-card"><h3>Community Reporting</h3><p>Visitors rate live conditions and flag issues that feed directly into the risk score.</p></div>
-        </div>
-    </section>
-
     <section id="dashboard" class="dashboard">
         <div class="dashboard-card">
             <h2>Flood Risk Dashboard</h2>
@@ -246,17 +295,6 @@
                 </div>
                 {% endif %}
 
-                {% if prediction.regional_context %}
-                <div class="regional-context-box">
-                    <strong>Regional context</strong>
-                    {% if prediction.regional_context.season_note %}<p>{{ prediction.regional_context.season_note }}</p>{% endif %}
-                    {% if prediction.regional_context.known_flood_years %}
-                    <p>Documented major flooding in this city: {{ prediction.regional_context.known_flood_years | join(", ") }}.</p>
-                    {% endif %}
-                    <p class="regional-disclaimer">{{ prediction.regional_context.disclaimer }}</p>
-                </div>
-                {% endif %}
-
                 <div class="travel-banner risk-border-{{ prediction.travel_recommendation.color }}">
                     <div class="travel-verdict risk-{{ prediction.travel_recommendation.color }}">{{ prediction.travel_recommendation.verdict }}</div>
                     <p>{{ prediction.travel_recommendation.headline }}</p>
@@ -273,7 +311,6 @@
                     <a class="share-btn share-telegram" target="_blank" rel="noopener" id="share-telegram" href="#">Telegram</a>
                     <button type="button" class="share-btn share-copy" id="share-copy">Copy Link</button>
                 </div>
-
                 <div class="gauge" aria-label="Flood risk score">
                     <div class="gauge-fill" style="width:{{ prediction.score }}%"></div>
                 </div>
@@ -297,7 +334,76 @@
                 </div>
                 {% endif %}
                 <div class="advice-box">{{ prediction.advice }}</div>
-                <div id="map"></div>
+                <section class="map-decision" aria-labelledby="map-decision-title">
+                    <div class="map-decision-heading">
+                        <div>
+                            <p class="map-kicker">Flood decision map</p>
+                            <h3 id="map-decision-title">What is happening around {{ prediction.city }}?</h3>
+                        </div>
+                        <span class="map-live-status"><span class="live-dot" aria-hidden="true"></span> Location analysis</span>
+                    </div>
+
+                    <div class="map-action-summary risk-border-{{ prediction.travel_recommendation.color }}">
+                        <div>
+                            <span id="map-period-title">Right now</span>
+                            <strong id="map-verdict">{{ prediction.travel_recommendation.verdict }}</strong>
+                        </div>
+                        <p id="map-action-text">{{ prediction.travel_recommendation.headline }}</p>
+                    </div>
+
+                    <details class="map-time-disclosure">
+                        <summary>Compare forecast times</summary>
+                        <div class="map-time-selector" aria-label="Choose the time period shown on the map">
+                            <span>Show conditions for</span>
+                            <div class="map-time-buttons" role="group" aria-label="Map time period">
+                                <button type="button" class="map-time-btn active" data-map-period="now" aria-pressed="true">Now</button>
+                                {% for slot in prediction.timeline[:3] %}
+                                <button type="button" class="map-time-btn" data-map-period="forecast-{{ loop.index0 }}" aria-pressed="false">{{ slot.hour_label }}</button>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </details>
+                    <p class="map-route-prompt">Planning to travel? <a href="#route-safety">Check a route before leaving</a> for flood-risk context along the way.</p>
+
+                    <form id="map-search-form" class="map-search-panel" action="/" method="GET" role="search">
+                        <label for="map-search-input">Search or pin another location</label>
+                        <div class="map-search-actions">
+                            <input id="map-search-input" name="location" type="search" placeholder="City, address, or neighbourhood" autocomplete="off">
+                            <button type="submit" class="map-search-btn">Search map</button>
+                            <button type="button" id="map-pin-button" class="map-pin-btn" aria-pressed="false">Pin a location</button>
+                        </div>
+                        <p id="map-search-feedback" class="map-search-feedback" aria-live="polite">Choose “Pin a location”, then click anywhere on the map to analyse that exact point.</p>
+                    </form>
+
+                    <div id="map" role="region" aria-label="Flood decision map for {{ prediction.city }}"></div>
+
+                    <div class="map-read-grid">
+                        <details class="map-read-card">
+                            <summary>How to read this map</summary>
+                            <div class="map-read-content">
+                                <ul class="map-key-list">
+                                    <li><span class="map-key-symbol map-key-pin" aria-hidden="true"></span>Your searched location</li>
+                                    <li><span class="map-key-symbol map-key-ring" aria-hidden="true"></span>Coloured ring: risk assessed for this location at the selected time</li>
+                                    <li><span class="map-key-symbol map-key-water" aria-hidden="true"></span>Blue point and line: nearest mapped water feature</li>
+                                </ul>
+                            </div>
+                        </details>
+                        <details class="map-read-card">
+                            <summary>Why this location is scored this way</summary>
+                            <div class="map-read-content">
+                                <ul class="map-factor-list">
+                                    {% for factor in prediction.factors[:3] %}
+                                    <li>{{ factor }}</li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        </details>
+                    </div>
+                    {% if prediction.community.flooding_reports > 0 %}
+                    <p class="map-community-note"><strong>{{ prediction.community.flooding_reports }} community flooding report(s)</strong> help inform this location's score. Exact report pins are not shown to protect reporters and avoid false precision.</p>
+                    {% endif %}
+                    <p class="map-limits">This is a location assessment, not a street-by-street flood boundary. Compare the selected time periods, check local conditions, and avoid routes that look unsafe.</p>
+                </section>
 
                 <div class="insight-grid">
                     <section>
@@ -522,6 +628,45 @@
     </section>
 </section>
 
+    <section id="global-alerts" class="watchlist-panel">
+        <div class="watchlist-header">
+            <h2>{% if global_alerts.entries %}<span class="live-dot" aria-hidden="true"></span>{% endif %}🌍 Live Global Flood Alerts</h2>
+            <span id="global-alerts-updated" class="watchlist-updated" data-last-updated="{{ global_alerts.last_updated or '' }}">{% if global_alerts.last_updated %}Last checked {{ global_alerts.last_updated }} UTC{% endif %}</span>
+        </div>
+        <p class="watchlist-subtitle">Real-time worldwide flood alerts from GDACS (Global Disaster Alert and Coordination System) — the same feed used by UN OCHA and humanitarian agencies. Independent of any location search.</p>
+
+        <div id="global-alerts-body">
+            {% if not global_alerts.initialized %}
+            <div class="watchlist-state watchlist-pending">
+                <p>Connecting to the global flood monitor — the first check runs automatically on page load.</p>
+                <button type="button" id="global-refresh-btn">Check now</button>
+            </div>
+            {% elif global_alerts.entries %}
+            <div class="watchlist-state watchlist-active" id="global-alerts-list">
+                {% if global_alerts.is_stale %}
+                <p class="watchlist-stale-note">⚠ This data is {{ global_alerts.age_minutes }} minute(s) old and refreshing now.</p>
+                {% endif %}
+                {% for alert in global_alerts.entries %}
+                <div class="watchlist-alert-card risk-border-{{ alert.risk_color }}">
+                    <div class="watchlist-alert-top">
+                        <strong>{{ alert.country or "Unknown location" }}</strong>
+                        <span class="risk-pill risk-{{ alert.risk_color }}">{{ alert.risk_level }}</span>
+                    </div>
+                    <p>{{ alert.title }}</p>
+                    {% if alert.event_url %}
+                    <a href="{{ alert.event_url }}" target="_blank" rel="noopener" class="watchlist-check-btn" style="display:inline-block;text-decoration:none;">GDACS report ↗</a>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="watchlist-state watchlist-clear" id="global-alerts-list">
+                <p>✅ No active flood events reported by GDACS worldwide right now. Last checked {{ global_alerts.age_minutes }} minute(s) ago.</p>
+            </div>
+            {% endif %}
+        </div>
+    </section>
+
     <footer id="contact">
         <h2>FloodGuard AI</h2>
         <div class="contact-grid">
@@ -554,16 +699,22 @@
     setInterval(refreshSiteStats, 30000);
 
     const form = document.querySelector("form[method='POST']");
+    function showSearchLoading(city) {
+        const place = (city || "your location").trim() || "your location";
+        document.getElementById("scan-location").textContent = place;
+        document.getElementById("spinner").classList.add("active");
+    }
+
     if (form) {
         form.addEventListener("submit", () => {
-            document.getElementById("spinner").classList.add("active");
+            showSearchLoading(form.querySelector("input[name='city']").value);
         });
     }
 
     function searchLocation(city) {
         const input = form.querySelector("input[name='city']");
         input.value = city;
-        document.getElementById("spinner").classList.add("active");
+        showSearchLoading(city);
         form.submit();
     }
 
@@ -1006,6 +1157,274 @@
     }
     </script>
 
+    <script>
+    (function () {
+        const mapElement = document.getElementById("global-map");
+        if (!mapElement || !window.L) return;
+
+        const globalMap = L.map("global-map", { minZoom: 1, worldCopyJump: true }).setView([18, 0], 2);
+        const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            attribution: "&copy; OpenStreetMap contributors"
+        }).addTo(globalMap);
+
+        // NASA GIBS publishes this as a broad, satellite-derived rain
+        // estimate. Use the previous UTC day because the newest product can
+        // arrive after a processing delay; it is intentionally off by default.
+        const imergDate = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        const satelliteRainLayer = L.tileLayer(
+            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/IMERG_Precipitation_Rate/default/" +
+                imergDate + "/GoogleMapsCompatible_Level7/{z}/{y}/{x}.png",
+            {
+                attribution: "NASA GPM IMERG",
+                maxNativeZoom: 7,
+                maxZoom: 9,
+                opacity: 0.62
+            }
+        );
+        const alertLayer = L.layerGroup().addTo(globalMap);
+        const savedPlaceLayer = L.layerGroup().addTo(globalMap);
+        L.control.layers(
+            { "Street map": streetLayer },
+            {
+                "Satellite rain estimate (NASA IMERG)": satelliteRainLayer,
+                "GDACS flood alerts": alertLayer,
+                "My saved places": savedPlaceLayer
+            },
+            { collapsed: false, position: "topright" }
+        ).addTo(globalMap);
+
+        const statusEl = document.getElementById("global-map-status");
+        const refreshButton = document.getElementById("global-refresh-button");
+        const pinButton = document.getElementById("global-pin-button");
+        const experienceButton = document.getElementById("experience-switch");
+        const myPlacesForm = document.getElementById("my-places-form");
+        const myPlaceSearch = document.getElementById("my-place-search");
+        const myPlaceLabel = document.getElementById("my-place-label");
+        const myPlacesFeedback = document.getElementById("my-places-feedback");
+        const myPlacesList = document.getElementById("my-places-list");
+        const placeStorageKey = "floodguard-my-places-v1";
+        const experienceStorageKey = "floodguard-experience-v1";
+        let pinMode = false;
+        let pointMarker = null;
+
+        function escapeHtml(value) {
+            return String(value).replace(/[&<>'"]/g, (character) => ({
+                "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"
+            })[character]);
+        }
+
+        function colourForRisk(risk) {
+            return {
+                critical: "#7f1d1d",
+                severe: "#b91c1c",
+                high: "#dc2626",
+                watch: "#f59e0b",
+                low: "#16a34a"
+            }[String(risk).toLowerCase()] || "#0ea5e9";
+        }
+
+        function analysisUrl(place) {
+            const params = new URLSearchParams({
+                map_lat: Number(place.lat).toFixed(6),
+                map_lon: Number(place.lon).toFixed(6),
+                map_label: place.label
+            });
+            return "/?" + params.toString();
+        }
+
+        function getSavedPlaces() {
+            try {
+                const places = JSON.parse(localStorage.getItem(placeStorageKey) || "[]");
+                return Array.isArray(places)
+                    ? places.filter((place) => place && Number.isFinite(Number(place.lat)) && Number.isFinite(Number(place.lon)) && place.label)
+                    : [];
+            } catch (error) {
+                return [];
+            }
+        }
+
+        function savePlaces(places) {
+            localStorage.setItem(placeStorageKey, JSON.stringify(places.slice(0, 8)));
+        }
+
+        function renderSavedPlaces() {
+            const places = getSavedPlaces();
+            savedPlaceLayer.clearLayers();
+            myPlacesList.replaceChildren();
+
+            if (!places.length) {
+                const empty = document.createElement("p");
+                empty.className = "my-place-empty";
+                empty.textContent = "No saved places yet. Add somewhere you care about.";
+                myPlacesList.append(empty);
+                return;
+            }
+
+            places.forEach((place, index) => {
+                const marker = L.circleMarker([place.lat, place.lon], {
+                    radius: 8,
+                    color: "#ffffff",
+                    fillColor: "#2563eb",
+                    fillOpacity: 0.95,
+                    weight: 2
+                }).addTo(savedPlaceLayer);
+                marker.bindTooltip(place.label, { direction: "top" });
+                marker.bindPopup(
+                    "<b>" + escapeHtml(place.label) + "</b><br>" +
+                    "<a href=\"" + analysisUrl(place) + "\">Run FloodGuard analysis</a>"
+                );
+
+                const item = document.createElement("div");
+                item.className = "my-place-item";
+                const open = document.createElement("button");
+                open.type = "button";
+                open.className = "my-place-open";
+                open.textContent = place.label;
+                open.addEventListener("click", () => {
+                    globalMap.flyTo([place.lat, place.lon], 9, { duration: 0.75 });
+                    marker.openPopup();
+                });
+                const remove = document.createElement("button");
+                remove.type = "button";
+                remove.className = "my-place-delete";
+                remove.textContent = "Remove";
+                remove.addEventListener("click", () => {
+                    const next = getSavedPlaces().filter((_, placeIndex) => placeIndex !== index);
+                    savePlaces(next);
+                    renderSavedPlaces();
+                });
+                item.append(open, remove);
+                myPlacesList.append(item);
+            });
+        }
+
+        function setPinMode(enabled) {
+            pinMode = enabled;
+            pinButton.classList.toggle("active", enabled);
+            pinButton.setAttribute("aria-pressed", String(enabled));
+            pinButton.textContent = enabled ? "Click map to pin" : "Pin a point";
+            globalMap.getContainer().classList.toggle("map-pin-mode", enabled);
+            if (enabled) statusEl.textContent = "Pin mode is on. Click an exact point anywhere on the map.";
+        }
+
+        function renderSituation(data) {
+            document.getElementById("global-alert-count").textContent = data.global_alerts.length;
+            document.getElementById("global-monitored-count").textContent = data.monitored_locations;
+            document.getElementById("global-elevated-count").textContent = data.elevated_locations;
+            document.getElementById("global-report-count").textContent = data.recent_community_reports;
+            alertLayer.clearLayers();
+
+            data.global_alerts.forEach((alert) => {
+                if (!Number.isFinite(Number(alert.latitude)) || !Number.isFinite(Number(alert.longitude))) return;
+                const colour = colourForRisk(alert.risk_color);
+                const icon = L.divIcon({
+                    className: "",
+                    html: '<span class="global-alert-marker" style="background:' + colour + '">!</span>',
+                    iconAnchor: [14, 14],
+                    iconSize: [28, 28]
+                });
+                const marker = L.marker([alert.latitude, alert.longitude], { icon: icon }).addTo(alertLayer);
+                const sourceLink = /^https?:\/\//i.test(alert.event_url || "")
+                    ? '<br><a href="' + escapeHtml(alert.event_url) + '" target="_blank" rel="noopener">Open GDACS report</a>'
+                    : "";
+                marker.bindPopup(
+                    "<b>" + escapeHtml(alert.country || "Flood alert") + "</b><br>" +
+                    escapeHtml(alert.risk_level) + " flood alert<br>" +
+                    escapeHtml(alert.title) + sourceLink
+                );
+            });
+
+            const staleText = data.global_alerts_stale ? "Global alert feed may be delayed." : "Global signals refreshed.";
+            statusEl.textContent = staleText + " Select an alert, save a place, or enable the satellite rain estimate.";
+        }
+
+        async function loadSituation() {
+            try {
+                const response = await fetch("/api/global-situation");
+                const data = await response.json();
+                if (!response.ok || !data.ok) throw new Error(data.error || "Global signals are unavailable.");
+                renderSituation(data);
+            } catch (error) {
+                statusEl.textContent = "Could not refresh global signals. The last known map remains visible.";
+            }
+        }
+
+        myPlacesForm.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const query = myPlaceSearch.value.trim();
+            const customLabel = myPlaceLabel.value.trim();
+            if (!query) return;
+            myPlacesFeedback.textContent = "Finding that place…";
+            try {
+                const response = await fetch("/api/map-geocode?q=" + encodeURIComponent(query));
+                const data = await response.json();
+                if (!response.ok || !data.ok) throw new Error(data.error || "Location not found.");
+                const places = getSavedPlaces();
+                if (places.length >= 8) throw new Error("You can save up to 8 places in this browser.");
+                if (places.some((place) => Math.abs(place.lat - data.lat) < 0.0001 && Math.abs(place.lon - data.lon) < 0.0001)) {
+                    throw new Error("That place is already saved.");
+                }
+                places.push({ label: customLabel || data.label, lat: data.lat, lon: data.lon });
+                savePlaces(places);
+                myPlaceSearch.value = "";
+                myPlaceLabel.value = "";
+                myPlacesFeedback.textContent = "Saved. Select it to view it on the map, then run a full analysis.";
+                renderSavedPlaces();
+            } catch (error) {
+                myPlacesFeedback.textContent = error.message || "Could not save that place.";
+            }
+        });
+
+        pinButton.addEventListener("click", () => setPinMode(!pinMode));
+        globalMap.on("click", async (event) => {
+            if (!pinMode) return;
+            setPinMode(false);
+            const { lat, lng } = event.latlng;
+            if (pointMarker) globalMap.removeLayer(pointMarker);
+            pointMarker = L.marker([lat, lng]).addTo(globalMap);
+            pointMarker.bindTooltip("Preparing analysis…", { permanent: true, direction: "top" }).openTooltip();
+            statusEl.textContent = "Naming this point and starting FloodGuard's full location analysis…";
+            pinButton.disabled = true;
+            try {
+                const response = await fetch("/api/map-reverse-geocode?lat=" + encodeURIComponent(lat) + "&lon=" + encodeURIComponent(lng));
+                const data = await response.json();
+                if (!response.ok || !data.ok) throw new Error(data.error || "Could not analyse that point.");
+                window.location.assign(analysisUrl({ label: data.label, lat: data.lat, lon: data.lon }));
+            } catch (error) {
+                statusEl.textContent = error.message || "Could not analyse that point. Try again.";
+                pinButton.disabled = false;
+            }
+        });
+
+        refreshButton.addEventListener("click", async () => {
+            refreshButton.disabled = true;
+            refreshButton.textContent = "Refreshing…";
+            statusEl.textContent = "Refreshing the global alert feed…";
+            try {
+                await fetch("/api/refresh-global-alerts", { method: "POST" });
+                await loadSituation();
+            } finally {
+                refreshButton.disabled = false;
+                refreshButton.textContent = "Refresh";
+            }
+        });
+
+        function setExperience(simple) {
+            document.body.classList.toggle("simple-view", simple);
+            experienceButton.setAttribute("aria-pressed", String(simple));
+            experienceButton.textContent = simple ? "Explore view" : "Simple view";
+            localStorage.setItem(experienceStorageKey, simple ? "simple" : "explore");
+            setTimeout(() => globalMap.invalidateSize(), 150);
+        }
+
+        experienceButton.addEventListener("click", () => setExperience(!document.body.classList.contains("simple-view")));
+        setExperience(localStorage.getItem(experienceStorageKey) === "simple");
+        renderSavedPlaces();
+        loadSituation();
+        setInterval(loadSituation, 120000);
+    })();
+    </script>
+
     {% if prediction %}
     <script>
     (function () {
@@ -1013,7 +1432,7 @@
         const riskLevel = {{ prediction.risk | tojson }};
         const verdict = {{ prediction.travel_recommendation.verdict | tojson }};
         const shareText = "FloodGuard AI: " + cityName + " is at " + riskLevel + " flood risk right now. " + verdict + ". Check live conditions:";
-        const shareUrl = window.location.href;
+        const shareUrl = {{ (request.url_root.rstrip('/') + url_for('home', location=prediction.city)) | tojson }};
         const encodedText = encodeURIComponent(shareText);
         const encodedUrl = encodeURIComponent(shareUrl);
 
@@ -1051,6 +1470,34 @@
         const longitude = {{ prediction.longitude }};
         const riskColor = "{{ prediction.map_color }}";
         const mapboxToken = {{ mapbox_token | tojson }};
+        const cityName = {{ prediction.city | tojson }};
+        const currentMapPeriod = {
+            id: "now",
+            label: "Right now",
+            risk: {{ prediction.risk | tojson }},
+            riskColor: {{ prediction.risk_color | tojson }},
+            mapColor: riskColor,
+            score: {{ prediction.score }},
+            verdict: {{ prediction.travel_recommendation.verdict | tojson }},
+            action: {{ (prediction.priority_action or prediction.advice) | tojson }}
+        };
+        const forecastMapPeriods = {{ prediction.timeline[:3] | tojson }}.map((slot, index) => ({
+            id: "forecast-" + index,
+            label: slot.hour_label,
+            risk: slot.risk,
+            riskColor: slot.risk_color,
+            score: slot.score,
+            verdict: slot.risk + " risk expected",
+            action: slot.priority_action || "Check conditions again before you travel."
+        }));
+        const mapPeriods = [currentMapPeriod].concat(forecastMapPeriods);
+        const riskColours = {
+            low: "#16a34a",
+            watch: "#f59e0b",
+            high: "#dc2626",
+            severe: "#b91c1c",
+            critical: "#7f1d1d"
+        };
 
         const map = L.map("map").setView([latitude, longitude], 12);
 
@@ -1058,15 +1505,86 @@
             attribution: "&copy; OpenStreetMap contributors"
         }).addTo(map);
 
-        // --- Flood risk zone: the core "flood-prone area" indicator ---
+        // --- Search from the map or analyse a point the visitor drops ---
+        const mapSearchForm = document.getElementById("map-search-form");
+        const mapSearchInput = document.getElementById("map-search-input");
+        const mapPinButton = document.getElementById("map-pin-button");
+        const mapSearchFeedback = document.getElementById("map-search-feedback");
+        let pinMode = false;
+        let selectedPointMarker = null;
+
+        function setPinMode(enabled) {
+            pinMode = enabled;
+            mapPinButton.classList.toggle("active", enabled);
+            mapPinButton.setAttribute("aria-pressed", String(enabled));
+            mapPinButton.textContent = enabled ? "Click the map to pin" : "Pin a location";
+            map.getContainer().classList.toggle("map-pin-mode", enabled);
+            if (enabled) {
+                mapSearchFeedback.textContent = "Pin mode is on. Click the exact point you want FloodGuard to analyse.";
+            } else if (!selectedPointMarker) {
+                mapSearchFeedback.textContent = "Choose “Pin a location”, then click anywhere on the map to analyse that exact point.";
+            }
+        }
+
+        mapSearchForm.addEventListener("submit", (event) => {
+            event.preventDefault();
+            const query = mapSearchInput.value.trim();
+            if (!query) {
+                mapSearchFeedback.textContent = "Enter a location to search, or choose “Pin a location”.";
+                mapSearchInput.focus();
+                return;
+            }
+            mapSearchFeedback.textContent = "Loading the flood analysis for " + query + "...";
+            window.location.assign("/?location=" + encodeURIComponent(query));
+        });
+
+        mapPinButton.addEventListener("click", () => setPinMode(!pinMode));
+
+        map.on("click", async (event) => {
+            if (!pinMode) return;
+            setPinMode(false);
+
+            const { lat, lng } = event.latlng;
+            if (selectedPointMarker) map.removeLayer(selectedPointMarker);
+            selectedPointMarker = L.marker([lat, lng], { opacity: 0.85 }).addTo(map);
+            selectedPointMarker.bindTooltip("Analysing this point...", { permanent: true, direction: "top" }).openTooltip();
+            mapSearchFeedback.textContent = "Finding this location and building its flood analysis...";
+            mapPinButton.disabled = true;
+
+            try {
+                const response = await fetch(
+                    "/api/map-reverse-geocode?lat=" + encodeURIComponent(lat) + "&lon=" + encodeURIComponent(lng)
+                );
+                const data = await response.json();
+                if (!response.ok || !data.ok) throw new Error(data.error || "Could not identify that map point.");
+
+                const parameters = new URLSearchParams({
+                    map_lat: Number(data.lat).toFixed(6),
+                    map_lon: Number(data.lon).toFixed(6),
+                    map_label: data.label
+                });
+                window.location.assign("/?" + parameters.toString());
+            } catch (error) {
+                mapSearchFeedback.textContent = error.message || "Could not analyse that point. Please try again.";
+                if (selectedPointMarker) {
+                    selectedPointMarker.bindTooltip("Point not analysed - try again", { permanent: true, direction: "top" }).openTooltip();
+                }
+                mapPinButton.disabled = false;
+            }
+        });
+
+        // This ring marks the assessed location context, not a claimed
+        // street-by-street flood boundary.
         const riskCircle = L.circle([latitude, longitude], {
             color: riskColor,
             fillColor: riskColor,
-            fillOpacity: 0.22,
-            radius: 4500 + ({{ prediction.score }} * 80)
+            fillOpacity: 0.13,
+            opacity: 0.9,
+            radius: 1400,
+            weight: 2
         }).addTo(map);
-        riskCircle.bindTooltip("Estimated flood-prone zone — {{ prediction.risk }} risk", { sticky: true });
-        riskCircle.bindPopup("<b>Flood-prone area</b><br>Estimated risk radius based on rainfall, terrain, and local conditions.");
+        riskCircle.bindTooltip("Location risk context - {{ prediction.risk }} risk", { sticky: true });
+        riskCircle.bindPopup("<b>Location assessment</b><br>This ring highlights the map context for the searched location. It is not an exact flood boundary.");
 
         // --- Main location marker, labeled ---
         const mainMarker = L.marker([latitude, longitude]).addTo(map);
@@ -1095,19 +1613,8 @@
         }).addTo(map);
         {% endif %}
 
-        // --- Community-reported flooding: real visitor ground truth ---
-        {% if prediction.community.flooding_reports > 0 %}
-        const communityPoint = [latitude + 0.0025, longitude + 0.0025];
-        const communityMarker = L.circleMarker(communityPoint, {
-            radius: 9,
-            color: "#f87171",
-            fillColor: "#dc2626",
-            fillOpacity: 0.9,
-            weight: 2
-        }).addTo(map);
-        communityMarker.bindTooltip("{{ prediction.community.flooding_reports }} community flood report(s)", { direction: "top" });
-        communityMarker.bindPopup("<b>Community-reported flooding</b><br>{{ prediction.community.flooding_reports }} visitor report(s) of flooding near {{ prediction.city }}. Marker position is approximate — exact pinpoints aren't collected.");
-        {% endif %}
+        // Community reports are city-level evidence. No artificial marker is
+        // placed because FloodGuard does not store reporters' exact locations.
 
         // --- Live traffic layer (optional — needs a free Mapbox token) ---
         let trafficLayer = null;
@@ -1122,25 +1629,69 @@
             L.control.layers({ "Map": baseLayer }, overlays, { collapsed: false, position: "topright" }).addTo(map);
         }
 
-        // --- Legend: labels every marker/color for visitors ---
         const legend = L.control({ position: "bottomright" });
         legend.onAdd = function () {
             const div = L.DomUtil.create("div", "map-legend");
             let rows = "";
-            rows += '<div class="map-legend-row"><span class="map-legend-swatch" style="background:' + riskColor + '"></span> Flood-prone risk zone</div>';
-            rows += '<div class="map-legend-row"><span class="map-legend-dot" style="background:#38bdf8"></span> Nearest water body</div>';
+            rows += '<div class="map-legend-row"><span id="map-legend-risk" class="map-legend-swatch" style="background:' + riskColor + '"></span> Location risk context</div>';
+            rows += '<div class="map-legend-row"><span class="map-legend-dot" style="background:#38bdf8"></span> Nearest mapped water</div>';
             {% if prediction.community.flooding_reports > 0 %}
-            rows += '<div class="map-legend-row"><span class="map-legend-dot" style="background:#dc2626"></span> Community flood reports</div>';
+            rows += '<div class="map-legend-row map-legend-note">Community reports inform the score; exact pins are hidden</div>';
             {% endif %}
             if (mapboxToken) {
                 rows += '<div class="map-legend-row"><span class="map-legend-line"></span> Live traffic (toggle top-right)</div>';
-            } else {
-                rows += '<div class="map-legend-row map-legend-note">Live traffic: add a free Mapbox token to enable</div>';
             }
             div.innerHTML = rows;
             return div;
         };
         legend.addTo(map);
+
+        function escapeHtml(value) {
+            return String(value).replace(/[&<>'"]/g, (character) => ({
+                "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"
+            })[character]);
+        }
+
+        function updateMapPeriod(period) {
+            const colourName = riskColours[period.riskColor] ? period.riskColor : "low";
+            const colour = period.mapColor || riskColours[colourName] || riskColor;
+            const isNow = period.id === "now";
+            const state = period.label + ": " + period.risk + " risk (score " + period.score + "/100)";
+
+            riskCircle.setStyle({
+                color: colour,
+                fillColor: colour,
+                fillOpacity: isNow ? 0.13 : 0.09,
+                dashArray: isNow ? "" : "8 8"
+            });
+            riskCircle.bindTooltip("Location risk context - " + state, { sticky: true });
+            mainMarker.setPopupContent(
+                "<b>" + escapeHtml(cityName) + "</b><br>" +
+                escapeHtml(state) + "<br><small>Assessment for this searched location, not an exact flood boundary.</small>"
+            );
+
+            const actionSummary = document.querySelector(".map-action-summary");
+            actionSummary.className = "map-action-summary risk-border-" + colourName;
+            document.getElementById("map-period-title").textContent = period.label;
+            document.getElementById("map-verdict").textContent = period.verdict;
+            document.getElementById("map-action-text").textContent = period.action;
+            const legendRisk = document.getElementById("map-legend-risk");
+            if (legendRisk) legendRisk.style.background = colour;
+
+            document.querySelectorAll(".map-time-btn").forEach((button) => {
+                const selected = button.dataset.mapPeriod === period.id;
+                button.classList.toggle("active", selected);
+                button.setAttribute("aria-pressed", String(selected));
+            });
+        }
+
+        document.querySelectorAll(".map-time-btn").forEach((button) => {
+            button.addEventListener("click", () => {
+                const period = mapPeriods.find((item) => item.id === button.dataset.mapPeriod);
+                if (period) updateMapPeriod(period);
+            });
+        });
+        updateMapPeriod(currentMapPeriod);
 
         setTimeout(function () {
             map.invalidateSize();

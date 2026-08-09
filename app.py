@@ -1,5 +1,6 @@
 import json
 import secrets
+from io import BytesIO
 from functools import wraps
 import math
 import os
@@ -12,7 +13,9 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 import urllib3.util.connection as urllib3_cn
-from flask import Flask, g, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, g, jsonify, redirect, render_template, request, send_file, session, url_for
+from PIL import Image, ImageDraw, ImageFont
+from itsdangerous import BadSignature, URLSafeSerializer
 from werkzeug.security import check_password_hash, generate_password_hash
 from dotenv import load_dotenv
 try:
@@ -1171,6 +1174,49 @@ def get_global_alerts_status():
         "last_updated": last_updated,
         "is_stale": is_stale,
         "age_minutes": round(age_minutes) if age_minutes is not None else None,
+    }
+
+
+def get_global_situation():
+    """Build an honest global snapshot from FloodGuard's live sources.
+
+    This deliberately reports only places FloodGuard has actually monitored
+    and alerts supplied by GDACS. It is a worldwide situation view, not a
+    claim that the app has street-level coverage of the entire planet.
+    """
+    global_alerts = get_global_alerts_status()
+    watchlist = get_watchlist_status()
+    entries = watchlist["entries"]
+    high_levels = {"HIGH", "SEVERE", "CRITICAL"}
+    severe_levels = {"SEVERE", "CRITICAL"}
+
+    conn = sqlite3.connect(DB_PATH)
+    cutoff = (datetime.utcnow() - timedelta(hours=GROUND_TRUTH_WINDOW_HOURS)).isoformat()
+    recent_reports = conn.execute(
+        "SELECT COUNT(*) FROM contributions WHERE created_at >= ?",
+        (cutoff,),
+    ).fetchone()[0]
+    conn.close()
+
+    return {
+        "ok": True,
+        "global_alerts": global_alerts["entries"],
+        "global_alerts_updated": global_alerts["last_updated"],
+        "global_alerts_stale": global_alerts["is_stale"],
+        "monitored_locations": len(entries),
+        "elevated_locations": sum(1 for entry in entries if entry["risk_level"] in high_levels),
+        "severe_locations": sum(1 for entry in entries if entry["risk_level"] in severe_levels),
+        "recent_community_reports": recent_reports,
+        "location_signals": [
+            {
+                "location": entry["city_label"],
+                "risk_level": entry["risk_level"],
+                "risk_color": entry["risk_color"],
+                "score": entry["score"],
+                "updated_at": entry["updated_at"],
+            }
+            for entry in entries[:24]
+        ],
     }
 
 
@@ -4292,7 +4338,11 @@ def build_prediction(query, known_place=None):
     # for a day (GEO_CONTEXT_TTL_HOURS) since they don't meaningfully change
     # hour to hour — this is what keeps Overpass/SoilGrids call volume low
     # enough to avoid rate-limiting on repeated watchlist sweeps.
-    city_key = normalize_city(weather["city"])
+    # A point dropped on the map may sit inside a city but still have very
+    # different terrain/water context from its centre. Give those analyses a
+    # coordinate-based cache key so their terrain result is never reused for
+    # a different point in the same city.
+    city_key = (known_place or {}).get("cache_key") or normalize_city(weather["city"])
     print("STEP 3: Geo Context")
     geo = get_geo_context(city_key, lat, lon)
     earth_engine = get_earth_engine_context(city_key, lat, lon)
@@ -4458,12 +4508,94 @@ def build_prediction(query, known_place=None):
     }, forecast
 
 
+def _share_card_font(size, bold=False):
+    """Return a portable font for generated social preview cards."""
+    candidates = (
+        ["DejaVuSans-Bold.ttf", "arialbd.ttf"]
+        if bold else ["DejaVuSans.ttf", "arial.ttf"]
+    )
+    for font_name in candidates:
+        try:
+            return ImageFont.truetype(font_name, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def _draw_wrapped_text(draw, text, xy, font, fill, max_width, line_gap=10):
+    """Draw text in a bounded area and return the next available y position."""
+    x, y = xy
+    words = str(text).split()
+    line = ""
+    for word in words:
+        candidate = (line + " " + word).strip()
+        if line and draw.textbbox((0, 0), candidate, font=font)[2] > max_width:
+            draw.text((x, y), line, font=font, fill=fill)
+            y += font.size + line_gap
+            line = word
+        else:
+            line = candidate
+    if line:
+        draw.text((x, y), line, font=font, fill=fill)
+        y += font.size + line_gap
+    return y
+
+
+@app.route("/share-card.png")
+def share_card():
+    """A branded preview image used by WhatsApp and other social link cards."""
+    token = request.args.get("card", "")
+    try:
+        snapshot = URLSafeSerializer(app.secret_key, salt="floodguard-share-card").loads(token)
+    except BadSignature:
+        return "This share card is invalid or has expired.", 400
+
+    city = str(snapshot.get("city", "")).strip()
+    risk = str(snapshot.get("risk", "")).strip()
+    score = snapshot.get("score")
+    risk_color = str(snapshot.get("risk_color", "")).strip()
+    if not city or not risk or not isinstance(score, int) or not 0 <= score <= 100:
+        return "This share card is invalid.", 400
+
+    risk_colours = {
+        "low": (34, 197, 94),
+        "watch": (245, 158, 11),
+        "high": (220, 38, 38),
+        "severe": (185, 28, 28),
+        "critical": (127, 29, 29),
+    }
+    accent = risk_colours.get(risk_color, (14, 165, 233))
+    image = Image.new("RGB", (1200, 630), (5, 17, 31))
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((760, -250, 1370, 360), fill=tuple(max(0, c - 85) for c in accent))
+    draw.rounded_rectangle((54, 54, 1146, 576), radius=34, fill=(12, 32, 56), outline=accent, width=4)
+
+    label_font = _share_card_font(27, bold=True)
+    heading_font = _share_card_font(72, bold=True)
+    body_font = _share_card_font(32)
+    score_font = _share_card_font(52, bold=True)
+    draw.text((100, 103), "FLOODGUARD AI  •  LIVE LOCAL CHECK", font=label_font, fill=(125, 211, 252))
+    draw.text((100, 174), risk + " FLOOD RISK", font=heading_font, fill=accent)
+    y = _draw_wrapped_text(draw, city, (100, 275), body_font, (248, 250, 252), 690)
+    draw.text((100, max(y + 14, 395)), "Flood score  " + str(score) + "/100", font=score_font, fill=(255, 255, 255))
+    draw.text((100, 505), "Check conditions before you travel.", font=body_font, fill=(203, 213, 225))
+    draw.text((838, 505), "floodguard.ai", font=label_font, fill=(125, 211, 252))
+
+    output = BytesIO()
+    image.save(output, "PNG", optimize=True)
+    output.seek(0)
+    response = send_file(output, mimetype="image/png", download_name="floodguard-risk-card.png")
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return response
+
+
 @app.route("/", methods=["GET", "POST"])
 def home():
     prediction = None
     forecast = []
     error = None
     reports = []
+    share_card_token = None
 
     # GDACS needs no API key, so real global flood coverage works even
     # before OpenWeather is configured.
@@ -4473,20 +4605,53 @@ def home():
         maybe_refresh_watchlist_async()
         maybe_send_daily_digests()
 
-    if request.method == "POST":
-        city = request.form.get("city", "").strip()
-        if not city:
-            error = "Please enter a city name."
-        elif not API_KEY:
+    city = (request.form.get("city") if request.method == "POST" else request.args.get("location", "")).strip()
+    map_known_place = None
+    map_lat_raw = request.args.get("map_lat") if request.method == "GET" else None
+    map_lon_raw = request.args.get("map_lon") if request.method == "GET" else None
+
+    if map_lat_raw is not None or map_lon_raw is not None:
+        try:
+            map_lat = float(map_lat_raw)
+            map_lon = float(map_lon_raw)
+            if not math.isfinite(map_lat) or not math.isfinite(map_lon) or not -90 <= map_lat <= 90 or not -180 <= map_lon <= 180:
+                raise ValueError
+        except (TypeError, ValueError):
+            error = "That map point is invalid. Please choose another location."
+        else:
+            map_label = request.args.get("map_label", "Pinned map location").strip()[:150] or "Pinned map location"
+            city = map_label
+            map_known_place = {
+                "lat": map_lat,
+                "lon": map_lon,
+                "name": map_label,
+                "state": "",
+                "country": "",
+                "cache_key": f"map:{map_lat:.5f},{map_lon:.5f}",
+            }
+
+    if request.method == "POST" and not city:
+        error = "Please enter a city name."
+    elif city and not error:
+        if not API_KEY:
             error = "Weather API key is missing. Add OPENWEATHER_API_KEY to your hosting environment variables."
         else:
-            prediction, forecast = build_prediction(city, known_place=_known_place_for_curated_location(city))
+            prediction, forecast = build_prediction(
+                city,
+                known_place=map_known_place or _known_place_for_curated_location(city),
+            )
             if not prediction:
                 error = "City not found or weather service unavailable."
             else:
                 reports = get_city_contributions(prediction["city"])
                 log_search(prediction["city"], prediction["risk"], prediction["score"])
                 cache_watchlist_entry_now(prediction)
+                share_card_token = URLSafeSerializer(app.secret_key, salt="floodguard-share-card").dumps({
+                    "city": prediction["city"],
+                    "risk": prediction["risk"],
+                    "score": prediction["score"],
+                    "risk_color": prediction["risk_color"],
+                })
 
     return render_template(
         "index.html",
@@ -4501,7 +4666,77 @@ def home():
         watchlist_refresh_minutes=WATCHLIST_REFRESH_MINUTES,
         global_alerts=get_global_alerts_status(),
         mapbox_token=MAPBOX_ACCESS_TOKEN,
+        share_card_token=share_card_token,
     )
+
+
+@app.route("/api/map-reverse-geocode")
+def map_reverse_geocode():
+    """Name a user-selected map point without exposing a third-party API to the browser."""
+    if not API_KEY:
+        return jsonify({"ok": False, "error": "Location search is unavailable right now."}), 503
+
+    try:
+        latitude = float(request.args.get("lat", ""))
+        longitude = float(request.args.get("lon", ""))
+        if not math.isfinite(latitude) or not math.isfinite(longitude) or not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+            raise ValueError
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "That map point is invalid."}), 400
+
+    label = "Pinned map location"
+    try:
+        response = requests.get(
+            "https://api.openweathermap.org/geo/1.0/reverse",
+            params={"lat": latitude, "lon": longitude, "limit": 1, "appid": API_KEY},
+            timeout=8,
+        )
+        response.raise_for_status()
+        results = response.json()
+        if results:
+            place = results[0]
+            label_parts = [place.get("name") or "Pinned map location"]
+            if place.get("state"):
+                label_parts.append(place["state"])
+            if place.get("country"):
+                label_parts.append(place["country"])
+            label = ", ".join(label_parts)
+    except (requests.RequestException, ValueError) as error:
+        # The coordinates are still enough to run the analysis. Falling back
+        # to a generic label keeps map pinning useful during a geocoder outage.
+        print(f"Map reverse geocoding failed: {error}")
+
+    return jsonify({"ok": True, "label": label, "lat": latitude, "lon": longitude})
+
+
+@app.route("/api/map-geocode")
+def map_geocode():
+    """Resolve a saved-place search for the global map."""
+    query = (request.args.get("q") or "").strip()
+    if not query:
+        return jsonify({"ok": False, "error": "Enter a location to search."}), 400
+    if len(query) > 150:
+        return jsonify({"ok": False, "error": "Location names are too long."}), 400
+
+    place = geocode_location(query)
+    if not place:
+        return jsonify({"ok": False, "error": "Location not found."}), 404
+
+    label_parts = [place["name"]]
+    if place.get("state"):
+        label_parts.append(place["state"])
+    if place.get("country"):
+        label_parts.append(place["country"])
+    return jsonify(
+        {
+            "ok": True,
+            "label": ", ".join(label_parts),
+            "lat": place["lat"],
+            "lon": place["lon"],
+        }
+    )
+
+
 @app.route("/api/widget", methods=["POST"])
 def widget_api():
 
@@ -4632,6 +4867,15 @@ def api_global_alerts():
     # staleness check rather than only ever refreshing on a full page load.
     maybe_refresh_global_alerts_async()
     return jsonify({"ok": True, **get_global_alerts_status()})
+
+
+@app.route("/api/global-situation")
+def api_global_situation():
+    """One globally scoped, source-labelled snapshot for the Living Flood Map."""
+    maybe_refresh_global_alerts_async()
+    if API_KEY:
+        maybe_refresh_watchlist_async()
+    return jsonify(get_global_situation())
 
 
 @app.route("/api/refresh-global-alerts", methods=["GET", "POST"])
