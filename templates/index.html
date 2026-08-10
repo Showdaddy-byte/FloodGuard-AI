@@ -15,6 +15,44 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        #route-map {
+            height: 380px;
+            margin-top: 16px;
+            border-radius: 8px;
+            z-index: 0;
+        }
+        .route-map-legend {
+            font-size: 12px;
+            line-height: 1.8;
+            background: white;
+            padding: 8px 10px;
+            border-radius: 6px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+        }
+        .route-map-legend-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .route-map-legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+        .route-map-legend-line {
+            width: 16px;
+            height: 3px;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+        .incident-popup-flooding {
+            color: #0369a1;
+            font-weight: bold;
+        }
+    </style>
 </head>
 <body class="{% if prediction %}weather-{{ prediction.scene.code }}{% else %}weather-clouds{% endif %}">
     <div class="spinner" id="spinner" aria-live="polite" aria-busy="true">
@@ -187,6 +225,7 @@
         </form>
         <div id="route-feedback" class="route-feedback"></div>
         <div id="route-results"></div>
+        <div id="route-map" style="display:none;"></div>
     </section>
 
     <section id="property-check" class="route-safety-panel">
@@ -628,44 +667,7 @@
     </section>
 </section>
 
-    <section id="global-alerts" class="watchlist-panel">
-        <div class="watchlist-header">
-            <h2>{% if global_alerts.entries %}<span class="live-dot" aria-hidden="true"></span>{% endif %}🌍 Live Global Flood Alerts</h2>
-            <span id="global-alerts-updated" class="watchlist-updated" data-last-updated="{{ global_alerts.last_updated or '' }}">{% if global_alerts.last_updated %}Last checked {{ global_alerts.last_updated }} UTC{% endif %}</span>
-        </div>
-        <p class="watchlist-subtitle">Real-time worldwide flood alerts from GDACS (Global Disaster Alert and Coordination System) — the same feed used by UN OCHA and humanitarian agencies. Independent of any location search.</p>
-
-        <div id="global-alerts-body">
-            {% if not global_alerts.initialized %}
-            <div class="watchlist-state watchlist-pending">
-                <p>Connecting to the global flood monitor — the first check runs automatically on page load.</p>
-                <button type="button" id="global-refresh-btn">Check now</button>
-            </div>
-            {% elif global_alerts.entries %}
-            <div class="watchlist-state watchlist-active" id="global-alerts-list">
-                {% if global_alerts.is_stale %}
-                <p class="watchlist-stale-note">⚠ This data is {{ global_alerts.age_minutes }} minute(s) old and refreshing now.</p>
-                {% endif %}
-                {% for alert in global_alerts.entries %}
-                <div class="watchlist-alert-card risk-border-{{ alert.risk_color }}">
-                    <div class="watchlist-alert-top">
-                        <strong>{{ alert.country or "Unknown location" }}</strong>
-                        <span class="risk-pill risk-{{ alert.risk_color }}">{{ alert.risk_level }}</span>
-                    </div>
-                    <p>{{ alert.title }}</p>
-                    {% if alert.event_url %}
-                    <a href="{{ alert.event_url }}" target="_blank" rel="noopener" class="watchlist-check-btn" style="display:inline-block;text-decoration:none;">GDACS report ↗</a>
-                    {% endif %}
-                </div>
-                {% endfor %}
-            </div>
-            {% else %}
-            <div class="watchlist-state watchlist-clear" id="global-alerts-list">
-                <p>✅ No active flood events reported by GDACS worldwide right now. Last checked {{ global_alerts.age_minutes }} minute(s) ago.</p>
-            </div>
-            {% endif %}
-        </div>
-    </section>
+    
 
     <footer id="contact">
         <h2>FloodGuard AI</h2>
@@ -957,6 +959,137 @@
     }
     attachManualRefreshHandler();
 
+    let routeMap = null;
+
+    function riskHexRoute(color) {
+        const map = { low: "#16a34a", watch: "#f59e0b", moderate: "#f59e0b", high: "#dc2626", severe: "#b91c1c", critical: "#7f1d1d" };
+        return map[color] || "#f59e0b";
+    }
+
+    async function renderRouteMap(data) {
+        const mapEl = document.getElementById("route-map");
+        if (!mapEl) return;
+
+        if (routeMap) {
+            routeMap.remove();
+            routeMap = null;
+        }
+
+        const route = data.primary_route;
+        if (!route.path || !route.path.length) {
+            mapEl.style.display = "none";
+            return;
+        }
+
+        mapEl.style.display = "block";
+        routeMap = L.map("route-map");
+
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            attribution: "&copy; OpenStreetMap contributors"
+        }).addTo(routeMap);
+
+        // --- Primary route, colored by worst-case risk along the way ---
+        const primaryLine = L.polyline(route.path, {
+            color: riskHexRoute(riskColorClassRoute(route.worst_risk)),
+            weight: 5,
+            opacity: 0.85,
+        }).addTo(routeMap);
+
+        // --- Risk-colored segment markers, reusing the same data as the segment bar ---
+        route.segments.forEach((s) => {
+            L.circleMarker([s.lat, s.lon], {
+                radius: 6,
+                color: "#fff",
+                weight: 2,
+                fillColor: riskHexRoute(riskColorClassRoute(s.risk)),
+                fillOpacity: 1,
+            }).addTo(routeMap).bindTooltip(s.risk + (s.water_label ? " — near " + s.water_label : ""));
+        });
+
+        // --- Alternate route, shown lighter/dashed for comparison ---
+        if (data.alternative_route && data.alternative_route.path) {
+            L.polyline(data.alternative_route.path, {
+                color: "#9ca3af",
+                weight: 3,
+                opacity: 0.6,
+                dashArray: "8, 8",
+            }).addTo(routeMap);
+        }
+
+        // --- Origin / destination markers ---
+        L.marker(data.origin_coords).addTo(routeMap).bindTooltip(data.origin, { permanent: false });
+        L.marker(data.destination_coords).addTo(routeMap).bindTooltip(data.destination, { permanent: false });
+
+        routeMap.fitBounds(primaryLine.getBounds(), { padding: [30, 30] });
+
+        // --- TomTom live traffic flow (the colored-roads congestion layer) ---
+        let flowLayer = null;
+        if (data.tomtom_token) {
+            flowLayer = L.tileLayer(
+                "https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=" + data.tomtom_token,
+                { opacity: 0.75, attribution: "Traffic &copy; TomTom" }
+            );
+            flowLayer.addTo(routeMap);
+            L.control.layers(null, { "Live traffic (TomTom)": flowLayer }, { collapsed: false, position: "topright" }).addTo(routeMap);
+        }
+
+        // --- Legend ---
+        const legend = L.control({ position: "bottomright" });
+        legend.onAdd = function () {
+            const div = L.DomUtil.create("div", "route-map-legend");
+            let rows = "";
+            rows += '<div class="route-map-legend-row"><span class="route-map-legend-line" style="background:' + riskHexRoute(riskColorClassRoute(route.worst_risk)) + '"></span> Route (flood risk)</div>';
+            rows += '<div class="route-map-legend-row"><span class="route-map-legend-dot" style="background:#0369a1"></span> Flooding reported (TomTom)</div>';
+            rows += '<div class="route-map-legend-row"><span class="route-map-legend-dot" style="background:#6b7280"></span> Other traffic incident</div>';
+            if (!data.tomtom_token) {
+                rows += '<div class="route-map-legend-row" style="color:#9ca3af;">Live traffic layer not configured</div>';
+            }
+            div.innerHTML = rows;
+            return div;
+        };
+        legend.addTo(routeMap);
+
+        setTimeout(() => { routeMap.invalidateSize(); }, 250);
+
+        // --- Real-time TomTom incidents within the route's bounding box ---
+        if (data.tomtom_token) {
+            const bounds = primaryLine.getBounds();
+            const url = "/api/traffic-incidents?min_lat=" + bounds.getSouth() + "&min_lon=" + bounds.getWest() +
+                        "&max_lat=" + bounds.getNorth() + "&max_lon=" + bounds.getEast();
+            try {
+                const response = await fetch(url);
+                const incidentData = await response.json();
+                if (incidentData.ok) {
+                    incidentData.incidents.forEach((inc) => {
+                        const isFlooding = inc.is_flooding;
+                        const marker = L.circleMarker([inc.lat, inc.lon], {
+                            radius: isFlooding ? 9 : 6,
+                            color: "#fff",
+                            weight: 2,
+                            fillColor: isFlooding ? "#0369a1" : "#6b7280",
+                            fillOpacity: 0.95,
+                        }).addTo(routeMap);
+
+                        let popupHtml = "";
+                        if (isFlooding) {
+                            popupHtml += '<div class="incident-popup-flooding">🌊 Flooding reported</div>';
+                        } else {
+                            popupHtml += "<strong>" + inc.category_label + "</strong>";
+                        }
+                        if (inc.description) {
+                            popupHtml += "<div>" + inc.description + "</div>";
+                        }
+                        popupHtml += '<div style="font-size:11px;color:#9ca3af;">Source: TomTom live traffic</div>';
+                        marker.bindPopup(popupHtml);
+                    });
+                }
+            } catch (err) {
+                // Traffic incidents are a supplementary layer — a failed fetch
+                // shouldn't block the route map itself from being usable.
+            }
+        }
+    }
+
     function riskColorClassRoute(level) {
         const map = { LOW: "low", WATCH: "watch", MODERATE: "moderate", HIGH: "high", SEVERE: "severe", CRITICAL: "critical" };
         return map[level] || "low";
@@ -970,6 +1103,9 @@
             feedbackEl.textContent = data.error || "Could not assess this route.";
             feedbackEl.className = "route-feedback error";
             resultsEl.innerHTML = "";
+            const mapEl = document.getElementById("route-map");
+            if (mapEl) mapEl.style.display = "none";
+            if (routeMap) { routeMap.remove(); routeMap = null; }
             return;
         }
 
@@ -1013,6 +1149,8 @@
             '<div class="route-segment-bar">' + segmentBar + "</div>" +
             riskyHtml +
             altHtml;
+
+        renderRouteMap(data);
     }
 
     const routeForm = document.getElementById("route-form");

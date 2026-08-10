@@ -57,6 +57,8 @@ API_KEY = os.getenv("OPENWEATHER_API_KEY")
 WEATHERAPI_KEY = os.getenv("WEATHERAPI_KEY")  # optional — WeatherAPI.com fallback, only used if OpenWeather fails
 TIDE_API_KEY = os.getenv("TIDE_API_KEY")  # optional — WorldTides free tier; tidal factor is skipped if unset
 MAPBOX_ACCESS_TOKEN = os.getenv("MAPBOX_ACCESS_TOKEN")  # optional — enables the live traffic map layer
+TOMTOM_API_KEY = os.getenv("TOMTOM_API_KEY")  # optional — enables the Route Safety traffic flow layer + incident markers (including TomTom's own "Flooding" incident category)
+TOMTOM_INCIDENTS_URL = "https://api.tomtom.com/traffic/services/5/incidentDetails"
 
 EARTH_ENGINE_ENABLED = os.getenv("EARTH_ENGINE_ENABLED", "1").lower() not in ("0", "false", "no")
 GEE_SERVICE_ACCOUNT = os.getenv("GEE_SERVICE_ACCOUNT")
@@ -1370,7 +1372,49 @@ def send_alert_email(to_email, subject, html_content):
         print(f"Brevo send request to {to_email} failed: {error}")
         return False
 
+def sync_contact_to_brevo(email, name=None):
+    """Creates or updates a Brevo contact and adds it to FloodGuard's subscriber list."""
+    if not BREVO_API_KEY:
+        print("Brevo contact sync skipped - BREVO_API_KEY is not configured.")
+        return False
 
+    try:
+        attributes = {}
+
+        if name:
+            attributes["FNAME"] = name[:100]
+
+        response = request_with_retry(
+            "POST",
+            "https://api.brevo.com/v3/contacts",
+            service_name="brevo_contacts",
+            json={
+                "email": email,
+                "attributes": attributes,
+                "listIds": [2],
+                "updateEnabled": True,
+            },
+            headers={
+                "api-key": BREVO_API_KEY,
+                "content-type": "application/json",
+                "accept": "application/json",
+            },
+            timeout=12,
+        )
+
+        if response.status_code >= 300:
+            print(
+                f"Brevo contact sync failed for {email} "
+                f"({response.status_code}): {response.text[:500]}"
+            )
+            return False
+
+        print(f"Brevo contact synced successfully: {email}")
+        return True
+
+    except requests.RequestException as error:
+        print(f"Brevo contact sync request failed for {email}: {error}")
+        return False
 TIER_COLORS = {"watch": "#f59e0b", "warning": "#dc2626", "emergency": "#7f1d1d"}
 TIER_MESSAGES = {
     "watch": "Heavy rainfall is forecast that could lead to flooding. Flooding is not currently expected, but conditions could worsen — stay informed.",
@@ -1492,46 +1536,173 @@ DIGEST_GREETING = {"morning": "Good morning", "evening": "Good evening"}
 
 
 def build_digest_location_advice(prediction, label):
-    """Builds one short, practical advisory line for a single location,
-    reusing fields build_prediction() already computes — no new scoring
-    logic, no new thresholds. Prefers the most specific, actionable signal
-    available: an active/imminent risk tier first, then an upcoming
-    rainfall_warning, then current light rain, then a plain all-clear."""
+    """Builds a concise, practical daily briefing for one watched location.
+    Uses only fields already produced by build_prediction().
+    """
     risk = prediction["risk"]
     rain_now = prediction.get("rainfall_mm", 0) or 0
     warning = prediction.get("rainfall_warning")
-    display_label = f"{label} ({prediction['city']})" if label != prediction["city"] else label
+    description = prediction.get("description", "")
+    priority_action = prediction.get("priority_action")
+
+    display_label = (
+        f"{label} ({prediction['city']})"
+        if label != prediction["city"]
+        else label
+    )
 
     if risk in RISK_TIER_LEVEL:
-        action = prediction.get("priority_action") or "Stay alert and monitor conditions."
-        return f"<strong>{display_label}</strong> — {risk} flood risk right now. {action}"
+        action = priority_action or "Stay alert and monitor conditions."
+
+        return f"""
+        <div style="margin:0 0 18px 0;padding:16px;border:1px solid #e5e7eb;border-radius:12px;">
+            <div style="font-size:18px;font-weight:700;margin-bottom:8px;">
+                📍 {display_label}
+            </div>
+
+            <div style="font-size:16px;font-weight:700;margin-bottom:8px;">
+                {RISK_TIER_EMOJI.get(RISK_TIER_NAME.get(risk, "watch"), "🌧️")}
+                {risk} FLOOD RISK
+            </div>
+
+            <div style="margin-bottom:8px;">
+                🌧️ Rainfall now: <strong>{rain_now} mm</strong>
+            </div>
+
+            <div style="margin-bottom:8px;">
+                🌤️ Weather: {description}
+            </div>
+
+            <div>
+                🚗 <strong>Movement advice:</strong> {action}
+            </div>
+        </div>
+        """
 
     if warning:
-        when = "later today" if warning["hours_from_now"] <= 12 else "in the next couple of days"
+        when = (
+            "later today"
+            if warning["hours_from_now"] <= 12
+            else "in the next couple of days"
+        )
+
         if warning["peak_risk"] in ("SEVERE", "CRITICAL"):
-            return f"<strong>{display_label}</strong> — Heavy rain expected {when} (~{warning['expected_rainfall_mm']}mm). Consider postponing travel through low-lying roads."
-        return f"<strong>{display_label}</strong> — Rain expected {when} (~{warning['expected_rainfall_mm']}mm). Worth carrying an umbrella."
+            advice = (
+                "Heavy rain is expected. Consider postponing travel through "
+                "low-lying or flood-prone roads."
+            )
+        else:
+            advice = (
+                "Rain is expected. Check your route before leaving "
+                "and allow extra travel time."
+            )
+
+        return f"""
+        <div style="margin:0 0 18px 0;padding:16px;border:1px solid #e5e7eb;border-radius:12px;">
+            <div style="font-size:18px;font-weight:700;margin-bottom:8px;">
+                📍 {display_label}
+            </div>
+
+            <div style="font-size:16px;font-weight:700;margin-bottom:8px;">
+                🌧️ Rain expected {when}
+            </div>
+
+            <div style="margin-bottom:8px;">
+                Expected rainfall: <strong>{warning["expected_rainfall_mm"]} mm</strong>
+            </div>
+
+            <div>
+                🚗 <strong>Movement advice:</strong> {advice}
+            </div>
+        </div>
+        """
 
     if rain_now >= 2:
-        return f"<strong>{display_label}</strong> — Light rain currently ({rain_now}mm). Carry an umbrella if heading out."
+        return f"""
+        <div style="margin:0 0 18px 0;padding:16px;border:1px solid #e5e7eb;border-radius:12px;">
+            <div style="font-size:18px;font-weight:700;margin-bottom:8px;">
+                📍 {display_label}
+            </div>
 
-    return f"<strong>{display_label}</strong> — Clear, no significant rain expected. {prediction.get('description', '')}."
+            <div style="margin-bottom:8px;">
+                🌧️ Light rain currently: <strong>{rain_now} mm</strong>
+            </div>
+
+            <div>
+                🚗 Carry an umbrella and check conditions before setting out.
+            </div>
+        </div>
+        """
+
+    return f"""
+    <div style="margin:0 0 18px 0;padding:16px;border:1px solid #e5e7eb;border-radius:12px;">
+        <div style="font-size:18px;font-weight:700;margin-bottom:8px;">
+            📍 {display_label}
+        </div>
+
+        <div style="margin-bottom:8px;">
+            ✅ No significant rain currently expected.
+        </div>
+
+        <div>
+            🌤️ {description}
+        </div>
+    </div>
+    """
 
 
 def build_digest_email_html(name, digest_type, location_lines, unsubscribe_url):
-    greeting = DIGEST_GREETING.get(digest_type, "Hello")
-    lines_html = "".join(f"<li style='margin-bottom:8px;'>{line}</li>" for line in location_lines)
+    greeting = DIGEST_GREETING.get(digest_type, "Good morning")
+
+    lines_html = "".join(location_lines)
+
     return f"""
-    <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;">
-        <h2>{greeting}{f", {name}" if name else ""} 🌤️</h2>
-        <p>Here's your FloodGuard AI weather check-in:</p>
-        <ul style="padding-left:20px;">{lines_html}</ul>
-        <p><a href="{SITE_BASE_URL}/" style="color:#2563eb;">View full details on FloodGuard AI</a></p>
-        <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;">
-        <p style="font-size:12px;color:#6b7280;">
-            You're receiving this twice-daily check-in because you're subscribed to FloodGuard AI alerts.
-            <a href="{unsubscribe_url}">Unsubscribe from all alerts</a>.
-        </p>
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#172033;line-height:1.5;">
+
+        <div style="padding:24px 18px 10px 18px;">
+            <h2 style="margin:0 0 8px 0;">
+                🌦️ FloodGuard AI
+            </h2>
+
+            <p style="margin:0 0 18px 0;font-size:17px;">
+                {greeting}{f", {name}" if name else ""} 👋
+            </p>
+
+            <p>
+                Here's your personalized weather and flood-safety check for today.
+            </p>
+
+            {lines_html}
+
+            <div style="text-align:center;margin:24px 0;">
+                <a href="{SITE_BASE_URL}"
+                   style="display:inline-block;padding:14px 24px;
+                          background:#0b5cff;color:#ffffff;
+                          text-decoration:none;border-radius:8px;
+                          font-weight:700;">
+                    👉 CHECK FLOODGUARD AI
+                </a>
+            </div>
+
+            <p style="text-align:center;font-size:14px;">
+                Check the latest weather, flood risk and movement information
+                before you head out.
+            </p>
+
+            <p style="text-align:center;font-weight:700;">
+                Check. Plan. Move safely.
+            </p>
+
+            <hr style="border:0;border-top:1px solid #e5e7eb;margin:24px 0;">
+
+            <p style="font-size:12px;color:#6b7280;text-align:center;">
+                You're receiving this daily FloodGuard AI briefing because
+                you're subscribed to FloodGuard AI alerts.
+                <br><br>
+                <a href="{unsubscribe_url}">Unsubscribe from all alerts</a>
+            </p>
+        </div>
+
     </div>
     """
 
@@ -1603,7 +1774,7 @@ def send_daily_digests(digest_type):
         unsubscribe_url = f"{SITE_BASE_URL}/unsubscribe/{subscriber['unsubscribe_token']}"
         sent = send_alert_email(
             subscriber["email"],
-            f"{DIGEST_GREETING.get(digest_type, 'Hello')} — your FloodGuard AI weather check-in",
+            f"{DIGEST_GREETING.get(digest_type, 'Good morning')} — FloodGuard AI Morning Briefing",
             build_digest_email_html(subscriber["name"], digest_type, location_lines, unsubscribe_url),
         )
         if sent:
@@ -3694,7 +3865,84 @@ def get_geo_context(city_key, lat, lon):
     }
 
 
-def fetch_route(origin_lat, origin_lon, dest_lat, dest_lon, alternatives=True):
+# TomTom's own iconCategory enum, verified from their developer documentation
+# and sample API responses — not guessed. Category 11 ("Flooding") is what
+# lets this app show a real, TomTom-confirmed flood-caused traffic incident
+# distinctly from an accident, roadworks, or an unexplained jam, rather than
+# assuming/inferring a cause this app can't actually verify.
+TOMTOM_ICON_CATEGORIES = {
+    0: "Unknown", 1: "Accident", 2: "Fog", 3: "Dangerous Conditions", 4: "Rain",
+    5: "Ice", 6: "Jam", 7: "Lane Closed", 8: "Road Closed", 9: "Road Works",
+    10: "Wind", 11: "Flooding", 12: "Detour", 13: "Cluster", 14: "Broken Down Vehicle",
+}
+TOMTOM_FLOODING_CATEGORY_ID = 11
+
+
+def fetch_traffic_incidents(min_lat, min_lon, max_lat, max_lon):
+    """Real-time traffic incidents from TomTom within a bounding box —
+    accidents, jams, road closures, roadworks, and (critically) TomTom's own
+    'Flooding' category, sourced from their live traffic data, not inferred
+    by this app. Returns [] on any failure or if TOMTOM_API_KEY isn't set,
+    matching the fail-closed pattern used for every other optional API key
+    in this app — the route map just shows one fewer layer, nothing breaks."""
+    if not TOMTOM_API_KEY:
+        return []
+
+    bbox = f"{min_lon},{min_lat},{max_lon},{max_lat}"
+    try:
+        response = request_with_retry(
+            "GET",
+            TOMTOM_INCIDENTS_URL,
+            service_name="tomtom",
+            params={
+                "key": TOMTOM_API_KEY,
+                "bbox": bbox,
+                "fields": "{incidents{type,geometry{type,coordinates},properties{iconCategory,events{description},startTime,roadNumbers,magnitudeOfDelay}}}",
+                "language": "en-GB",
+                "timeValidityFilter": "present",
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except (requests.RequestException, ValueError) as error:
+        print(f"TomTom traffic incidents request failed: {error}")
+        return []
+
+    incidents = []
+    for item in data.get("incidents", []):
+        props = item.get("properties", {}) or {}
+        geometry = item.get("geometry", {}) or {}
+        coords = geometry.get("coordinates")
+        if not coords:
+            continue
+
+        # Incidents can be a Point or a LineString; use the first coordinate
+        # either way as the marker position (GeoJSON is [lon, lat]).
+        point = coords[0] if isinstance(coords[0], list) else coords
+        if isinstance(point[0], list):
+            point = point[0]
+        lon, lat = point[0], point[1]
+
+        icon_category = props.get("iconCategory")
+        events = props.get("events") or []
+        description = events[0].get("description") if events else None
+
+        incidents.append({
+            "lat": lat,
+            "lon": lon,
+            "category_id": icon_category,
+            "category_label": TOMTOM_ICON_CATEGORIES.get(icon_category, "Unknown"),
+            "is_flooding": icon_category == TOMTOM_FLOODING_CATEGORY_ID,
+            "description": description,
+            "road": props.get("roadNumbers"),
+            "delay_seconds": props.get("magnitudeOfDelay"),
+        })
+
+    return incidents
+
+
+
     """Real driving route from OSRM (free, no key). Returns a list of
     routes, each with distance (m), duration (s), and a coordinate path."""
     coords = f"{origin_lon},{origin_lat};{dest_lon},{dest_lat}"
@@ -3851,6 +4099,7 @@ def assess_route_safety(origin_query, destination_query):
                 "worst_score": worst_segment["score"] if worst_segment else 0,
                 "risky_segments": risky_segments,
                 "confidence_pct": round(100 * available_count / len(sample_points)) if sample_points else 0,
+                "path": route["path"],  # full OSRM geometry — for accurate road-following map drawing, distinct from the sparse `segments` sample points
             }
         )
 
@@ -3878,6 +4127,7 @@ def assess_route_safety(origin_query, destination_query):
         "verdict_color": travel_rec["color"],
         "advice": risk_meta["advice"],
         "priority_action": risk_meta["priority_action"],
+        "tomtom_token": TOMTOM_API_KEY,
     }
 
 
@@ -4921,6 +5171,22 @@ def api_send_digest():
     })
 
 
+@app.route("/api/traffic-incidents")
+def api_traffic_incidents():
+    """Real-time TomTom traffic incidents within a bounding box, for the
+    Route Safety map. Query params: min_lat, min_lon, max_lat, max_lon."""
+    try:
+        min_lat = float(request.args.get("min_lat"))
+        min_lon = float(request.args.get("min_lon"))
+        max_lat = float(request.args.get("max_lat"))
+        max_lon = float(request.args.get("max_lon"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "min_lat, min_lon, max_lat, max_lon are all required and must be numbers."}), 400
+
+    incidents = fetch_traffic_incidents(min_lat, min_lon, max_lat, max_lon)
+    return jsonify({"ok": True, "incidents": incidents, "tomtom_configured": bool(TOMTOM_API_KEY)})
+
+
 @app.route("/api/route-safety", methods=["POST"])
 def api_route_safety():
     """The flagship feature: 'Can I safely travel from A to B right now?'"""
@@ -5064,7 +5330,11 @@ def api_alert_subscribe():
     except sqlite3.IntegrityError as error:
         print(f"Alert subscribe DB error: {error}")
         return jsonify({"ok": False, "error": "Something went wrong saving your subscription. Please try again."}), 500
+    # Keep Brevo in sync with FloodGuard subscribers.
+    brevo_synced = sync_contact_to_brevo(email, name)
 
+    if not brevo_synced:
+     print(f"Warning: FloodGuard saved {email}, but Brevo sync failed.")
     if is_new or newly_subscribed_dams:
         unsubscribe_url = f"{SITE_BASE_URL}/unsubscribe/{token}"
         location_line = (
