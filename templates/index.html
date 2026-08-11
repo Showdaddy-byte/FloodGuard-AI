@@ -125,17 +125,29 @@
             display: block;
         }
         .traffic-map-legend {
+            color: #1e293b;
             font-size: 12px;
             line-height: 1.8;
             background: white;
-            padding: 8px 10px;
+            max-width: 265px;
+            padding: 10px 12px;
             border-radius: 6px;
             box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+        }
+        .traffic-map-legend-title {
+            color: #0f172a;
+            font-size: 13px;
+            font-weight: 800;
+            margin-bottom: 3px;
         }
         .traffic-map-legend-row {
             display: flex;
             align-items: center;
+            color: #1e293b;
             gap: 6px;
+        }
+        .traffic-map-legend-row strong {
+            color: #0f172a;
         }
         .traffic-map-legend-line {
             width: 16px;
@@ -1744,9 +1756,12 @@
 
         const map = L.map("live-traffic-map", { minZoom: 2, worldCopyJump: true }).setView([18, 0], 2);
 
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-            attribution: "&copy; OpenStreetMap contributors"
-        }).addTo(map);
+        // TomTom supplies both the base map and the traffic overlay, so this
+        // live map has no OpenStreetMap dependency or attribution.
+        L.tileLayer(
+            "https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?key=" + tomtomToken,
+            { maxZoom: 22, attribution: "&copy; TomTom" }
+        ).addTo(map);
 
         // TomTom's live flow layer - colored by current speed vs free-flow
         // speed for each road segment, the same underlying idea as Google
@@ -1754,7 +1769,7 @@
         // modes, so a checked route is always seen against real congestion.
         L.tileLayer(
             "https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=" + tomtomToken,
-            { opacity: 0.75, attribution: "Traffic &copy; TomTom" }
+            { opacity: 0.85, attribution: "Traffic &copy; TomTom", maxZoom: 22 }
         ).addTo(map);
 
         const incidentLayer = L.layerGroup().addTo(map);
@@ -2026,17 +2041,20 @@
         legend.onAdd = function () {
             const div = L.DomUtil.create("div", "traffic-map-legend");
             div.innerHTML =
-                '<div class="traffic-map-legend-row"><strong>Traffic flow</strong></div>' +
-                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#4caf50"></span> Free-flowing</div>' +
-                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#ff9800"></span> Slower than usual</div>' +
-                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#f44336"></span> Heavy / stopped</div>' +
+                '<div class="traffic-map-legend-title">How to read this map</div>' +
+                '<div class="traffic-map-legend-row"><strong>TomTom traffic flow</strong></div>' +
+                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#2EAB30"></span> Green — free-flowing (75%+ normal speed)</div>' +
+                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#F1BF40"></span> Yellow — moderate delay (35–75%)</div>' +
+                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#F18237"></span> Orange — slow traffic (15–35%)</div>' +
+                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#E70704"></span> Red — severe congestion (under 15%)</div>' +
+                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#C1272D"></span> Dark red — road closed</div>' +
                 '<div class="traffic-map-legend-row" style="margin-top:6px;"><strong>Route flood risk</strong></div>' +
                 '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#16a34a"></span> Low / Watch</div>' +
                 '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#dc2626"></span> High</div>' +
                 '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#7f1d1d"></span> Severe / Critical</div>' +
                 '<div class="traffic-map-legend-row" style="margin-top:6px;"><strong>Incidents</strong></div>' +
-                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-dot" style="background:#0369a1"></span> Flooding reported</div>' +
-                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-dot" style="background:#dc2626"></span> Accident / closure / other</div>';
+                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-dot" style="background:#0369a1"></span> Blue — flooding reported: avoid this road</div>' +
+                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-dot" style="background:#dc2626"></span> Red dot — accident, closure, or other incident</div>';
             return div;
         };
         legend.addTo(map);
