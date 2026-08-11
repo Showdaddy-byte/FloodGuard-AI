@@ -4916,6 +4916,7 @@ def home():
         watchlist_refresh_minutes=WATCHLIST_REFRESH_MINUTES,
         global_alerts=get_global_alerts_status(),
         mapbox_token=MAPBOX_ACCESS_TOKEN,
+        tomtom_token=TOMTOM_API_KEY,
         share_card_token=share_card_token,
     )
 

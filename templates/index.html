@@ -52,6 +52,112 @@
             color: #0369a1;
             font-weight: bold;
         }
+        #live-traffic-map {
+            height: 460px;
+            border-radius: 10px;
+            z-index: 0;
+        }
+        .traffic-panel-heading {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-bottom: 14px;
+        }
+        .traffic-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+        .traffic-toolbar > div:first-child {
+            display: flex;
+            flex-direction: column;
+        }
+        .traffic-toolbar strong {
+            font-size: 14px;
+        }
+        .traffic-toolbar span#traffic-map-status {
+            font-size: 12px;
+            color: #6b7280;
+        }
+        .traffic-search-form {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+        .traffic-search-form input[type="search"] {
+            flex: 1;
+            min-width: 200px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            border: 1px solid #d1d5db;
+        }
+        .traffic-search-form button,
+        .traffic-refresh-button {
+            padding: 8px 14px;
+            border-radius: 6px;
+            border: none;
+            background: #0b5cff;
+            color: #fff;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .traffic-refresh-button:disabled {
+            opacity: 0.6;
+            cursor: default;
+        }
+        .traffic-zoom-hint {
+            font-size: 12px;
+            color: #b45309;
+            background: #fffbeb;
+            border: 1px solid #fde68a;
+            border-radius: 6px;
+            padding: 6px 10px;
+            margin-bottom: 10px;
+            display: none;
+        }
+        .traffic-zoom-hint.visible {
+            display: block;
+        }
+        .traffic-map-legend {
+            font-size: 12px;
+            line-height: 1.8;
+            background: white;
+            padding: 8px 10px;
+            border-radius: 6px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+        }
+        .traffic-map-legend-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .traffic-map-legend-line {
+            width: 16px;
+            height: 4px;
+            display: inline-block;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+        .traffic-map-legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+        .traffic-not-configured {
+            padding: 24px;
+            text-align: center;
+            border: 1px dashed #d1d5db;
+            border-radius: 10px;
+            color: #6b7280;
+        }
     </style>
 </head>
 <body class="{% if prediction %}weather-{{ prediction.scene.code }}{% else %}weather-clouds{% endif %}">
@@ -165,6 +271,54 @@
                 <p><strong>Community evidence:</strong> local reports are shown as counts until they can be verified and safely mapped without exposing a reporter's precise location.</p>
             </div>
         </details>
+    </section>
+
+    <section id="live-traffic" class="global-now-section" aria-labelledby="live-traffic-title">
+        <div class="traffic-panel-heading">
+            <div>
+                <p class="global-kicker">Live Traffic</p>
+                <h2 id="live-traffic-title">🚦 Live Traffic Map</h2>
+                <p>See real-time road congestion and incidents anywhere in the world, powered by TomTom — pan and zoom to check the route you're about to take before you leave.</p>
+            </div>
+        </div>
+
+        {% if tomtom_token %}
+        <div class="traffic-toolbar">
+            <div>
+                <strong>Traffic conditions</strong>
+                <span id="traffic-map-status">Loading live traffic…</span>
+            </div>
+            <button type="button" id="traffic-refresh-button" class="traffic-refresh-button">Refresh</button>
+        </div>
+
+        <form id="traffic-search-form" class="traffic-search-form" role="search">
+            <input id="traffic-search-input" type="search" placeholder="Search a city, address, or neighbourhood" autocomplete="off">
+            <button type="submit">Go</button>
+        </form>
+
+        <div class="map-time-buttons" role="group" aria-label="Traffic map mode">
+            <button type="button" class="map-time-btn active" id="traffic-mode-explore" aria-pressed="true">Explore area</button>
+            <button type="button" class="map-time-btn" id="traffic-mode-route" aria-pressed="false">Plan a route</button>
+        </div>
+
+        <form id="traffic-route-form" class="route-form" style="display:none;">
+            <input type="text" id="traffic-route-origin" placeholder="From, e.g. Shomolu" required>
+            <input type="text" id="traffic-route-destination" placeholder="To, e.g. Victoria Island" required>
+            <button type="submit" id="traffic-route-submit">Check Route</button>
+            <button type="button" id="traffic-route-clear" class="traffic-refresh-button" style="background:#6b7280; display:none;">Clear route</button>
+        </form>
+        <div id="traffic-route-feedback" class="route-feedback"></div>
+        <div id="traffic-route-results"></div>
+
+        <p id="traffic-zoom-hint" class="traffic-zoom-hint">Zoom in further to load individual traffic incidents for this area.</p>
+
+        <div id="live-traffic-map" role="region" aria-label="Live traffic map"></div>
+        <p class="global-map-attribution">Powered by TomTom. The background road tint shows live congestion, the route line (once you check a route) shows flood risk along the way, and markers show reported incidents including flooding — see the map legend for exact colors.</p>
+        {% else %}
+        <div class="traffic-not-configured">
+            Live traffic map is not configured yet — add <code>TOMTOM_API_KEY</code> to your environment to enable it.
+        </div>
+        {% endif %}
     </section>
 
     <section id="active-alerts" class="watchlist-panel">
@@ -1560,6 +1714,334 @@
         renderSavedPlaces();
         loadSituation();
         setInterval(loadSituation, 120000);
+    })();
+    </script>
+
+    <script>
+    (function () {
+        const mapEl = document.getElementById("live-traffic-map");
+        if (!mapEl || !window.L) return;
+
+        const tomtomToken = {{ tomtom_token | tojson }};
+        if (!tomtomToken) return;
+
+        // Below this zoom, an incident fetch would cover a huge bounding
+        // box (slow, and burns through TomTom's rate limit fast for little
+        // value at that scale) — same reasoning Google Maps uses to only
+        // show detailed traffic once you're zoomed into actual roads.
+        const MIN_ZOOM_FOR_INCIDENTS = 10;
+        const statusEl = document.getElementById("traffic-map-status");
+        const zoomHintEl = document.getElementById("traffic-zoom-hint");
+        const refreshBtn = document.getElementById("traffic-refresh-button");
+        const searchForm = document.getElementById("traffic-search-form");
+        const searchInput = document.getElementById("traffic-search-input");
+        const modeExploreBtn = document.getElementById("traffic-mode-explore");
+        const modeRouteBtn = document.getElementById("traffic-mode-route");
+        const routeForm = document.getElementById("traffic-route-form");
+        const routeClearBtn = document.getElementById("traffic-route-clear");
+        const routeFeedbackEl = document.getElementById("traffic-route-feedback");
+        const routeResultsEl = document.getElementById("traffic-route-results");
+
+        const map = L.map("live-traffic-map", { minZoom: 2, worldCopyJump: true }).setView([18, 0], 2);
+
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            attribution: "&copy; OpenStreetMap contributors"
+        }).addTo(map);
+
+        // TomTom's live flow layer - colored by current speed vs free-flow
+        // speed for each road segment, the same underlying idea as Google
+        // Maps' traffic layer. This stays on in both Explore and Plan-a-route
+        // modes, so a checked route is always seen against real congestion.
+        L.tileLayer(
+            "https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=" + tomtomToken,
+            { opacity: 0.75, attribution: "Traffic &copy; TomTom" }
+        ).addTo(map);
+
+        const incidentLayer = L.layerGroup().addTo(map);
+        const routeLayer = L.layerGroup().addTo(map);
+        let fetchToken = 0;
+
+        function renderIncidents(incidents) {
+            incidentLayer.clearLayers();
+            incidents.forEach((inc) => {
+                const flooding = !!inc.is_flooding;
+                const marker = L.circleMarker([inc.lat, inc.lon], {
+                    radius: flooding ? 9 : 6,
+                    color: "#fff",
+                    weight: 2,
+                    fillColor: flooding ? "#0369a1" : "#dc2626",
+                    fillOpacity: 0.9,
+                }).addTo(incidentLayer);
+
+                let html = flooding
+                    ? '<div style="color:#0369a1;font-weight:bold;">🌊 Flooding reported</div>'
+                    : "<strong>" + (inc.category_label || "Traffic incident") + "</strong>";
+                if (inc.description) html += "<div>" + inc.description + "</div>";
+                html += '<div style="font-size:11px;color:#9ca3af;">Source: TomTom live traffic</div>';
+                marker.bindPopup(html);
+            });
+        }
+
+        async function loadIncidentsForCurrentView() {
+            const zoom = map.getZoom();
+            if (zoom < MIN_ZOOM_FOR_INCIDENTS) {
+                incidentLayer.clearLayers();
+                zoomHintEl.classList.add("visible");
+                statusEl.textContent = "Showing traffic flow. Zoom in to load incidents for this area.";
+                return;
+            }
+            zoomHintEl.classList.remove("visible");
+
+            const bounds = map.getBounds();
+            const thisFetch = ++fetchToken;
+            statusEl.textContent = "Checking live incidents in this area…";
+
+            try {
+                const url = "/api/traffic-incidents?min_lat=" + bounds.getSouth() +
+                    "&min_lon=" + bounds.getWest() +
+                    "&max_lat=" + bounds.getNorth() +
+                    "&max_lon=" + bounds.getEast();
+                const response = await fetch(url);
+                const data = await response.json();
+                if (thisFetch !== fetchToken) return; // a newer view already superseded this fetch
+                if (data.ok) {
+                    renderIncidents(data.incidents);
+                    statusEl.textContent = data.incidents.length
+                        ? data.incidents.length + " incident(s) in view."
+                        : "No incidents reported in this area right now.";
+                } else {
+                    statusEl.textContent = "Could not load incidents for this area.";
+                }
+            } catch (err) {
+                if (thisFetch === fetchToken) {
+                    statusEl.textContent = "Could not load incidents for this area.";
+                }
+            }
+        }
+
+        let debounceTimer = null;
+        function scheduleIncidentLoad() {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(loadIncidentsForCurrentView, 500);
+        }
+
+        map.on("moveend zoomend", scheduleIncidentLoad);
+        loadIncidentsForCurrentView();
+
+        refreshBtn.addEventListener("click", () => {
+            refreshBtn.disabled = true;
+            refreshBtn.textContent = "Checking…";
+            loadIncidentsForCurrentView().finally(() => {
+                refreshBtn.disabled = false;
+                refreshBtn.textContent = "Refresh";
+            });
+        });
+
+        searchForm.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const query = searchInput.value.trim();
+            if (!query) return;
+            statusEl.textContent = "Finding \"" + query + "\"…";
+            try {
+                const response = await fetch("/api/map-geocode?q=" + encodeURIComponent(query));
+                const data = await response.json();
+                if (!response.ok || !data.ok) throw new Error(data.error || "Location not found.");
+                map.flyTo([data.lat, data.lon], 13, { duration: 0.75 });
+            } catch (error) {
+                statusEl.textContent = error.message || "Could not find that location.";
+            }
+        });
+
+        // ---------------------------------------------------------------
+        // Mode toggle: "Explore area" (pan/search) vs "Plan a route"
+        // (uses this app's own flood-risk routing, same endpoint as the
+        // "Can I Travel There Safely?" section, drawn onto this map).
+        // ---------------------------------------------------------------
+        function setTrafficMode(mode) {
+            const isRoute = mode === "route";
+            modeExploreBtn.classList.toggle("active", !isRoute);
+            modeExploreBtn.setAttribute("aria-pressed", String(!isRoute));
+            modeRouteBtn.classList.toggle("active", isRoute);
+            modeRouteBtn.setAttribute("aria-pressed", String(isRoute));
+            searchForm.style.display = isRoute ? "none" : "";
+            routeForm.style.display = isRoute ? "" : "none";
+        }
+        if (modeExploreBtn && modeRouteBtn) {
+            modeExploreBtn.addEventListener("click", () => setTrafficMode("explore"));
+            modeRouteBtn.addEventListener("click", () => setTrafficMode("route"));
+        }
+
+        // ---------------------------------------------------------------
+        // Route planning — reuses the exact same /api/route-safety
+        // endpoint and risk model as the "Can I Travel There Safely?"
+        // section, so a route drawn here reflects the same flood-risk
+        // scoring, not a second, different assessment.
+        // ---------------------------------------------------------------
+        function riskColorClassRoute(level) {
+            const map = { LOW: "low", WATCH: "watch", MODERATE: "moderate", HIGH: "high", SEVERE: "severe", CRITICAL: "critical" };
+            return map[level] || "low";
+        }
+        function riskHexRoute(colorClass) {
+            const map = { low: "#16a34a", watch: "#f59e0b", moderate: "#f59e0b", high: "#dc2626", severe: "#b91c1c", critical: "#7f1d1d" };
+            return map[colorClass] || "#f59e0b";
+        }
+
+        function clearRoute() {
+            routeLayer.clearLayers();
+            routeResultsEl.innerHTML = "";
+            routeFeedbackEl.textContent = "";
+            routeFeedbackEl.className = "route-feedback";
+            routeClearBtn.style.display = "none";
+        }
+        if (routeClearBtn) {
+            routeClearBtn.addEventListener("click", clearRoute);
+        }
+
+        function drawTrafficRoute(data) {
+            routeLayer.clearLayers();
+            const route = data.primary_route;
+            if (!route.path || !route.path.length) return;
+
+            // The route line's color is flood risk (this app's own model),
+            // deliberately drawn as a thick line with a white outline so
+            // it reads as a distinct layer from the background traffic
+            // flow tint underneath it.
+            const primaryColor = riskHexRoute(riskColorClassRoute(route.worst_risk));
+            const primaryLine = L.polyline(route.path, {
+                color: primaryColor,
+                weight: 6,
+                opacity: 0.95,
+            }).addTo(routeLayer);
+
+            route.segments.forEach((s) => {
+                L.circleMarker([s.lat, s.lon], {
+                    radius: 6,
+                    color: "#fff",
+                    weight: 2,
+                    fillColor: riskHexRoute(riskColorClassRoute(s.risk)),
+                    fillOpacity: 1,
+                }).addTo(routeLayer).bindTooltip(s.risk + " flood risk" + (s.water_label ? " — near " + s.water_label : ""));
+            });
+
+            if (data.alternative_route && data.alternative_route.path) {
+                L.polyline(data.alternative_route.path, {
+                    color: "#9ca3af",
+                    weight: 3,
+                    opacity: 0.6,
+                    dashArray: "8, 8",
+                }).addTo(routeLayer).bindTooltip("Alternate route");
+            }
+
+            L.marker(data.origin_coords).addTo(routeLayer).bindTooltip(data.origin, { permanent: false });
+            L.marker(data.destination_coords).addTo(routeLayer).bindTooltip(data.destination, { permanent: false });
+
+            map.fitBounds(primaryLine.getBounds(), { padding: [30, 30] });
+            routeClearBtn.style.display = "inline-block";
+            // fitBounds triggers moveend, which already re-runs the incident
+            // fetch for the new view via scheduleIncidentLoad — calling it
+            // directly too just avoids waiting on the debounce delay.
+            loadIncidentsForCurrentView();
+        }
+
+        function renderTrafficRouteResults(data) {
+            if (!data.ok) {
+                routeFeedbackEl.textContent = data.error || "Could not assess this route.";
+                routeFeedbackEl.className = "route-feedback error";
+                routeResultsEl.innerHTML = "";
+                routeLayer.clearLayers();
+                routeClearBtn.style.display = "none";
+                return;
+            }
+
+            routeFeedbackEl.textContent = "";
+            routeFeedbackEl.className = "route-feedback";
+
+            const route = data.primary_route;
+            const verdictColor = riskColorClassRoute(route.worst_risk);
+
+            let riskyHtml = "";
+            if (route.risky_segments.length) {
+                riskyHtml = '<div class="route-risky-list"><strong>⚠ Risky sections along this route:</strong><ul>' +
+                    route.risky_segments.map((s) => {
+                        const label = s.water_label ? " — near " + s.water_label : "";
+                        return "<li>~" + s.position_pct + "% of the way (" + s.risk + label + ")</li>";
+                    }).join("") +
+                    "</ul></div>";
+            }
+
+            let altHtml = "";
+            if (data.alternative_route) {
+                const alt = data.alternative_route;
+                altHtml = '<div class="route-alt">' +
+                    "<strong>Alternate route:</strong> " + alt.distance_km + " km, ~" + alt.duration_min + " min, worst-case risk: " +
+                    '<span class="risk-pill risk-' + riskColorClassRoute(alt.worst_risk) + '">' + alt.worst_risk + "</span>" +
+                    "</div>";
+            }
+
+            routeResultsEl.innerHTML =
+                '<div class="route-verdict-banner risk-border-' + verdictColor + '">' +
+                    '<div class="travel-verdict risk-' + verdictColor + '">' + data.verdict + "</div>" +
+                    "<p>" + data.origin + " → " + data.destination + "</p>" +
+                    "<p>" + route.distance_km + " km, ~" + route.duration_min + " min drive, " + route.confidence_pct + "% of the route has real terrain data</p>" +
+                    (data.priority_action ? '<p class="route-action">⚠ ' + data.priority_action + "</p>" : "") +
+                "</div>" +
+                riskyHtml + altHtml;
+
+            drawTrafficRoute(data);
+        }
+
+        if (routeForm) {
+            routeForm.addEventListener("submit", async function (event) {
+                event.preventDefault();
+                const origin = document.getElementById("traffic-route-origin").value.trim();
+                const destination = document.getElementById("traffic-route-destination").value.trim();
+                const submitBtn = document.getElementById("traffic-route-submit");
+
+                if (!origin || !destination) return;
+
+                submitBtn.disabled = true;
+                submitBtn.textContent = "Checking route...";
+                routeFeedbackEl.textContent = "";
+                routeFeedbackEl.className = "route-feedback";
+
+                try {
+                    const response = await fetch("/api/route-safety", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ origin: origin, destination: destination })
+                    });
+                    const data = await response.json();
+                    renderTrafficRouteResults(data);
+                } catch (err) {
+                    routeFeedbackEl.textContent = "Network error. Please try again.";
+                    routeFeedbackEl.className = "route-feedback error";
+                } finally {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = "Check Route";
+                }
+            });
+        }
+
+        const legend = L.control({ position: "bottomright" });
+        legend.onAdd = function () {
+            const div = L.DomUtil.create("div", "traffic-map-legend");
+            div.innerHTML =
+                '<div class="traffic-map-legend-row"><strong>Traffic flow</strong></div>' +
+                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#4caf50"></span> Free-flowing</div>' +
+                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#ff9800"></span> Slower than usual</div>' +
+                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#f44336"></span> Heavy / stopped</div>' +
+                '<div class="traffic-map-legend-row" style="margin-top:6px;"><strong>Route flood risk</strong></div>' +
+                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#16a34a"></span> Low / Watch</div>' +
+                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#dc2626"></span> High</div>' +
+                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#7f1d1d"></span> Severe / Critical</div>' +
+                '<div class="traffic-map-legend-row" style="margin-top:6px;"><strong>Incidents</strong></div>' +
+                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-dot" style="background:#0369a1"></span> Flooding reported</div>' +
+                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-dot" style="background:#dc2626"></span> Accident / closure / other</div>';
+            return div;
+        };
+        legend.addTo(map);
+
+        setTimeout(() => map.invalidateSize(), 250);
     })();
     </script>
 
