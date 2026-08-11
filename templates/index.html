@@ -530,7 +530,7 @@
                     <div><span>Rainfall</span><strong>{{ prediction.rainfall }} mm</strong></div>
                     <div><span>Elevation</span><strong>{% if prediction.elevation is not none %}{{ prediction.elevation }} m{% else %}Unavailable{% endif %}</strong></div>
                     <div><span>Slope</span><strong>{% if prediction.slope_percent is not none %}{{ prediction.slope_percent }}%{% else %}Unavailable{% endif %}</strong></div>
-                    <div><span>Nearest water</span><strong>{% if prediction.nearest_water_m is not none %}{{ prediction.nearest_water_m }} m{% else %}Unavailable{% endif %}</strong></div>
+                    <div><span>Nearest water</span><strong>{% if prediction.nearest_water_m is not none %}{{ prediction.nearest_water_m }} m{% elif prediction.water_lookup_available %}No major water within 3 km{% else %}Temporarily unavailable{% endif %}</strong></div>
                 </div>
 
                 {% if prediction.priority_action %}

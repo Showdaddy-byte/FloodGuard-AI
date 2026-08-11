@@ -79,7 +79,14 @@ BREVO_SENDER_NAME = os.getenv("BREVO_SENDER_NAME", "FloodGuard AI")
 # domain ever changes.
 SITE_BASE_URL = os.getenv("SITE_BASE_URL", "https://floodguard-ai-dq94.onrender.com")
 ELEVATION_URL = "https://api.open-meteo.com/v1/elevation"
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+# Overpass is the public OpenStreetMap query service used for water proximity
+# and nearby emergency facilities.  The primary endpoint occasionally
+# rate-limits requests, so try an independent public mirror before treating
+# the data as unavailable.
+OVERPASS_URLS = (
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+)
 SOILGRIDS_URL = "https://rest.isric.org/soilgrids/v2.0/properties/query"
 WORLDTIDES_URL = "https://www.worldtides.info/api/v3"
 # Real hydrological modeling — GloFAS (Global Flood Awareness System), the
@@ -350,6 +357,31 @@ def request_with_retry(
             raise
     if last_exc:
         raise last_exc
+
+
+def query_overpass(query):
+    """Run an Overpass query, failing over to a mirror when one public
+    endpoint is busy or unreachable.  A 429 from one endpoint should not
+    make a user's water-proximity or emergency-facility result disappear."""
+    for index, url in enumerate(OVERPASS_URLS, start=1):
+        try:
+            response = request_with_retry(
+                "POST",
+                url,
+                service_name=f"overpass-{index}",
+                # Move to the next independent endpoint immediately if this
+                # one returns a temporary 429/5xx response.
+                max_retries=0,
+                data={"data": query},
+                timeout=14,
+                headers={"User-Agent": "FloodGuardAI/1.0 (flood risk web app; contact via app owner)"},
+            )
+            response.raise_for_status()
+            return response.json()
+        except (requests.RequestException, ValueError) as error:
+            print(f"Overpass endpoint {index} request failed: {error}")
+
+    return None
 
 
 def _parse_stored_datetime(value):
@@ -2064,19 +2096,9 @@ def fetch_emergency_contacts(lat, lon, radius_m=8000):
     );
     out center tags 60;
     """
-    try:
-        response = request_with_retry(
-            "POST",
-            OVERPASS_URL,
-            service_name="overpass",
-            data={"data": query},
-            timeout=14,
-            headers={"User-Agent": "FloodGuardAI/1.0 (flood risk web app; contact via app owner)"},
-        )
-        response.raise_for_status()
-        data = response.json()
-    except (requests.RequestException, ValueError) as error:
-        print(f"Emergency contacts request failed: {error}")
+    data = query_overpass(query)
+    if data is None:
+        print("Emergency contacts request failed on every Overpass endpoint.")
         return []
 
     nearest_by_type = {}
@@ -2189,19 +2211,9 @@ def fetch_water_and_urban_context(lat, lon, radius_m=3000):
     );
     out count;
     """
-    try:
-        response = request_with_retry(
-            "POST",
-            OVERPASS_URL,
-            service_name="overpass",
-            data={"data": query},
-            timeout=14,
-            headers={"User-Agent": "FloodGuardAI/1.0 (flood risk web app; contact via app owner)"},
-        )
-        response.raise_for_status()
-        data = response.json()
-    except (requests.RequestException, ValueError) as error:
-        print(f"Overpass request failed: {error}")
+    data = query_overpass(query)
+    if data is None:
+        print("Water and urban-context request failed on every Overpass endpoint.")
         return None, None, None, None, None
 
     elements = data.get("elements", [])
@@ -3727,6 +3739,7 @@ def get_geo_context(city_key, lat, lon):
             "nearest_water_point": water_point,
             "nearest_water_label": row["nearest_water_label"],
             "building_count": row["building_count"],
+            "water_lookup_available": row["building_count"] is not None,
             "clay_percent": row["clay_percent"],
             "emergency_contacts": cached_contacts,
         }
@@ -3860,6 +3873,7 @@ def get_geo_context(city_key, lat, lon):
         "nearest_water_point": nearest_water_point,
         "nearest_water_label": nearest_water_label,
         "building_count": building_count,
+        "water_lookup_available": building_count is not None,
         "clay_percent": clay_percent,
         "emergency_contacts": emergency_contacts,
     }
@@ -3943,6 +3957,7 @@ def fetch_traffic_incidents(min_lat, min_lon, max_lat, max_lon):
 
 
 
+def fetch_route(origin_lat, origin_lon, dest_lat, dest_lon, alternatives=True):
     """Real driving route from OSRM (free, no key). Returns a list of
     routes, each with distance (m), duration (s), and a coordinate path."""
     coords = f"{origin_lon},{origin_lat};{dest_lon},{dest_lat}"
@@ -4721,6 +4736,7 @@ def build_prediction(query, known_place=None):
 
         "nearest_water_m": round(nearest_water_m) if nearest_water_m is not None else None,
         "nearest_coast_m": round(nearest_coast_m) if nearest_coast_m is not None else None,
+        "water_lookup_available": geo.get("water_lookup_available", False),
 
         "nearest_water_lat": nearest_water_point[0] if nearest_water_point else None,
         "nearest_water_lon": nearest_water_point[1] if nearest_water_point else None,
