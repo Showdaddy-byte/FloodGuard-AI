@@ -57,8 +57,10 @@ API_KEY = os.getenv("OPENWEATHER_API_KEY")
 WEATHERAPI_KEY = os.getenv("WEATHERAPI_KEY")  # optional — WeatherAPI.com fallback, only used if OpenWeather fails
 TIDE_API_KEY = os.getenv("TIDE_API_KEY")  # optional — WorldTides free tier; tidal factor is skipped if unset
 MAPBOX_ACCESS_TOKEN = os.getenv("MAPBOX_ACCESS_TOKEN")  # optional — enables the live traffic map layer
-TOMTOM_API_KEY = os.getenv("TOMTOM_API_KEY")  # optional — enables the Route Safety traffic flow layer + incident markers (including TomTom's own "Flooding" incident category)
-TOMTOM_INCIDENTS_URL = "https://api.tomtom.com/traffic/services/5/incidentDetails"
+# Browser-safe key: restrict it in Google Cloud to this site's HTTP referrers
+# and Maps JavaScript API / Places API. A future Routes API key must remain
+# server-only and must never be rendered into this template.
+GOOGLE_MAPS_BROWSER_KEY = os.getenv("GOOGLE_MAPS_BROWSER_KEY") or os.getenv("GOOGLE_MAPS_API_KEY")
 
 EARTH_ENGINE_ENABLED = os.getenv("EARTH_ENGINE_ENABLED", "1").lower() not in ("0", "false", "no")
 GEE_SERVICE_ACCOUNT = os.getenv("GEE_SERVICE_ACCOUNT")
@@ -3879,84 +3881,6 @@ def get_geo_context(city_key, lat, lon):
     }
 
 
-# TomTom's own iconCategory enum, verified from their developer documentation
-# and sample API responses — not guessed. Category 11 ("Flooding") is what
-# lets this app show a real, TomTom-confirmed flood-caused traffic incident
-# distinctly from an accident, roadworks, or an unexplained jam, rather than
-# assuming/inferring a cause this app can't actually verify.
-TOMTOM_ICON_CATEGORIES = {
-    0: "Unknown", 1: "Accident", 2: "Fog", 3: "Dangerous Conditions", 4: "Rain",
-    5: "Ice", 6: "Jam", 7: "Lane Closed", 8: "Road Closed", 9: "Road Works",
-    10: "Wind", 11: "Flooding", 12: "Detour", 13: "Cluster", 14: "Broken Down Vehicle",
-}
-TOMTOM_FLOODING_CATEGORY_ID = 11
-
-
-def fetch_traffic_incidents(min_lat, min_lon, max_lat, max_lon):
-    """Real-time traffic incidents from TomTom within a bounding box —
-    accidents, jams, road closures, roadworks, and (critically) TomTom's own
-    'Flooding' category, sourced from their live traffic data, not inferred
-    by this app. Returns [] on any failure or if TOMTOM_API_KEY isn't set,
-    matching the fail-closed pattern used for every other optional API key
-    in this app — the route map just shows one fewer layer, nothing breaks."""
-    if not TOMTOM_API_KEY:
-        return []
-
-    bbox = f"{min_lon},{min_lat},{max_lon},{max_lat}"
-    try:
-        response = request_with_retry(
-            "GET",
-            TOMTOM_INCIDENTS_URL,
-            service_name="tomtom",
-            params={
-                "key": TOMTOM_API_KEY,
-                "bbox": bbox,
-                "fields": "{incidents{type,geometry{type,coordinates},properties{iconCategory,events{description},startTime,roadNumbers,magnitudeOfDelay}}}",
-                "language": "en-GB",
-                "timeValidityFilter": "present",
-            },
-            timeout=10,
-        )
-        response.raise_for_status()
-        data = response.json()
-    except (requests.RequestException, ValueError) as error:
-        print(f"TomTom traffic incidents request failed: {error}")
-        return []
-
-    incidents = []
-    for item in data.get("incidents", []):
-        props = item.get("properties", {}) or {}
-        geometry = item.get("geometry", {}) or {}
-        coords = geometry.get("coordinates")
-        if not coords:
-            continue
-
-        # Incidents can be a Point or a LineString; use the first coordinate
-        # either way as the marker position (GeoJSON is [lon, lat]).
-        point = coords[0] if isinstance(coords[0], list) else coords
-        if isinstance(point[0], list):
-            point = point[0]
-        lon, lat = point[0], point[1]
-
-        icon_category = props.get("iconCategory")
-        events = props.get("events") or []
-        description = events[0].get("description") if events else None
-
-        incidents.append({
-            "lat": lat,
-            "lon": lon,
-            "category_id": icon_category,
-            "category_label": TOMTOM_ICON_CATEGORIES.get(icon_category, "Unknown"),
-            "is_flooding": icon_category == TOMTOM_FLOODING_CATEGORY_ID,
-            "description": description,
-            "road": props.get("roadNumbers"),
-            "delay_seconds": props.get("magnitudeOfDelay"),
-        })
-
-    return incidents
-
-
-
 def fetch_route(origin_lat, origin_lon, dest_lat, dest_lon, alternatives=True):
     """Real driving route from OSRM (free, no key). Returns a list of
     routes, each with distance (m), duration (s), and a coordinate path."""
@@ -4142,7 +4066,6 @@ def assess_route_safety(origin_query, destination_query):
         "verdict_color": travel_rec["color"],
         "advice": risk_meta["advice"],
         "priority_action": risk_meta["priority_action"],
-        "tomtom_token": TOMTOM_API_KEY,
     }
 
 
@@ -4931,8 +4854,7 @@ def home():
         watchlist=get_watchlist_status(),
         watchlist_refresh_minutes=WATCHLIST_REFRESH_MINUTES,
         global_alerts=get_global_alerts_status(),
-        mapbox_token=MAPBOX_ACCESS_TOKEN,
-        tomtom_token=TOMTOM_API_KEY,
+        google_maps_browser_key=GOOGLE_MAPS_BROWSER_KEY,
         share_card_token=share_card_token,
     )
 
@@ -5186,22 +5108,6 @@ def api_send_digest():
         "ok": True,
         "note": f"{digest_type} digest test finished."
     })
-
-
-@app.route("/api/traffic-incidents")
-def api_traffic_incidents():
-    """Real-time TomTom traffic incidents within a bounding box, for the
-    Route Safety map. Query params: min_lat, min_lon, max_lat, max_lon."""
-    try:
-        min_lat = float(request.args.get("min_lat"))
-        min_lon = float(request.args.get("min_lon"))
-        max_lat = float(request.args.get("max_lat"))
-        max_lon = float(request.args.get("max_lon"))
-    except (TypeError, ValueError):
-        return jsonify({"ok": False, "error": "min_lat, min_lon, max_lat, max_lon are all required and must be numbers."}), 400
-
-    incidents = fetch_traffic_incidents(min_lat, min_lon, max_lat, max_lon)
-    return jsonify({"ok": True, "incidents": incidents, "tomtom_configured": bool(TOMTOM_API_KEY)})
 
 
 @app.route("/api/route-safety", methods=["POST"])

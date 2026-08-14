@@ -15,6 +15,9 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    {% if google_maps_browser_key %}
+    <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_browser_key }}&libraries=places" async defer></script>
+    {% endif %}
     <style>
         #route-map {
             height: 380px;
@@ -170,6 +173,15 @@
             border-radius: 10px;
             color: #6b7280;
         }
+        .global-layer-toggle-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            padding: 2px 0;
+            cursor: pointer;
+            white-space: nowrap;
+        }
     </style>
 </head>
 <body class="{% if prediction %}weather-{{ prediction.scene.code }}{% else %}weather-clouds{% endif %}">
@@ -252,8 +264,12 @@
                         <button type="button" id="global-refresh-button" class="global-refresh-button">Refresh</button>
                     </div>
                     </div>
-                <div id="global-map" role="region" aria-label="Global flood situation map"></div>
-                <p class="global-map-attribution">Map layers: OpenStreetMap; optional NASA GPM IMERG satellite precipitation estimate; GDACS flood alerts. Satellite rain is a broad estimate, not street-level radar.</p>
+                <div id="global-map" role="region" aria-label="Global flood situation map">
+                    {% if not google_maps_browser_key %}
+                    <div class="traffic-not-configured">Map is not configured yet — add <code>GOOGLE_MAPS_BROWSER_KEY</code> to your environment to enable it.</div>
+                    {% endif %}
+                </div>
+                <p class="global-map-attribution">Map: Google Maps; optional NASA GPM IMERG satellite precipitation estimate; GDACS flood alerts. Satellite rain is a broad estimate, not street-level radar.</p>
             </div>
 
             <aside class="my-places-panel" aria-labelledby="my-places-title">
@@ -290,17 +306,16 @@
             <div>
                 <p class="global-kicker">Live Traffic</p>
                 <h2 id="live-traffic-title">🚦 Live Traffic Map</h2>
-                <p>See real-time road congestion and incidents anywhere in the world, powered by TomTom — pan and zoom to check the route you're about to take before you leave.</p>
+                <p>See real-time road congestion anywhere in the world, powered by Google Maps — pan and zoom to check the route you're about to take before you leave.</p>
             </div>
         </div>
 
-        {% if tomtom_token %}
+        {% if google_maps_browser_key %}
         <div class="traffic-toolbar">
             <div>
                 <strong>Traffic conditions</strong>
                 <span id="traffic-map-status">Loading live traffic…</span>
             </div>
-            <button type="button" id="traffic-refresh-button" class="traffic-refresh-button">Refresh</button>
         </div>
 
         <form id="traffic-search-form" class="traffic-search-form" role="search">
@@ -322,13 +337,11 @@
         <div id="traffic-route-feedback" class="route-feedback"></div>
         <div id="traffic-route-results"></div>
 
-        <p id="traffic-zoom-hint" class="traffic-zoom-hint">Zoom in further to load individual traffic incidents for this area.</p>
-
         <div id="live-traffic-map" role="region" aria-label="Live traffic map"></div>
-        <p class="global-map-attribution">Powered by TomTom. The background road tint shows live congestion, the route line (once you check a route) shows flood risk along the way, and markers show reported incidents including flooding — see the map legend for exact colors.</p>
+        <p class="global-map-attribution">Powered by Google Maps. The background road tint shows live congestion, and the route line (once you check a route) shows FloodGuard's own flood risk along the way — see the map legend for exact colors.</p>
         {% else %}
         <div class="traffic-not-configured">
-            Live traffic map is not configured yet — add <code>TOMTOM_API_KEY</code> to your environment to enable it.
+            Live traffic map is not configured yet — add <code>GOOGLE_MAPS_BROWSER_KEY</code> to your environment to enable it.
         </div>
         {% endif %}
     </section>
@@ -580,7 +593,11 @@
                         <p id="map-search-feedback" class="map-search-feedback" aria-live="polite">Choose “Pin a location”, then click anywhere on the map to analyse that exact point.</p>
                     </form>
 
-                    <div id="map" role="region" aria-label="Flood decision map for {{ prediction.city }}"></div>
+                    <div id="map" role="region" aria-label="Flood decision map for {{ prediction.city }}">
+                        {% if not google_maps_browser_key %}
+                        <div class="traffic-not-configured">Map is not configured yet — add <code>GOOGLE_MAPS_BROWSER_KEY</code> to your environment to enable it.</div>
+                        {% endif %}
+                    </div>
 
                     <div class="map-read-grid">
                         <details class="map-read-card">
@@ -1126,19 +1143,21 @@
     attachManualRefreshHandler();
 
     let routeMap = null;
+    let routeMapOverlays = [];
 
     function riskHexRoute(color) {
         const map = { low: "#16a34a", watch: "#f59e0b", moderate: "#f59e0b", high: "#dc2626", severe: "#b91c1c", critical: "#7f1d1d" };
         return map[color] || "#f59e0b";
     }
 
-    async function renderRouteMap(data) {
+    function renderRouteMap(data) {
         const mapEl = document.getElementById("route-map");
         if (!mapEl) return;
 
-        if (routeMap) {
-            routeMap.remove();
-            routeMap = null;
+        if (!window.google || !google.maps) {
+            mapEl.style.display = "block";
+            mapEl.innerHTML = '<div class="traffic-not-configured">Route map is not configured yet — add <code>GOOGLE_MAPS_BROWSER_KEY</code> to your environment to enable it.</div>';
+            return;
         }
 
         const route = data.primary_route;
@@ -1148,112 +1167,80 @@
         }
 
         mapEl.style.display = "block";
-        routeMap = L.map("route-map");
+        mapEl.innerHTML = ""; // clear any previous "not configured" message before (re)initializing
 
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-            attribution: "&copy; OpenStreetMap contributors"
-        }).addTo(routeMap);
+        routeMapOverlays.forEach((overlay) => overlay.setMap(null));
+        routeMapOverlays = [];
+
+        if (!routeMap) {
+            routeMap = new google.maps.Map(mapEl, {
+                mapTypeControl: false,
+                streetViewControl: false,
+            });
+            new google.maps.TrafficLayer().setMap(routeMap);
+        }
+
+        const pathLatLng = route.path.map((p) => ({ lat: p[0], lng: p[1] }));
+        const bounds = new google.maps.LatLngBounds();
+        pathLatLng.forEach((p) => bounds.extend(p));
 
         // --- Primary route, colored by worst-case risk along the way ---
-        const primaryLine = L.polyline(route.path, {
-            color: riskHexRoute(riskColorClassRoute(route.worst_risk)),
-            weight: 5,
-            opacity: 0.85,
-        }).addTo(routeMap);
+        const primaryLine = new google.maps.Polyline({
+            path: pathLatLng,
+            strokeColor: riskHexRoute(riskColorClassRoute(route.worst_risk)),
+            strokeWeight: 5,
+            strokeOpacity: 0.9,
+            map: routeMap,
+        });
+        routeMapOverlays.push(primaryLine);
 
         // --- Risk-colored segment markers, reusing the same data as the segment bar ---
         route.segments.forEach((s) => {
-            L.circleMarker([s.lat, s.lon], {
-                radius: 6,
-                color: "#fff",
-                weight: 2,
-                fillColor: riskHexRoute(riskColorClassRoute(s.risk)),
-                fillOpacity: 1,
-            }).addTo(routeMap).bindTooltip(s.risk + (s.water_label ? " — near " + s.water_label : ""));
+            const marker = new google.maps.Marker({
+                position: { lat: s.lat, lng: s.lon },
+                map: routeMap,
+                title: s.risk + (s.water_label ? " — near " + s.water_label : ""),
+                icon: {
+                    path: google.maps.SymbolPath.CIRCLE,
+                    scale: 6,
+                    fillColor: riskHexRoute(riskColorClassRoute(s.risk)),
+                    fillOpacity: 1,
+                    strokeColor: "#fff",
+                    strokeWeight: 2,
+                },
+            });
+            routeMapOverlays.push(marker);
         });
 
-        // --- Alternate route, shown lighter/dashed for comparison ---
+        // --- Alternate route, shown lighter for comparison ---
         if (data.alternative_route && data.alternative_route.path) {
-            L.polyline(data.alternative_route.path, {
-                color: "#9ca3af",
-                weight: 3,
-                opacity: 0.6,
-                dashArray: "8, 8",
-            }).addTo(routeMap);
+            const altLine = new google.maps.Polyline({
+                path: data.alternative_route.path.map((p) => ({ lat: p[0], lng: p[1] })),
+                strokeColor: "#9ca3af",
+                strokeWeight: 3,
+                strokeOpacity: 0.6,
+                map: routeMap,
+            });
+            routeMapOverlays.push(altLine);
         }
 
         // --- Origin / destination markers ---
-        L.marker(data.origin_coords).addTo(routeMap).bindTooltip(data.origin, { permanent: false });
-        L.marker(data.destination_coords).addTo(routeMap).bindTooltip(data.destination, { permanent: false });
+        const originMarker = new google.maps.Marker({ position: { lat: data.origin_coords[0], lng: data.origin_coords[1] }, map: routeMap, title: data.origin });
+        const destMarker = new google.maps.Marker({ position: { lat: data.destination_coords[0], lng: data.destination_coords[1] }, map: routeMap, title: data.destination });
+        routeMapOverlays.push(originMarker, destMarker);
 
-        routeMap.fitBounds(primaryLine.getBounds(), { padding: [30, 30] });
-
-        // --- TomTom live traffic flow (the colored-roads congestion layer) ---
-        let flowLayer = null;
-        if (data.tomtom_token) {
-            flowLayer = L.tileLayer(
-                "https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=" + data.tomtom_token,
-                { opacity: 0.75, attribution: "Traffic &copy; TomTom" }
-            );
-            flowLayer.addTo(routeMap);
-            L.control.layers(null, { "Live traffic (TomTom)": flowLayer }, { collapsed: false, position: "topright" }).addTo(routeMap);
-        }
+        routeMap.fitBounds(bounds, 30);
 
         // --- Legend ---
-        const legend = L.control({ position: "bottomright" });
-        legend.onAdd = function () {
-            const div = L.DomUtil.create("div", "route-map-legend");
-            let rows = "";
-            rows += '<div class="route-map-legend-row"><span class="route-map-legend-line" style="background:' + riskHexRoute(riskColorClassRoute(route.worst_risk)) + '"></span> Route (flood risk)</div>';
-            rows += '<div class="route-map-legend-row"><span class="route-map-legend-dot" style="background:#0369a1"></span> Flooding reported (TomTom)</div>';
-            rows += '<div class="route-map-legend-row"><span class="route-map-legend-dot" style="background:#6b7280"></span> Other traffic incident</div>';
-            if (!data.tomtom_token) {
-                rows += '<div class="route-map-legend-row" style="color:#9ca3af;">Live traffic layer not configured</div>';
-            }
-            div.innerHTML = rows;
-            return div;
-        };
-        legend.addTo(routeMap);
+        const legend = document.createElement("div");
+        legend.className = "route-map-legend";
+        legend.innerHTML =
+            '<div class="route-map-legend-row"><span class="route-map-legend-line" style="background:' + riskHexRoute(riskColorClassRoute(route.worst_risk)) + '"></span> Route (flood risk, FloodGuard)</div>' +
+            '<div class="route-map-legend-row" style="color:#9ca3af;">Background road tint: live traffic (Google)</div>';
+        routeMap.controls[google.maps.ControlPosition.RIGHT_BOTTOM].clear();
+        routeMap.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(legend);
 
-        setTimeout(() => { routeMap.invalidateSize(); }, 250);
-
-        // --- Real-time TomTom incidents within the route's bounding box ---
-        if (data.tomtom_token) {
-            const bounds = primaryLine.getBounds();
-            const url = "/api/traffic-incidents?min_lat=" + bounds.getSouth() + "&min_lon=" + bounds.getWest() +
-                        "&max_lat=" + bounds.getNorth() + "&max_lon=" + bounds.getEast();
-            try {
-                const response = await fetch(url);
-                const incidentData = await response.json();
-                if (incidentData.ok) {
-                    incidentData.incidents.forEach((inc) => {
-                        const isFlooding = inc.is_flooding;
-                        const marker = L.circleMarker([inc.lat, inc.lon], {
-                            radius: isFlooding ? 9 : 6,
-                            color: "#fff",
-                            weight: 2,
-                            fillColor: isFlooding ? "#0369a1" : "#6b7280",
-                            fillOpacity: 0.95,
-                        }).addTo(routeMap);
-
-                        let popupHtml = "";
-                        if (isFlooding) {
-                            popupHtml += '<div class="incident-popup-flooding">🌊 Flooding reported</div>';
-                        } else {
-                            popupHtml += "<strong>" + inc.category_label + "</strong>";
-                        }
-                        if (inc.description) {
-                            popupHtml += "<div>" + inc.description + "</div>";
-                        }
-                        popupHtml += '<div style="font-size:11px;color:#9ca3af;">Source: TomTom live traffic</div>';
-                        marker.bindPopup(popupHtml);
-                    });
-                }
-            } catch (err) {
-                // Traffic incidents are a supplementary layer — a failed fetch
-                // shouldn't block the route map itself from being usable.
-            }
-        }
+        google.maps.event.trigger(routeMap, "resize");
     }
 
     function riskColorClassRoute(level) {
@@ -1461,41 +1448,63 @@
     }
     </script>
 
+    {% if google_maps_browser_key %}
     <script>
     (function () {
         const mapElement = document.getElementById("global-map");
-        if (!mapElement || !window.L) return;
+        if (!mapElement || !window.google || !google.maps) return;
 
-        const globalMap = L.map("global-map", { minZoom: 1, worldCopyJump: true }).setView([18, 0], 2);
-        const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-            attribution: "&copy; OpenStreetMap contributors"
-        }).addTo(globalMap);
+        const globalMap = new google.maps.Map(mapElement, {
+            center: { lat: 18, lng: 0 },
+            zoom: 2,
+            minZoom: 1,
+            mapTypeControl: false,
+            streetViewControl: false,
+        });
 
         // NASA GIBS publishes this as a broad, satellite-derived rain
         // estimate. Use the previous UTC day because the newest product can
         // arrive after a processing delay; it is intentionally off by default.
         const imergDate = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-        const satelliteRainLayer = L.tileLayer(
-            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/IMERG_Precipitation_Rate/default/" +
-                imergDate + "/GoogleMapsCompatible_Level7/{z}/{y}/{x}.png",
-            {
-                attribution: "NASA GPM IMERG",
-                maxNativeZoom: 7,
-                maxZoom: 9,
-                opacity: 0.62
+        const IMERG_MAX_NATIVE_ZOOM = 7;
+        const IMERG_MAX_ZOOM = 9;
+
+        function imergTileUrl(coord, zoom) {
+            if (zoom > IMERG_MAX_ZOOM || zoom < 0) return null;
+            const tileCount = Math.pow(2, zoom);
+            let x = ((coord.x % tileCount) + tileCount) % tileCount;
+            let y = coord.y;
+            let z = zoom;
+            if (y < 0 || y >= tileCount) return null;
+
+            // Beyond NASA's native zoom, reuse the correct lower-resolution
+            // parent tile (standard tile-pyramid overzoom) rather than
+            // requesting a zoom level NASA doesn't actually publish —
+            // matches the effect Leaflet's maxNativeZoom/maxZoom gave us.
+            if (z > IMERG_MAX_NATIVE_ZOOM) {
+                const shift = z - IMERG_MAX_NATIVE_ZOOM;
+                x = Math.floor(x / Math.pow(2, shift));
+                y = Math.floor(y / Math.pow(2, shift));
+                z = IMERG_MAX_NATIVE_ZOOM;
             }
-        );
-        const alertLayer = L.layerGroup().addTo(globalMap);
-        const savedPlaceLayer = L.layerGroup().addTo(globalMap);
-        L.control.layers(
-            { "Street map": streetLayer },
-            {
-                "Satellite rain estimate (NASA IMERG)": satelliteRainLayer,
-                "GDACS flood alerts": alertLayer,
-                "My saved places": savedPlaceLayer
-            },
-            { collapsed: false, position: "topright" }
-        ).addTo(globalMap);
+            return "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/IMERG_Precipitation_Rate/default/" +
+                imergDate + "/GoogleMapsCompatible_Level7/" + z + "/" + y + "/" + x + ".png";
+        }
+
+        const satelliteRainMapType = new google.maps.ImageMapType({
+            getTileUrl: imergTileUrl,
+            tileSize: new google.maps.Size(256, 256),
+            opacity: 0.62,
+            maxZoom: IMERG_MAX_ZOOM,
+            minZoom: 0,
+            name: "Satellite rain estimate (NASA IMERG)",
+        });
+        let rainLayerIndex = -1; // not shown by default, same as before
+
+        let alertMarkers = [];
+        let alertsVisible = true;
+        let savedPlaceMarkers = [];
+        let placesVisible = true;
 
         const statusEl = document.getElementById("global-map-status");
         const refreshButton = document.getElementById("global-refresh-button");
@@ -1510,6 +1519,7 @@
         const experienceStorageKey = "floodguard-experience-v1";
         let pinMode = false;
         let pointMarker = null;
+        let pointInfoWindow = null;
 
         function escapeHtml(value) {
             return String(value).replace(/[&<>'"]/g, (character) => ({
@@ -1536,6 +1546,40 @@
             return "/?" + params.toString();
         }
 
+        // ---------------------------------------------------------------
+        // Layer toggle control — Google Maps has no built-in equivalent to
+        // Leaflet's layer-control panel, so this is a small custom control
+        // with the same three toggles, in the same default states (alerts
+        // and saved places on, satellite rain off).
+        // ---------------------------------------------------------------
+        const layerControl = document.createElement("div");
+        layerControl.className = "traffic-map-legend";
+        layerControl.innerHTML =
+            '<div class="traffic-map-legend-title">Map layers</div>' +
+            '<label class="global-layer-toggle-row"><input type="checkbox" id="layer-toggle-rain"> Satellite rain estimate (NASA IMERG)</label>' +
+            '<label class="global-layer-toggle-row"><input type="checkbox" id="layer-toggle-alerts" checked> GDACS flood alerts</label>' +
+            '<label class="global-layer-toggle-row"><input type="checkbox" id="layer-toggle-places" checked> My saved places</label>';
+        globalMap.controls[google.maps.ControlPosition.TOP_RIGHT].push(layerControl);
+
+        layerControl.querySelector("#layer-toggle-rain").addEventListener("change", (event) => {
+            if (event.target.checked) {
+                if (rainLayerIndex === -1) {
+                    rainLayerIndex = globalMap.overlayMapTypes.push(satelliteRainMapType) - 1;
+                }
+            } else if (rainLayerIndex !== -1) {
+                globalMap.overlayMapTypes.removeAt(rainLayerIndex);
+                rainLayerIndex = -1;
+            }
+        });
+        layerControl.querySelector("#layer-toggle-alerts").addEventListener("change", (event) => {
+            alertsVisible = event.target.checked;
+            alertMarkers.forEach((marker) => marker.setMap(alertsVisible ? globalMap : null));
+        });
+        layerControl.querySelector("#layer-toggle-places").addEventListener("change", (event) => {
+            placesVisible = event.target.checked;
+            savedPlaceMarkers.forEach((marker) => marker.setMap(placesVisible ? globalMap : null));
+        });
+
         function getSavedPlaces() {
             try {
                 const places = JSON.parse(localStorage.getItem(placeStorageKey) || "[]");
@@ -1553,7 +1597,8 @@
 
         function renderSavedPlaces() {
             const places = getSavedPlaces();
-            savedPlaceLayer.clearLayers();
+            savedPlaceMarkers.forEach((marker) => marker.setMap(null));
+            savedPlaceMarkers = [];
             myPlacesList.replaceChildren();
 
             if (!places.length) {
@@ -1565,18 +1610,25 @@
             }
 
             places.forEach((place, index) => {
-                const marker = L.circleMarker([place.lat, place.lon], {
-                    radius: 8,
-                    color: "#ffffff",
-                    fillColor: "#2563eb",
-                    fillOpacity: 0.95,
-                    weight: 2
-                }).addTo(savedPlaceLayer);
-                marker.bindTooltip(place.label, { direction: "top" });
-                marker.bindPopup(
-                    "<b>" + escapeHtml(place.label) + "</b><br>" +
-                    "<a href=\"" + analysisUrl(place) + "\">Run FloodGuard analysis</a>"
-                );
+                const marker = new google.maps.Marker({
+                    position: { lat: place.lat, lng: place.lon },
+                    map: placesVisible ? globalMap : null,
+                    title: place.label,
+                    icon: {
+                        path: google.maps.SymbolPath.CIRCLE,
+                        scale: 8,
+                        fillColor: "#2563eb",
+                        fillOpacity: 0.95,
+                        strokeColor: "#fff",
+                        strokeWeight: 2,
+                    },
+                });
+                const infoWindow = new google.maps.InfoWindow({
+                    content: "<b>" + escapeHtml(place.label) + "</b><br>" +
+                        "<a href=\"" + analysisUrl(place) + "\">Run FloodGuard analysis</a>"
+                });
+                marker.addListener("click", () => infoWindow.open({ map: globalMap, anchor: marker }));
+                savedPlaceMarkers.push(marker);
 
                 const item = document.createElement("div");
                 item.className = "my-place-item";
@@ -1585,8 +1637,9 @@
                 open.className = "my-place-open";
                 open.textContent = place.label;
                 open.addEventListener("click", () => {
-                    globalMap.flyTo([place.lat, place.lon], 9, { duration: 0.75 });
-                    marker.openPopup();
+                    globalMap.panTo({ lat: place.lat, lng: place.lon });
+                    globalMap.setZoom(9);
+                    infoWindow.open({ map: globalMap, anchor: marker });
                 });
                 const remove = document.createElement("button");
                 remove.type = "button";
@@ -1607,7 +1660,7 @@
             pinButton.classList.toggle("active", enabled);
             pinButton.setAttribute("aria-pressed", String(enabled));
             pinButton.textContent = enabled ? "Click map to pin" : "Pin a point";
-            globalMap.getContainer().classList.toggle("map-pin-mode", enabled);
+            mapElement.classList.toggle("map-pin-mode", enabled);
             if (enabled) statusEl.textContent = "Pin mode is on. Click an exact point anywhere on the map.";
         }
 
@@ -1616,26 +1669,36 @@
             document.getElementById("global-monitored-count").textContent = data.monitored_locations;
             document.getElementById("global-elevated-count").textContent = data.elevated_locations;
             document.getElementById("global-report-count").textContent = data.recent_community_reports;
-            alertLayer.clearLayers();
+
+            alertMarkers.forEach((marker) => marker.setMap(null));
+            alertMarkers = [];
 
             data.global_alerts.forEach((alert) => {
                 if (!Number.isFinite(Number(alert.latitude)) || !Number.isFinite(Number(alert.longitude))) return;
                 const colour = colourForRisk(alert.risk_color);
-                const icon = L.divIcon({
-                    className: "",
-                    html: '<span class="global-alert-marker" style="background:' + colour + '">!</span>',
-                    iconAnchor: [14, 14],
-                    iconSize: [28, 28]
+                const marker = new google.maps.Marker({
+                    position: { lat: alert.latitude, lng: alert.longitude },
+                    map: alertsVisible ? globalMap : null,
+                    icon: {
+                        path: google.maps.SymbolPath.CIRCLE,
+                        scale: 14,
+                        fillColor: colour,
+                        fillOpacity: 1,
+                        strokeColor: "#fff",
+                        strokeWeight: 2,
+                    },
+                    label: { text: "!", color: "#fff", fontWeight: "bold" },
                 });
-                const marker = L.marker([alert.latitude, alert.longitude], { icon: icon }).addTo(alertLayer);
                 const sourceLink = /^https?:\/\//i.test(alert.event_url || "")
                     ? '<br><a href="' + escapeHtml(alert.event_url) + '" target="_blank" rel="noopener">Open GDACS report</a>'
                     : "";
-                marker.bindPopup(
-                    "<b>" + escapeHtml(alert.country || "Flood alert") + "</b><br>" +
-                    escapeHtml(alert.risk_level) + " flood alert<br>" +
-                    escapeHtml(alert.title) + sourceLink
-                );
+                const infoWindow = new google.maps.InfoWindow({
+                    content: "<b>" + escapeHtml(alert.country || "Flood alert") + "</b><br>" +
+                        escapeHtml(alert.risk_level) + " flood alert<br>" +
+                        escapeHtml(alert.title) + sourceLink
+                });
+                marker.addListener("click", () => infoWindow.open({ map: globalMap, anchor: marker }));
+                alertMarkers.push(marker);
             });
 
             const staleText = data.global_alerts_stale ? "Global alert feed may be delayed." : "Global signals refreshed.";
@@ -1680,13 +1743,16 @@
         });
 
         pinButton.addEventListener("click", () => setPinMode(!pinMode));
-        globalMap.on("click", async (event) => {
+        globalMap.addListener("click", async (event) => {
             if (!pinMode) return;
             setPinMode(false);
-            const { lat, lng } = event.latlng;
-            if (pointMarker) globalMap.removeLayer(pointMarker);
-            pointMarker = L.marker([lat, lng]).addTo(globalMap);
-            pointMarker.bindTooltip("Preparing analysis…", { permanent: true, direction: "top" }).openTooltip();
+            const lat = event.latLng.lat();
+            const lng = event.latLng.lng();
+            if (pointMarker) pointMarker.setMap(null);
+            if (pointInfoWindow) pointInfoWindow.close();
+            pointMarker = new google.maps.Marker({ position: { lat, lng }, map: globalMap });
+            pointInfoWindow = new google.maps.InfoWindow({ content: "Preparing analysis…" });
+            pointInfoWindow.open({ map: globalMap, anchor: pointMarker });
             statusEl.textContent = "Naming this point and starting FloodGuard's full location analysis…";
             pinButton.disabled = true;
             try {
@@ -1696,6 +1762,7 @@
                 window.location.assign(analysisUrl({ label: data.label, lat: data.lat, lon: data.lon }));
             } catch (error) {
                 statusEl.textContent = error.message || "Could not analyse that point. Try again.";
+                if (pointInfoWindow) pointInfoWindow.setContent("Point not analysed - try again");
                 pinButton.disabled = false;
             }
         });
@@ -1718,7 +1785,7 @@
             experienceButton.setAttribute("aria-pressed", String(simple));
             experienceButton.textContent = simple ? "Explore view" : "Simple view";
             localStorage.setItem(experienceStorageKey, simple ? "simple" : "explore");
-            setTimeout(() => globalMap.invalidateSize(), 150);
+            setTimeout(() => google.maps.event.trigger(globalMap, "resize"), 150);
         }
 
         experienceButton.addEventListener("click", () => setExperience(!document.body.classList.contains("simple-view")));
@@ -1728,23 +1795,15 @@
         setInterval(loadSituation, 120000);
     })();
     </script>
+    {% endif %}
 
+    {% if google_maps_browser_key %}
     <script>
-    (function () {
-        const mapEl = document.getElementById("live-traffic-map");
-        if (!mapEl || !window.L) return;
+    window.addEventListener("load", function () {
+        const mapElement = document.getElementById("live-traffic-map");
+        if (!mapElement || !window.google || !google.maps) return;
 
-        const tomtomToken = {{ tomtom_token | tojson }};
-        if (!tomtomToken) return;
-
-        // Below this zoom, an incident fetch would cover a huge bounding
-        // box (slow, and burns through TomTom's rate limit fast for little
-        // value at that scale) — same reasoning Google Maps uses to only
-        // show detailed traffic once you're zoomed into actual roads.
-        const MIN_ZOOM_FOR_INCIDENTS = 10;
         const statusEl = document.getElementById("traffic-map-status");
-        const zoomHintEl = document.getElementById("traffic-zoom-hint");
-        const refreshBtn = document.getElementById("traffic-refresh-button");
         const searchForm = document.getElementById("traffic-search-form");
         const searchInput = document.getElementById("traffic-search-input");
         const modeExploreBtn = document.getElementById("traffic-mode-explore");
@@ -1754,132 +1813,68 @@
         const routeFeedbackEl = document.getElementById("traffic-route-feedback");
         const routeResultsEl = document.getElementById("traffic-route-results");
 
-        const map = L.map("live-traffic-map", { minZoom: 2, worldCopyJump: true }).setView([18, 0], 2);
-
-        // TomTom supplies both the base map and the traffic overlay, so this
-        // live map has no OpenStreetMap dependency or attribution.
-        L.tileLayer(
-            "https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?key=" + tomtomToken,
-            { maxZoom: 22, attribution: "&copy; TomTom" }
-        ).addTo(map);
-
-        // TomTom's live flow layer - colored by current speed vs free-flow
-        // speed for each road segment, the same underlying idea as Google
-        // Maps' traffic layer. This stays on in both Explore and Plan-a-route
-        // modes, so a checked route is always seen against real congestion.
-        L.tileLayer(
-            "https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=" + tomtomToken,
-            { opacity: 0.85, attribution: "Traffic &copy; TomTom", maxZoom: 22 }
-        ).addTo(map);
-
-        const incidentLayer = L.layerGroup().addTo(map);
-        const routeLayer = L.layerGroup().addTo(map);
-        let fetchToken = 0;
-
-        function renderIncidents(incidents) {
-            incidentLayer.clearLayers();
-            incidents.forEach((inc) => {
-                const flooding = !!inc.is_flooding;
-                const marker = L.circleMarker([inc.lat, inc.lon], {
-                    radius: flooding ? 9 : 6,
-                    color: "#fff",
-                    weight: 2,
-                    fillColor: flooding ? "#0369a1" : "#dc2626",
-                    fillOpacity: 0.9,
-                }).addTo(incidentLayer);
-
-                let html = flooding
-                    ? '<div style="color:#0369a1;font-weight:bold;">🌊 Flooding reported</div>'
-                    : "<strong>" + (inc.category_label || "Traffic incident") + "</strong>";
-                if (inc.description) html += "<div>" + inc.description + "</div>";
-                html += '<div style="font-size:11px;color:#9ca3af;">Source: TomTom live traffic</div>';
-                marker.bindPopup(html);
-            });
-        }
-
-        async function loadIncidentsForCurrentView() {
-            const zoom = map.getZoom();
-            if (zoom < MIN_ZOOM_FOR_INCIDENTS) {
-                incidentLayer.clearLayers();
-                zoomHintEl.classList.add("visible");
-                statusEl.textContent = "Showing traffic flow. Zoom in to load incidents for this area.";
-                return;
-            }
-            zoomHintEl.classList.remove("visible");
-
-            const bounds = map.getBounds();
-            const thisFetch = ++fetchToken;
-            statusEl.textContent = "Checking live incidents in this area…";
-
-            try {
-                const url = "/api/traffic-incidents?min_lat=" + bounds.getSouth() +
-                    "&min_lon=" + bounds.getWest() +
-                    "&max_lat=" + bounds.getNorth() +
-                    "&max_lon=" + bounds.getEast();
-                const response = await fetch(url);
-                const data = await response.json();
-                if (thisFetch !== fetchToken) return; // a newer view already superseded this fetch
-                if (data.ok) {
-                    renderIncidents(data.incidents);
-                    statusEl.textContent = data.incidents.length
-                        ? data.incidents.length + " incident(s) in view."
-                        : "No incidents reported in this area right now.";
-                } else {
-                    statusEl.textContent = "Could not load incidents for this area.";
-                }
-            } catch (err) {
-                if (thisFetch === fetchToken) {
-                    statusEl.textContent = "Could not load incidents for this area.";
-                }
-            }
-        }
-
-        let debounceTimer = null;
-        function scheduleIncidentLoad() {
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(loadIncidentsForCurrentView, 500);
-        }
-
-        map.on("moveend zoomend", scheduleIncidentLoad);
-        loadIncidentsForCurrentView();
-
-        refreshBtn.addEventListener("click", () => {
-            refreshBtn.disabled = true;
-            refreshBtn.textContent = "Checking…";
-            loadIncidentsForCurrentView().finally(() => {
-                refreshBtn.disabled = false;
-                refreshBtn.textContent = "Refresh";
-            });
+        // Global, pannable/zoomable default view — this map isn't scoped to
+        // any one city, so it opens the same way the Global Now map does.
+        const map = new google.maps.Map(mapElement, {
+            center: { lat: 18, lng: 0 },
+            zoom: 2,
+            mapTypeControl: true,
+            streetViewControl: false,
         });
-
-        searchForm.addEventListener("submit", async (event) => {
-            event.preventDefault();
-            const query = searchInput.value.trim();
-            if (!query) return;
-            statusEl.textContent = "Finding \"" + query + "\"…";
-            try {
-                const response = await fetch("/api/map-geocode?q=" + encodeURIComponent(query));
-                const data = await response.json();
-                if (!response.ok || !data.ok) throw new Error(data.error || "Location not found.");
-                map.flyTo([data.lat, data.lon], 13, { duration: 0.75 });
-            } catch (error) {
-                statusEl.textContent = error.message || "Could not find that location.";
-            }
-        });
+        new google.maps.TrafficLayer().setMap(map);
+        if (statusEl) statusEl.textContent = "Showing live Google traffic. Search a place or plan a route below.";
 
         // ---------------------------------------------------------------
-        // Mode toggle: "Explore area" (pan/search) vs "Plan a route"
-        // (uses this app's own flood-risk routing, same endpoint as the
-        // "Can I Travel There Safely?" section, drawn onto this map).
+        // Search: Places Autocomplete where available, falling back to a
+        // plain Geocoder lookup on submit (e.g. if Autocomplete's dropdown
+        // wasn't used).
+        // ---------------------------------------------------------------
+        if (searchInput && google.maps.places) {
+            const autocomplete = new google.maps.places.Autocomplete(searchInput, {
+                fields: ["geometry", "name", "formatted_address"],
+            });
+            autocomplete.addListener("place_changed", function () {
+                const place = autocomplete.getPlace();
+                if (place.geometry) {
+                    map.fitBounds(place.geometry.viewport || new google.maps.LatLngBounds(place.geometry.location));
+                    if (statusEl) statusEl.textContent = "Showing " + (place.name || place.formatted_address || "that location") + ".";
+                }
+            });
+        }
+        if (searchForm) {
+            searchForm.addEventListener("submit", function (event) {
+                event.preventDefault();
+                const query = (searchInput.value || "").trim();
+                if (!query) return;
+                if (statusEl) statusEl.textContent = "Finding \"" + query + "\"…";
+                const geocoder = new google.maps.Geocoder();
+                geocoder.geocode({ address: query }, function (results, geocodeStatus) {
+                    if (geocodeStatus === "OK" && results[0]) {
+                        map.fitBounds(results[0].geometry.viewport || new google.maps.LatLngBounds(results[0].geometry.location));
+                        if (statusEl) statusEl.textContent = "Showing " + query + ".";
+                    } else if (statusEl) {
+                        statusEl.textContent = "Location not found. Try a more specific place name.";
+                    }
+                });
+            });
+        }
+
+        // ---------------------------------------------------------------
+        // Mode toggle: "Explore area" (search) vs "Plan a route" (uses
+        // FloodGuard's own flood-risk routing, drawn onto this map).
         // ---------------------------------------------------------------
         function setTrafficMode(mode) {
             const isRoute = mode === "route";
-            modeExploreBtn.classList.toggle("active", !isRoute);
-            modeExploreBtn.setAttribute("aria-pressed", String(!isRoute));
-            modeRouteBtn.classList.toggle("active", isRoute);
-            modeRouteBtn.setAttribute("aria-pressed", String(isRoute));
-            searchForm.style.display = isRoute ? "none" : "";
-            routeForm.style.display = isRoute ? "" : "none";
+            if (modeExploreBtn) {
+                modeExploreBtn.classList.toggle("active", !isRoute);
+                modeExploreBtn.setAttribute("aria-pressed", String(!isRoute));
+            }
+            if (modeRouteBtn) {
+                modeRouteBtn.classList.toggle("active", isRoute);
+                modeRouteBtn.setAttribute("aria-pressed", String(isRoute));
+            }
+            if (searchForm) searchForm.style.display = isRoute ? "none" : "";
+            if (routeForm) routeForm.style.display = isRoute ? "" : "none";
         }
         if (modeExploreBtn && modeRouteBtn) {
             modeExploreBtn.addEventListener("click", () => setTrafficMode("explore"));
@@ -1888,83 +1883,103 @@
 
         // ---------------------------------------------------------------
         // Route planning — reuses the exact same /api/route-safety
-        // endpoint and risk model as the "Can I Travel There Safely?"
-        // section, so a route drawn here reflects the same flood-risk
-        // scoring, not a second, different assessment.
+        // endpoint and flood-risk model as the "Can I Travel There
+        // Safely?" section below, so a route drawn here reflects
+        // FloodGuard's own scoring, not a second, different assessment.
+        // Google only supplies the base map, live traffic, and search;
+        // the route line's color is entirely FloodGuard's.
         // ---------------------------------------------------------------
         function riskColorClassRoute(level) {
-            const map = { LOW: "low", WATCH: "watch", MODERATE: "moderate", HIGH: "high", SEVERE: "severe", CRITICAL: "critical" };
-            return map[level] || "low";
+            const levels = { LOW: "low", WATCH: "watch", MODERATE: "moderate", HIGH: "high", SEVERE: "severe", CRITICAL: "critical" };
+            return levels[level] || "low";
         }
         function riskHexRoute(colorClass) {
-            const map = { low: "#16a34a", watch: "#f59e0b", moderate: "#f59e0b", high: "#dc2626", severe: "#b91c1c", critical: "#7f1d1d" };
-            return map[colorClass] || "#f59e0b";
+            const colors = { low: "#16a34a", watch: "#f59e0b", moderate: "#f59e0b", high: "#dc2626", severe: "#b91c1c", critical: "#7f1d1d" };
+            return colors[colorClass] || "#f59e0b";
         }
 
+        let routeOverlays = [];
         function clearRoute() {
-            routeLayer.clearLayers();
-            routeResultsEl.innerHTML = "";
-            routeFeedbackEl.textContent = "";
-            routeFeedbackEl.className = "route-feedback";
-            routeClearBtn.style.display = "none";
+            routeOverlays.forEach((overlay) => overlay.setMap(null));
+            routeOverlays = [];
+            if (routeResultsEl) routeResultsEl.innerHTML = "";
+            if (routeFeedbackEl) {
+                routeFeedbackEl.textContent = "";
+                routeFeedbackEl.className = "route-feedback";
+            }
+            if (routeClearBtn) routeClearBtn.style.display = "none";
         }
         if (routeClearBtn) {
             routeClearBtn.addEventListener("click", clearRoute);
         }
 
         function drawTrafficRoute(data) {
-            routeLayer.clearLayers();
+            routeOverlays.forEach((overlay) => overlay.setMap(null));
+            routeOverlays = [];
+
             const route = data.primary_route;
             if (!route.path || !route.path.length) return;
 
-            // The route line's color is flood risk (this app's own model),
-            // deliberately drawn as a thick line with a white outline so
-            // it reads as a distinct layer from the background traffic
-            // flow tint underneath it.
+            const pathLatLng = route.path.map((p) => ({ lat: p[0], lng: p[1] }));
+            const bounds = new google.maps.LatLngBounds();
+            pathLatLng.forEach((p) => bounds.extend(p));
+
             const primaryColor = riskHexRoute(riskColorClassRoute(route.worst_risk));
-            const primaryLine = L.polyline(route.path, {
-                color: primaryColor,
-                weight: 6,
-                opacity: 0.95,
-            }).addTo(routeLayer);
+            const primaryLine = new google.maps.Polyline({
+                path: pathLatLng,
+                strokeColor: primaryColor,
+                strokeWeight: 6,
+                strokeOpacity: 0.95,
+                map: map,
+            });
+            routeOverlays.push(primaryLine);
 
             route.segments.forEach((s) => {
-                L.circleMarker([s.lat, s.lon], {
-                    radius: 6,
-                    color: "#fff",
-                    weight: 2,
-                    fillColor: riskHexRoute(riskColorClassRoute(s.risk)),
-                    fillOpacity: 1,
-                }).addTo(routeLayer).bindTooltip(s.risk + " flood risk" + (s.water_label ? " — near " + s.water_label : ""));
+                const marker = new google.maps.Marker({
+                    position: { lat: s.lat, lng: s.lon },
+                    map: map,
+                    title: s.risk + " flood risk" + (s.water_label ? " — near " + s.water_label : ""),
+                    icon: {
+                        path: google.maps.SymbolPath.CIRCLE,
+                        scale: 6,
+                        fillColor: riskHexRoute(riskColorClassRoute(s.risk)),
+                        fillOpacity: 1,
+                        strokeColor: "#fff",
+                        strokeWeight: 2,
+                    },
+                });
+                routeOverlays.push(marker);
             });
 
             if (data.alternative_route && data.alternative_route.path) {
-                L.polyline(data.alternative_route.path, {
-                    color: "#9ca3af",
-                    weight: 3,
-                    opacity: 0.6,
-                    dashArray: "8, 8",
-                }).addTo(routeLayer).bindTooltip("Alternate route");
+                const altLine = new google.maps.Polyline({
+                    path: data.alternative_route.path.map((p) => ({ lat: p[0], lng: p[1] })),
+                    strokeColor: "#9ca3af",
+                    strokeWeight: 3,
+                    strokeOpacity: 0.6,
+                    map: map,
+                });
+                routeOverlays.push(altLine);
             }
 
-            L.marker(data.origin_coords).addTo(routeLayer).bindTooltip(data.origin, { permanent: false });
-            L.marker(data.destination_coords).addTo(routeLayer).bindTooltip(data.destination, { permanent: false });
+            const originMarker = new google.maps.Marker({ position: { lat: data.origin_coords[0], lng: data.origin_coords[1] }, map: map, title: data.origin });
+            const destMarker = new google.maps.Marker({ position: { lat: data.destination_coords[0], lng: data.destination_coords[1] }, map: map, title: data.destination });
+            routeOverlays.push(originMarker, destMarker);
 
-            map.fitBounds(primaryLine.getBounds(), { padding: [30, 30] });
-            routeClearBtn.style.display = "inline-block";
-            // fitBounds triggers moveend, which already re-runs the incident
-            // fetch for the new view via scheduleIncidentLoad — calling it
-            // directly too just avoids waiting on the debounce delay.
-            loadIncidentsForCurrentView();
+            map.fitBounds(bounds, 30);
+            if (routeClearBtn) routeClearBtn.style.display = "inline-block";
         }
 
         function renderTrafficRouteResults(data) {
+            if (!routeFeedbackEl || !routeResultsEl) return;
+
             if (!data.ok) {
                 routeFeedbackEl.textContent = data.error || "Could not assess this route.";
                 routeFeedbackEl.className = "route-feedback error";
                 routeResultsEl.innerHTML = "";
-                routeLayer.clearLayers();
-                routeClearBtn.style.display = "none";
+                routeOverlays.forEach((overlay) => overlay.setMap(null));
+                routeOverlays = [];
+                if (routeClearBtn) routeClearBtn.style.display = "none";
                 return;
             }
 
@@ -2016,8 +2031,10 @@
 
                 submitBtn.disabled = true;
                 submitBtn.textContent = "Checking route...";
-                routeFeedbackEl.textContent = "";
-                routeFeedbackEl.className = "route-feedback";
+                if (routeFeedbackEl) {
+                    routeFeedbackEl.textContent = "";
+                    routeFeedbackEl.className = "route-feedback";
+                }
 
                 try {
                     const response = await fetch("/api/route-safety", {
@@ -2028,8 +2045,10 @@
                     const data = await response.json();
                     renderTrafficRouteResults(data);
                 } catch (err) {
-                    routeFeedbackEl.textContent = "Network error. Please try again.";
-                    routeFeedbackEl.className = "route-feedback error";
+                    if (routeFeedbackEl) {
+                        routeFeedbackEl.textContent = "Network error. Please try again.";
+                        routeFeedbackEl.className = "route-feedback error";
+                    }
                 } finally {
                     submitBtn.disabled = false;
                     submitBtn.textContent = "Check Route";
@@ -2037,31 +2056,28 @@
             });
         }
 
-        const legend = L.control({ position: "bottomright" });
-        legend.onAdd = function () {
-            const div = L.DomUtil.create("div", "traffic-map-legend");
-            div.innerHTML =
-                '<div class="traffic-map-legend-title">How to read this map</div>' +
-                '<div class="traffic-map-legend-row"><strong>TomTom traffic flow</strong></div>' +
-                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#2EAB30"></span> Green — free-flowing (75%+ normal speed)</div>' +
-                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#F1BF40"></span> Yellow — moderate delay (35–75%)</div>' +
-                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#F18237"></span> Orange — slow traffic (15–35%)</div>' +
-                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#E70704"></span> Red — severe congestion (under 15%)</div>' +
-                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#C1272D"></span> Dark red — road closed</div>' +
-                '<div class="traffic-map-legend-row" style="margin-top:6px;"><strong>Route flood risk</strong></div>' +
-                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#16a34a"></span> Low / Watch</div>' +
-                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#dc2626"></span> High</div>' +
-                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#7f1d1d"></span> Severe / Critical</div>' +
-                '<div class="traffic-map-legend-row" style="margin-top:6px;"><strong>Incidents</strong></div>' +
-                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-dot" style="background:#0369a1"></span> Blue — flooding reported: avoid this road</div>' +
-                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-dot" style="background:#dc2626"></span> Red dot — accident, closure, or other incident</div>';
-            return div;
-        };
-        legend.addTo(map);
-
-        setTimeout(() => map.invalidateSize(), 250);
-    })();
+        // ---------------------------------------------------------------
+        // Legend — Google's live traffic colors are rendered by Google
+        // and not something this app controls or can guarantee exact hex
+        // values for, so that part is described qualitatively. The route
+        // flood-risk colors ARE this app's own choice, so those are exact.
+        // ---------------------------------------------------------------
+        const legend = document.createElement("div");
+        legend.className = "traffic-map-legend";
+        legend.innerHTML =
+            '<div class="traffic-map-legend-title">How to read this map</div>' +
+            '<div class="traffic-map-legend-row"><strong>Live traffic (Google)</strong></div>' +
+            '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#4caf50"></span> Green — light traffic</div>' +
+            '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#ff9800"></span> Orange — moderate traffic</div>' +
+            '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#f44336"></span> Red — heavy traffic</div>' +
+            '<div class="traffic-map-legend-row" style="margin-top:6px;"><strong>Route flood risk (FloodGuard)</strong></div>' +
+            '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#16a34a"></span> Low / Watch</div>' +
+            '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#dc2626"></span> High</div>' +
+            '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#7f1d1d"></span> Severe / Critical</div>';
+        map.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(legend);
+    });
     </script>
+    {% endif %}
 
     {% if prediction %}
     <script>
@@ -2102,12 +2118,14 @@
     })();
     </script>
 
+    {% if google_maps_browser_key %}
     <script>
     document.addEventListener("DOMContentLoaded", function () {
+        if (!window.google || !google.maps) return;
+
         const latitude = {{ prediction.latitude }};
         const longitude = {{ prediction.longitude }};
         const riskColor = "{{ prediction.map_color }}";
-        const mapboxToken = {{ mapbox_token | tojson }};
         const cityName = {{ prediction.city | tojson }};
         const currentMapPeriod = {
             id: "now",
@@ -2137,11 +2155,24 @@
             critical: "#7f1d1d"
         };
 
-        const map = L.map("map").setView([latitude, longitude], 12);
+        const mapElement = document.getElementById("map");
+        const map = new google.maps.Map(mapElement, {
+            center: { lat: latitude, lng: longitude },
+            zoom: 12,
+            mapTypeControl: false,
+            streetViewControl: false,
+        });
 
-        const baseLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-            attribution: "&copy; OpenStreetMap contributors"
-        }).addTo(map);
+        // Live traffic (Google) — always on, same as the other two maps on
+        // this site. No separate token needed here, unlike the old Mapbox
+        // layer this replaces.
+        new google.maps.TrafficLayer().setMap(map);
+
+        function escapeHtml(value) {
+            return String(value).replace(/[&<>'"]/g, (character) => ({
+                "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"
+            })[character]);
+        }
 
         // --- Search from the map or analyse a point the visitor drops ---
         const mapSearchForm = document.getElementById("map-search-form");
@@ -2150,13 +2181,14 @@
         const mapSearchFeedback = document.getElementById("map-search-feedback");
         let pinMode = false;
         let selectedPointMarker = null;
+        let selectedPointInfoWindow = null;
 
         function setPinMode(enabled) {
             pinMode = enabled;
             mapPinButton.classList.toggle("active", enabled);
             mapPinButton.setAttribute("aria-pressed", String(enabled));
             mapPinButton.textContent = enabled ? "Click the map to pin" : "Pin a location";
-            map.getContainer().classList.toggle("map-pin-mode", enabled);
+            mapElement.classList.toggle("map-pin-mode", enabled);
             if (enabled) {
                 mapSearchFeedback.textContent = "Pin mode is on. Click the exact point you want FloodGuard to analyse.";
             } else if (!selectedPointMarker) {
@@ -2178,14 +2210,18 @@
 
         mapPinButton.addEventListener("click", () => setPinMode(!pinMode));
 
-        map.on("click", async (event) => {
+        map.addListener("click", async (event) => {
             if (!pinMode) return;
             setPinMode(false);
 
-            const { lat, lng } = event.latlng;
-            if (selectedPointMarker) map.removeLayer(selectedPointMarker);
-            selectedPointMarker = L.marker([lat, lng], { opacity: 0.85 }).addTo(map);
-            selectedPointMarker.bindTooltip("Analysing this point...", { permanent: true, direction: "top" }).openTooltip();
+            const lat = event.latLng.lat();
+            const lng = event.latLng.lng();
+            if (selectedPointMarker) selectedPointMarker.setMap(null);
+            if (selectedPointInfoWindow) selectedPointInfoWindow.close();
+
+            selectedPointMarker = new google.maps.Marker({ position: { lat, lng }, map, opacity: 0.85 });
+            selectedPointInfoWindow = new google.maps.InfoWindow({ content: "Analysing this point..." });
+            selectedPointInfoWindow.open({ map, anchor: selectedPointMarker });
             mapSearchFeedback.textContent = "Finding this location and building its flood analysis...";
             mapPinButton.disabled = true;
 
@@ -2204,91 +2240,86 @@
                 window.location.assign("/?" + parameters.toString());
             } catch (error) {
                 mapSearchFeedback.textContent = error.message || "Could not analyse that point. Please try again.";
-                if (selectedPointMarker) {
-                    selectedPointMarker.bindTooltip("Point not analysed - try again", { permanent: true, direction: "top" }).openTooltip();
-                }
+                if (selectedPointInfoWindow) selectedPointInfoWindow.setContent("Point not analysed - try again");
                 mapPinButton.disabled = false;
             }
         });
 
         // This ring marks the assessed location context, not a claimed
-        // street-by-street flood boundary.
-        const riskCircle = L.circle([latitude, longitude], {
-            color: riskColor,
+        // street-by-street flood boundary. Click it for details (Google's
+        // shape overlays don't support Leaflet's hover-follow tooltip, so
+        // this is click-to-view rather than hover, unlike before).
+        const riskCircle = new google.maps.Circle({
+            strokeColor: riskColor,
+            strokeOpacity: 0.9,
+            strokeWeight: 2,
             fillColor: riskColor,
             fillOpacity: 0.13,
-            opacity: 0.9,
+            map: map,
+            center: { lat: latitude, lng: longitude },
             radius: 1400,
-            weight: 2
-        }).addTo(map);
-        riskCircle.bindTooltip("Location risk context - {{ prediction.risk }} risk", { sticky: true });
-        riskCircle.bindPopup("<b>Location assessment</b><br>This ring highlights the map context for the searched location. It is not an exact flood boundary.");
+        });
+        const riskCircleInfoWindow = new google.maps.InfoWindow({
+            content: "<b>Location assessment</b><br>This ring highlights the map context for the searched location. It is not an exact flood boundary."
+        });
+        riskCircle.addListener("click", (event) => {
+            riskCircleInfoWindow.setPosition(event.latLng);
+            riskCircleInfoWindow.open(map);
+        });
 
-        // --- Main location marker, labeled ---
-        const mainMarker = L.marker([latitude, longitude]).addTo(map);
-        mainMarker.bindTooltip("{{ prediction.city }} — {{ prediction.risk }}", { permanent: true, direction: "top", offset: [0, -10], className: "map-label map-label-main" });
-        mainMarker.bindPopup("<b>{{ prediction.city }}</b><br>{{ prediction.risk }} flood risk (score {{ prediction.score }}/100){% if prediction.coastal %}<br>🌊 Coastal region — lower alert threshold applied{% endif %}");
-        mainMarker.openPopup();
+        // --- Main location marker, with its info shown by default ---
+        const mainMarker = new google.maps.Marker({ position: { lat: latitude, lng: longitude }, map: map });
+        const mainInfoWindow = new google.maps.InfoWindow({
+            content: "<b>{{ prediction.city }}</b><br>{{ prediction.risk }} flood risk (score {{ prediction.score }}/100){% if prediction.coastal %}<br>🌊 Coastal region — lower alert threshold applied{% endif %}"
+        });
+        mainInfoWindow.open({ map, anchor: mainMarker });
+        mainMarker.addListener("click", () => mainInfoWindow.open({ map, anchor: mainMarker }));
 
         // --- Nearest water body: shows why a location is flood-prone ---
         {% if prediction.nearest_water_lat is not none and prediction.nearest_water_lon is not none %}
-        const waterPoint = [{{ prediction.nearest_water_lat }}, {{ prediction.nearest_water_lon }}];
-        const waterMarker = L.circleMarker(waterPoint, {
-            radius: 7,
-            color: "#38bdf8",
-            fillColor: "#38bdf8",
-            fillOpacity: 0.85,
-            weight: 2
-        }).addTo(map);
-        waterMarker.bindTooltip("{{ prediction.nearest_water_label or 'Nearest water body' }} (~{{ prediction.nearest_water_m }} m)", { direction: "top" });
-        waterMarker.bindPopup("<b>{{ prediction.nearest_water_label or 'Nearest water body' }}</b><br>Roughly {{ prediction.nearest_water_m }} m away. Proximity to water is a major flood-risk factor.");
+        const waterPoint = { lat: {{ prediction.nearest_water_lat }}, lng: {{ prediction.nearest_water_lon }} };
+        const waterMarker = new google.maps.Marker({
+            position: waterPoint,
+            map: map,
+            icon: {
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 7,
+                fillColor: "#38bdf8",
+                fillOpacity: 0.85,
+                strokeColor: "#38bdf8",
+                strokeWeight: 2,
+            },
+            title: "{{ prediction.nearest_water_label or 'Nearest water body' }} (~{{ prediction.nearest_water_m }} m)",
+        });
+        const waterInfoWindow = new google.maps.InfoWindow({
+            content: "<b>{{ prediction.nearest_water_label or 'Nearest water body' }}</b><br>Roughly {{ prediction.nearest_water_m }} m away. Proximity to water is a major flood-risk factor."
+        });
+        waterMarker.addListener("click", () => waterInfoWindow.open({ map, anchor: waterMarker }));
 
-        L.polyline([[latitude, longitude], waterPoint], {
-            color: "#38bdf8",
-            weight: 2,
-            dashArray: "6, 8",
-            opacity: 0.7
-        }).addTo(map);
+        new google.maps.Polyline({
+            path: [{ lat: latitude, lng: longitude }, waterPoint],
+            strokeColor: "#38bdf8",
+            strokeOpacity: 0.7,
+            strokeWeight: 2,
+            map: map,
+        });
         {% endif %}
 
         // Community reports are city-level evidence. No artificial marker is
         // placed because FloodGuard does not store reporters' exact locations.
 
-        // --- Live traffic layer (optional — needs a free Mapbox token) ---
-        let trafficLayer = null;
-        if (mapboxToken) {
-            trafficLayer = L.tileLayer(
-                "https://api.mapbox.com/styles/v1/mapbox/traffic-day-v2/tiles/{z}/{x}/{y}?access_token=" + mapboxToken,
-                { attribution: "Traffic &copy; Mapbox", opacity: 0.85 }
-            );
-            trafficLayer.addTo(map);
-
-            const overlays = { "Live traffic": trafficLayer };
-            L.control.layers({ "Map": baseLayer }, overlays, { collapsed: false, position: "topright" }).addTo(map);
-        }
-
-        const legend = L.control({ position: "bottomright" });
-        legend.onAdd = function () {
-            const div = L.DomUtil.create("div", "map-legend");
-            let rows = "";
-            rows += '<div class="map-legend-row"><span id="map-legend-risk" class="map-legend-swatch" style="background:' + riskColor + '"></span> Location risk context</div>';
-            rows += '<div class="map-legend-row"><span class="map-legend-dot" style="background:#38bdf8"></span> Nearest mapped water</div>';
-            {% if prediction.community.flooding_reports > 0 %}
-            rows += '<div class="map-legend-row map-legend-note">Community reports inform the score; exact pins are hidden</div>';
-            {% endif %}
-            if (mapboxToken) {
-                rows += '<div class="map-legend-row"><span class="map-legend-line"></span> Live traffic (toggle top-right)</div>';
-            }
-            div.innerHTML = rows;
-            return div;
-        };
-        legend.addTo(map);
-
-        function escapeHtml(value) {
-            return String(value).replace(/[&<>'"]/g, (character) => ({
-                "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"
-            })[character]);
-        }
+        // --- Legend ---
+        const legend = document.createElement("div");
+        legend.className = "map-legend";
+        let legendRows = "";
+        legendRows += '<div class="map-legend-row"><span id="map-legend-risk" class="map-legend-swatch" style="background:' + riskColor + '"></span> Location risk context</div>';
+        legendRows += '<div class="map-legend-row"><span class="map-legend-dot" style="background:#38bdf8"></span> Nearest mapped water</div>';
+        {% if prediction.community.flooding_reports > 0 %}
+        legendRows += '<div class="map-legend-row map-legend-note">Community reports inform the score; exact pins are hidden</div>';
+        {% endif %}
+        legendRows += '<div class="map-legend-row map-legend-note">Background road tint: live traffic (Google)</div>';
+        legend.innerHTML = legendRows;
+        map.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(legend);
 
         function updateMapPeriod(period) {
             const colourName = riskColours[period.riskColor] ? period.riskColor : "low";
@@ -2296,14 +2327,15 @@
             const isNow = period.id === "now";
             const state = period.label + ": " + period.risk + " risk (score " + period.score + "/100)";
 
-            riskCircle.setStyle({
-                color: colour,
+            riskCircle.setOptions({
+                strokeColor: colour,
                 fillColor: colour,
                 fillOpacity: isNow ? 0.13 : 0.09,
-                dashArray: isNow ? "" : "8 8"
             });
-            riskCircle.bindTooltip("Location risk context - " + state, { sticky: true });
-            mainMarker.setPopupContent(
+            riskCircleInfoWindow.setContent(
+                "<b>Location risk context</b><br>" + escapeHtml(state) + "<br><small>This ring highlights the map context for the searched location. It is not an exact flood boundary.</small>"
+            );
+            mainInfoWindow.setContent(
                 "<b>" + escapeHtml(cityName) + "</b><br>" +
                 escapeHtml(state) + "<br><small>Assessment for this searched location, not an exact flood boundary.</small>"
             );
@@ -2332,10 +2364,11 @@
         updateMapPeriod(currentMapPeriod);
 
         setTimeout(function () {
-            map.invalidateSize();
+            google.maps.event.trigger(map, "resize");
         }, 300);
     });
     </script>
+    {% endif %}
 
     <script>
     (function () {
