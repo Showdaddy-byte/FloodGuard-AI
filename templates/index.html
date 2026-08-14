@@ -16,7 +16,35 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     {% if google_maps_browser_key %}
-    <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_browser_key }}&libraries=places" async defer></script>
+    <script>
+        // Google's Maps JS script loads with `async` — there is no reliable
+        // guarantee it has finished by the time any later inline script
+        // block on this page runs. Each map section used to guard against
+        // this with its own ad-hoc check (a bare IIFE, a "load" listener, a
+        // "DOMContentLoaded" listener) — none of those actually guarantee
+        // Google Maps itself is ready, just that the PAGE is at some stage.
+        // This uses Google's own `callback` URL parameter instead, which
+        // only fires once google.maps is genuinely usable, and exposes it
+        // as a small helper so every map section can depend on the same,
+        // correct signal rather than each guessing independently.
+        window.__fgGoogleMapsReady = false;
+        window.__fgGoogleMapsReadyCallbacks = [];
+        window.onFloodGuardMapsReady = function (callback) {
+            if (window.__fgGoogleMapsReady && window.google && window.google.maps) {
+                callback();
+            } else {
+                window.__fgGoogleMapsReadyCallbacks.push(callback);
+            }
+        };
+        window.__fgInitGoogleMaps = function () {
+            window.__fgGoogleMapsReady = true;
+            window.__fgGoogleMapsReadyCallbacks.forEach(function (callback) {
+                callback();
+            });
+            window.__fgGoogleMapsReadyCallbacks = [];
+        };
+    </script>
+    <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_browser_key }}&libraries=places&callback=__fgInitGoogleMaps" async defer></script>
     {% endif %}
     <style>
         #route-map {
@@ -231,22 +259,6 @@
         }
         .fg-info-card-link a {
             color: #2563eb;
-        }
-        .legal-micro-disclaimer {
-            display: flex;
-            align-items: flex-start;
-            gap: 8px;
-            font-size: 12px;
-            line-height: 1.5;
-            color: #fcd34d;
-            background: rgba(245, 158, 11, 0.1);
-            border: 1px solid rgba(245, 158, 11, 0.35);
-            border-radius: 8px;
-            padding: 10px 12px;
-            margin: 10px 0 0;
-        }
-        .legal-micro-disclaimer strong {
-            color: #fcd34d;
         }
     </style>
 </head>
@@ -468,7 +480,6 @@
             <input type="text" id="route-destination" placeholder="To, e.g. Victoria Island" required>
             <button type="submit" id="route-submit">Check Route</button>
         </form>
-        <p class="legal-micro-disclaimer">⚠️ <span><strong>Warning:</strong> Route assessments are algorithmic estimates based on historical and current terrain metrics. Conditions on the ground can change rapidly. Never drive into standing water. Travel at your own risk. <a href="/terms" style="color:#fcd34d;">Full terms</a>.</span></p>
         <div id="route-feedback" class="route-feedback"></div>
         <div id="route-results"></div>
         <div id="route-map" style="display:none;"></div>
@@ -484,7 +495,6 @@
             <input type="text" id="property-location" placeholder="Address or neighborhood, e.g. Lekki Phase 1, Lagos" required>
             <button type="submit" id="property-submit">Check Location</button>
         </form>
-        <p class="legal-micro-disclaimer">⚠️ <span><strong>Notice:</strong> This score evaluates long-term terrain vulnerabilities and historical data. It does not guarantee a property will never flood or substitute for a professional structural survey. <a href="/terms" style="color:#fcd34d;">Full terms</a>.</span></p>
         <div id="property-feedback" class="route-feedback"></div>
         <div id="property-results"></div>
     </section>
@@ -925,7 +935,7 @@
         <div class="contact-grid">
             <div class="contact-item">
                 <span class="contact-label">📧 Email</span>
-                <a href="mailto:floodguardaiinfo@gmail.com">floodguardaiinfo@gmail.com</a>
+                <a href="mailto:info@myfloodguard.online">info@myfloodguard.online</a>
             </div>
         </div>
         <p><a href="/terms" style="color:#9ca3af;">Terms of Service &amp; Legal Disclaimer</a></p>
@@ -1519,9 +1529,9 @@
 
     {% if google_maps_browser_key %}
     <script>
-    (function () {
+    onFloodGuardMapsReady(function () {
         const mapElement = document.getElementById("global-map");
-        if (!mapElement || !window.google || !google.maps) return;
+        if (!mapElement) return;
 
         const globalMap = new google.maps.Map(mapElement, {
             center: { lat: 18, lng: 0 },
@@ -1871,15 +1881,15 @@
         renderSavedPlaces();
         loadSituation();
         setInterval(loadSituation, 120000);
-    })();
+    });
     </script>
     {% endif %}
 
     {% if google_maps_browser_key %}
     <script>
-    window.addEventListener("load", function () {
+    onFloodGuardMapsReady(function () {
         const mapElement = document.getElementById("live-traffic-map");
-        if (!mapElement || !window.google || !google.maps) return;
+        if (!mapElement) return;
 
         const statusEl = document.getElementById("traffic-map-status");
         const searchForm = document.getElementById("traffic-search-form");
@@ -2198,9 +2208,7 @@
 
     {% if google_maps_browser_key %}
     <script>
-    document.addEventListener("DOMContentLoaded", function () {
-        if (!window.google || !google.maps) return;
-
+    onFloodGuardMapsReady(function () {
         const latitude = {{ prediction.latitude }};
         const longitude = {{ prediction.longitude }};
         const riskColor = "{{ prediction.map_color }}";
