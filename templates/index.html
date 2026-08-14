@@ -182,6 +182,72 @@
             cursor: pointer;
             white-space: nowrap;
         }
+        /* FloodGuard's InfoWindow content. Explicit colors throughout —
+           Google's InfoWindow bubble is always white, and without an
+           explicit color here the content inherits this page's light,
+           dark-theme text color and becomes nearly unreadable. */
+        .fg-info-card {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+            color: #111827;
+            min-width: 190px;
+        }
+        .fg-info-card-title {
+            font-weight: 700;
+            font-size: 14px;
+            margin-bottom: 6px;
+            color: #111827;
+        }
+        .fg-info-card-risk-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 4px;
+        }
+        .fg-info-card-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+        .fg-info-card-risk-label {
+            font-weight: 700;
+            font-size: 13px;
+            letter-spacing: 0.02em;
+        }
+        .fg-info-card-score {
+            font-size: 12px;
+            color: #374151;
+            margin-bottom: 6px;
+        }
+        .fg-info-card-note {
+            font-size: 11px;
+            color: #6b7280;
+            line-height: 1.4;
+        }
+        .fg-info-card-link {
+            font-size: 12px;
+            margin-top: 4px;
+        }
+        .fg-info-card-link a {
+            color: #2563eb;
+        }
+        .legal-micro-disclaimer {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            font-size: 12px;
+            line-height: 1.5;
+            color: #fcd34d;
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.35);
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin: 10px 0 0;
+        }
+        .legal-micro-disclaimer strong {
+            color: #fcd34d;
+        }
     </style>
 </head>
 <body class="{% if prediction %}weather-{{ prediction.scene.code }}{% else %}weather-clouds{% endif %}">
@@ -402,6 +468,7 @@
             <input type="text" id="route-destination" placeholder="To, e.g. Victoria Island" required>
             <button type="submit" id="route-submit">Check Route</button>
         </form>
+        <p class="legal-micro-disclaimer">⚠️ <span><strong>Warning:</strong> Route assessments are algorithmic estimates based on historical and current terrain metrics. Conditions on the ground can change rapidly. Never drive into standing water. Travel at your own risk. <a href="/terms" style="color:#fcd34d;">Full terms</a>.</span></p>
         <div id="route-feedback" class="route-feedback"></div>
         <div id="route-results"></div>
         <div id="route-map" style="display:none;"></div>
@@ -417,6 +484,7 @@
             <input type="text" id="property-location" placeholder="Address or neighborhood, e.g. Lekki Phase 1, Lagos" required>
             <button type="submit" id="property-submit">Check Location</button>
         </form>
+        <p class="legal-micro-disclaimer">⚠️ <span><strong>Notice:</strong> This score evaluates long-term terrain vulnerabilities and historical data. It does not guarantee a property will never flood or substitute for a professional structural survey. <a href="/terms" style="color:#fcd34d;">Full terms</a>.</span></p>
         <div id="property-feedback" class="route-feedback"></div>
         <div id="property-results"></div>
     </section>
@@ -860,6 +928,7 @@
                 <a href="mailto:floodguardaiinfo@gmail.com">floodguardaiinfo@gmail.com</a>
             </div>
         </div>
+        <p><a href="/terms" style="color:#9ca3af;">Terms of Service &amp; Legal Disclaimer</a></p>
         <p>Copyright 2026 FloodGuard AI. All Rights Reserved.</p>
     </footer>
 
@@ -1537,6 +1606,8 @@
             }[String(risk).toLowerCase()] || "#0ea5e9";
         }
 
+        const RISK_EMOJI = { low: "🟢", watch: "🟡", high: "🟠", severe: "🔴", critical: "⚫" };
+
         function analysisUrl(place) {
             const params = new URLSearchParams({
                 map_lat: Number(place.lat).toFixed(6),
@@ -1624,8 +1695,7 @@
                     },
                 });
                 const infoWindow = new google.maps.InfoWindow({
-                    content: "<b>" + escapeHtml(place.label) + "</b><br>" +
-                        "<a href=\"" + analysisUrl(place) + "\">Run FloodGuard analysis</a>"
+                    content: '<div class="fg-info-card"><div class="fg-info-card-title">📍 ' + escapeHtml(place.label) + '</div><div class="fg-info-card-link"><a href="' + analysisUrl(place) + '">Run FloodGuard analysis</a></div></div>'
                 });
                 marker.addListener("click", () => infoWindow.open({ map: globalMap, anchor: marker }));
                 savedPlaceMarkers.push(marker);
@@ -1690,12 +1760,20 @@
                     label: { text: "!", color: "#fff", fontWeight: "bold" },
                 });
                 const sourceLink = /^https?:\/\//i.test(alert.event_url || "")
-                    ? '<br><a href="' + escapeHtml(alert.event_url) + '" target="_blank" rel="noopener">Open GDACS report</a>'
+                    ? '<div class="fg-info-card-link"><a href="' + escapeHtml(alert.event_url) + '" target="_blank" rel="noopener">Open GDACS report ↗</a></div>'
                     : "";
+                const alertEmoji = RISK_EMOJI[String(alert.risk_color).toLowerCase()] || "⚪";
                 const infoWindow = new google.maps.InfoWindow({
-                    content: "<b>" + escapeHtml(alert.country || "Flood alert") + "</b><br>" +
-                        escapeHtml(alert.risk_level) + " flood alert<br>" +
-                        escapeHtml(alert.title) + sourceLink
+                    content:
+                        '<div class="fg-info-card">' +
+                            '<div class="fg-info-card-title">📍 ' + escapeHtml(alert.country || "Flood alert") + '</div>' +
+                            '<div class="fg-info-card-risk-row">' +
+                                '<span class="fg-info-card-dot" style="background:' + colour + '"></span>' +
+                                '<span class="fg-info-card-risk-label" style="color:' + colour + '">' + alertEmoji + ' ' + escapeHtml(alert.risk_level) + ' FLOOD ALERT</span>' +
+                            '</div>' +
+                            '<div class="fg-info-card-note">' + escapeHtml(alert.title) + '</div>' +
+                            sourceLink +
+                        '</div>'
                 });
                 marker.addListener("click", () => infoWindow.open({ map: globalMap, anchor: marker }));
                 alertMarkers.push(marker);
@@ -1751,7 +1829,7 @@
             if (pointMarker) pointMarker.setMap(null);
             if (pointInfoWindow) pointInfoWindow.close();
             pointMarker = new google.maps.Marker({ position: { lat, lng }, map: globalMap });
-            pointInfoWindow = new google.maps.InfoWindow({ content: "Preparing analysis…" });
+            pointInfoWindow = new google.maps.InfoWindow({ content: '<div class="fg-info-card">Preparing analysis…</div>' });
             pointInfoWindow.open({ map: globalMap, anchor: pointMarker });
             statusEl.textContent = "Naming this point and starting FloodGuard's full location analysis…";
             pinButton.disabled = true;
@@ -1762,7 +1840,7 @@
                 window.location.assign(analysisUrl({ label: data.label, lat: data.lat, lon: data.lon }));
             } catch (error) {
                 statusEl.textContent = error.message || "Could not analyse that point. Try again.";
-                if (pointInfoWindow) pointInfoWindow.setContent("Point not analysed - try again");
+                if (pointInfoWindow) pointInfoWindow.setContent('<div class="fg-info-card">Point not analysed - try again</div>');
                 pinButton.disabled = false;
             }
         });
@@ -2127,6 +2205,7 @@
         const longitude = {{ prediction.longitude }};
         const riskColor = "{{ prediction.map_color }}";
         const cityName = {{ prediction.city | tojson }};
+        const isCoastal = {{ prediction.coastal | tojson }};
         const currentMapPeriod = {
             id: "now",
             label: "Right now",
@@ -2172,6 +2251,36 @@
             return String(value).replace(/[&<>'"]/g, (character) => ({
                 "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"
             })[character]);
+        }
+
+        // Emoji indicator per risk color, matching this app's own risk
+        // vocabulary (low/watch/high/severe/critical) — purely decorative,
+        // the actual color-coding always comes from riskColours above.
+        const RISK_EMOJI = { low: "🟢", watch: "🟡", high: "🟠", severe: "🔴", critical: "⚫" };
+
+        // Single source of truth for the InfoWindow "risk card" markup.
+        // Used both for the initial render and every time-period switch
+        // (see updateMapPeriod below), so the card is never built twice
+        // from two different hardcoded templates that could drift apart.
+        function buildRiskCardHtml(period, colour, options) {
+            options = options || {};
+            const emoji = RISK_EMOJI[period.riskColor] || "⚪";
+            const title = options.title || ("📍 " + escapeHtml(cityName));
+            let note = options.note || "Assessment for this searched location, not an exact flood boundary.";
+            if (!options.note && isCoastal) {
+                note += " 🌊 Coastal region — lower alert threshold applied.";
+            }
+            return (
+                '<div class="fg-info-card">' +
+                    '<div class="fg-info-card-title">' + title + '</div>' +
+                    '<div class="fg-info-card-risk-row">' +
+                        '<span class="fg-info-card-dot" style="background:' + colour + '"></span>' +
+                        '<span class="fg-info-card-risk-label" style="color:' + colour + '">' + emoji + ' ' + escapeHtml(period.risk) + ' FLOOD RISK</span>' +
+                    '</div>' +
+                    '<div class="fg-info-card-score">Risk score: ' + period.score + '/100 &middot; ' + escapeHtml(period.label) + '</div>' +
+                    '<div class="fg-info-card-note">' + note + '</div>' +
+                '</div>'
+            );
         }
 
         // --- Search from the map or analyse a point the visitor drops ---
@@ -2220,7 +2329,7 @@
             if (selectedPointInfoWindow) selectedPointInfoWindow.close();
 
             selectedPointMarker = new google.maps.Marker({ position: { lat, lng }, map, opacity: 0.85 });
-            selectedPointInfoWindow = new google.maps.InfoWindow({ content: "Analysing this point..." });
+            selectedPointInfoWindow = new google.maps.InfoWindow({ content: '<div class="fg-info-card">Analysing this point...</div>' });
             selectedPointInfoWindow.open({ map, anchor: selectedPointMarker });
             mapSearchFeedback.textContent = "Finding this location and building its flood analysis...";
             mapPinButton.disabled = true;
@@ -2240,7 +2349,7 @@
                 window.location.assign("/?" + parameters.toString());
             } catch (error) {
                 mapSearchFeedback.textContent = error.message || "Could not analyse that point. Please try again.";
-                if (selectedPointInfoWindow) selectedPointInfoWindow.setContent("Point not analysed - try again");
+                if (selectedPointInfoWindow) selectedPointInfoWindow.setContent('<div class="fg-info-card">Point not analysed - try again</div>');
                 mapPinButton.disabled = false;
             }
         });
@@ -2259,9 +2368,7 @@
             center: { lat: latitude, lng: longitude },
             radius: 1400,
         });
-        const riskCircleInfoWindow = new google.maps.InfoWindow({
-            content: "<b>Location assessment</b><br>This ring highlights the map context for the searched location. It is not an exact flood boundary."
-        });
+        const riskCircleInfoWindow = new google.maps.InfoWindow();
         riskCircle.addListener("click", (event) => {
             riskCircleInfoWindow.setPosition(event.latLng);
             riskCircleInfoWindow.open(map);
@@ -2269,15 +2376,15 @@
 
         // --- Main location marker, with its info shown by default ---
         const mainMarker = new google.maps.Marker({ position: { lat: latitude, lng: longitude }, map: map });
-        const mainInfoWindow = new google.maps.InfoWindow({
-            content: "<b>{{ prediction.city }}</b><br>{{ prediction.risk }} flood risk (score {{ prediction.score }}/100){% if prediction.coastal %}<br>🌊 Coastal region — lower alert threshold applied{% endif %}"
-        });
+        const mainInfoWindow = new google.maps.InfoWindow();
         mainInfoWindow.open({ map, anchor: mainMarker });
         mainMarker.addListener("click", () => mainInfoWindow.open({ map, anchor: mainMarker }));
 
         // --- Nearest water body: shows why a location is flood-prone ---
         {% if prediction.nearest_water_lat is not none and prediction.nearest_water_lon is not none %}
         const waterPoint = { lat: {{ prediction.nearest_water_lat }}, lng: {{ prediction.nearest_water_lon }} };
+        const waterLabel = {{ (prediction.nearest_water_label or "Nearest water body") | tojson }};
+        const waterDistanceM = {{ prediction.nearest_water_m | tojson }};
         const waterMarker = new google.maps.Marker({
             position: waterPoint,
             map: map,
@@ -2289,10 +2396,10 @@
                 strokeColor: "#38bdf8",
                 strokeWeight: 2,
             },
-            title: "{{ prediction.nearest_water_label or 'Nearest water body' }} (~{{ prediction.nearest_water_m }} m)",
+            title: waterLabel + " (~" + waterDistanceM + " m)",
         });
         const waterInfoWindow = new google.maps.InfoWindow({
-            content: "<b>{{ prediction.nearest_water_label or 'Nearest water body' }}</b><br>Roughly {{ prediction.nearest_water_m }} m away. Proximity to water is a major flood-risk factor."
+            content: '<div class="fg-info-card"><div class="fg-info-card-title">' + escapeHtml(waterLabel) + '</div><div class="fg-info-card-note">Roughly ' + waterDistanceM + ' m away. Proximity to water is a major flood-risk factor.</div></div>'
         });
         waterMarker.addListener("click", () => waterInfoWindow.open({ map, anchor: waterMarker }));
 
@@ -2325,7 +2432,6 @@
             const colourName = riskColours[period.riskColor] ? period.riskColor : "low";
             const colour = period.mapColor || riskColours[colourName] || riskColor;
             const isNow = period.id === "now";
-            const state = period.label + ": " + period.risk + " risk (score " + period.score + "/100)";
 
             riskCircle.setOptions({
                 strokeColor: colour,
@@ -2333,12 +2439,12 @@
                 fillOpacity: isNow ? 0.13 : 0.09,
             });
             riskCircleInfoWindow.setContent(
-                "<b>Location risk context</b><br>" + escapeHtml(state) + "<br><small>This ring highlights the map context for the searched location. It is not an exact flood boundary.</small>"
+                buildRiskCardHtml(period, colour, {
+                    title: "Location risk context",
+                    note: "This ring highlights the map context for the searched location. It is not an exact flood boundary.",
+                })
             );
-            mainInfoWindow.setContent(
-                "<b>" + escapeHtml(cityName) + "</b><br>" +
-                escapeHtml(state) + "<br><small>Assessment for this searched location, not an exact flood boundary.</small>"
-            );
+            mainInfoWindow.setContent(buildRiskCardHtml(period, colour));
 
             const actionSummary = document.querySelector(".map-action-summary");
             actionSummary.className = "map-action-summary risk-border-" + colourName;

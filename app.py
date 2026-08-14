@@ -5445,5 +5445,11 @@ def widget():
         error=error
     )
 
+
+@app.route("/terms")
+def terms_of_service():
+    return render_template("terms.html")
+
+
 if __name__ == "__main__":
     app.run(debug=True)
