@@ -2706,6 +2706,163 @@ def classify_terrain(elevation):
     }
 
 
+# Terrain Behaviour Classification — turns the raw signals FloodGuard
+# already fetches (elevation, slope, water proximity, coastal flag,
+# building density, and — where Earth Engine is available — JRC's
+# historical water-occurrence percentage and Dynamic World's current
+# land-cover label) into one human-readable terrain type, instead of a
+# bare elevation number.
+#
+# This exists specifically to resolve a real ambiguity found in production:
+# a high JRC water-occurrence percentage at a searched coordinate can mean
+# either "this land floods often" or "this pixel is normally open water
+# (a lagoon/river/sea)" — those are very different facts, and a raw
+# percentage doesn't distinguish them. WATER_BODY below is FloodGuard
+# explicitly saying "you may have landed on water, not land" rather than
+# silently blending that signal into an unrelated flood-risk score.
+#
+# This is intentionally a rules engine over data FloodGuard already has —
+# not a new external dependency, and not a claim to detect every terrain
+# type perfectly. Coverage will improve as more signals (basin/valley
+# detection, curated reclaimed-land records) are added on top of it.
+TERRAIN_BEHAVIOUR_TYPES = {
+    "water_body": {
+        "code": "T-WATER",
+        "label": "Likely open water",
+        "icon": "🌊",
+    },
+    "wetland_seasonal": {
+        "code": "T6",
+        "label": "Wetland / seasonally inundated land",
+        "icon": "🪷",
+    },
+    "coastal_lowland": {
+        "code": "T2",
+        "label": "Coastal lowland",
+        "icon": "🏖️",
+    },
+    "lagoon_river_edge": {
+        "code": "T8",
+        "label": "Lagoon / river edge",
+        "icon": "🏞️",
+    },
+    "floodplain": {
+        "code": "T3",
+        "label": "River / lake floodplain",
+        "icon": "🌊",
+    },
+    "flat_basin": {
+        "code": "T10",
+        "label": "Flat, low-gradient terrain",
+        "icon": "🥣",
+    },
+    "urbanised_lowland": {
+        "code": "T11",
+        "label": "Urbanised lowland",
+        "icon": "🏙️",
+    },
+    "elevated": {
+        "code": "T1",
+        "label": "Elevated terrain",
+        "icon": "⛰️",
+    },
+    "standard": {
+        "code": "T0",
+        "label": "Standard terrain",
+        "icon": "📍",
+    },
+}
+
+
+def classify_terrain_behaviour(elevation, slope_percent, nearest_water_m, coastal, building_count, earth_engine=None):
+    """Combines elevation, slope, water proximity, coastal status,
+    building density, and (where available) Earth Engine's JRC water
+    occurrence and Dynamic World land cover into a single terrain
+    behaviour classification. Returns None if there isn't enough signal
+    (e.g. elevation lookup failed) to classify responsibly — this
+    deliberately does not guess when the underlying data is missing."""
+    if elevation is None:
+        return None
+
+    water_occurrence_pct = None
+    land_cover = None
+    if earth_engine and earth_engine.get("available"):
+        water_occurrence_pct = earth_engine.get("jrc_water_occurrence_pct")
+        land_cover = earth_engine.get("dynamic_world_label")
+
+    urbanised = bool(building_count and building_count >= 100)
+    flat = slope_percent is not None and slope_percent < 1.5
+    near_water = nearest_water_m is not None and nearest_water_m <= 500
+
+    # --- The critical distinction: is this pixel most likely water itself? ---
+    if (water_occurrence_pct is not None and water_occurrence_pct >= 70) or land_cover == "water":
+        key = "water_body"
+        detail = (
+            "This exact point shows a high rate of historical water presence"
+            + (f" (~{water_occurrence_pct:.0f}% of satellite observations)" if water_occurrence_pct is not None else "")
+            + (f", and current land cover here is classified as {land_cover}" if land_cover else "")
+            + ". This most likely means the coordinate is sitting on or very "
+            "close to open water (a lagoon, river, or sea) rather than "
+            "occupied land — not that the surrounding neighbourhood floods "
+            "94% of the time. For a meaningful assessment of a specific "
+            "street or building, try pinning a point slightly further from "
+            "the water's edge."
+        )
+        meta = TERRAIN_BEHAVIOUR_TYPES[key]
+        return {
+            "key": key,
+            "code": meta["code"],
+            "label": meta["label"],
+            "icon": meta["icon"],
+            "detail": detail,
+            "is_likely_water_pixel": True,
+        }
+
+    # --- Seasonally wet / periodically inundated land ---
+    if water_occurrence_pct is not None and 20 <= water_occurrence_pct < 70 and land_cover != "water":
+        key = "wetland_seasonal"
+        detail = (
+            f"Satellite observations show this area under water roughly "
+            f"{water_occurrence_pct:.0f}% of the time historically, without "
+            "being permanently classified as water today. This is a genuine "
+            "flood-prone signal — periodically inundated or low-lying "
+            "reclaimed land — distinct from a location that is simply "
+            "always a lagoon or river."
+        )
+        meta = TERRAIN_BEHAVIOUR_TYPES[key]
+        return {"key": key, "code": meta["code"], "label": meta["label"], "icon": meta["icon"], "detail": detail, "is_likely_water_pixel": False}
+
+    # --- Coastal / floodplain / basin classifications ---
+    if coastal and elevation <= 10:
+        key = "coastal_lowland"
+        detail = f"Low-lying coastal terrain (~{elevation:.0f} m). Storm surge, tidal backflow, and lagoon effects can bring flooding at rainfall levels that wouldn't trouble inland areas."
+    elif near_water and not coastal and elevation <= 15:
+        key = "floodplain"
+        detail = f"Low-lying land (~{elevation:.0f} m) close to a river or lake ({nearest_water_m:.0f} m). Overflow from that water body is a realistic risk here, separate from direct rainfall."
+    elif near_water and coastal:
+        key = "lagoon_river_edge"
+        detail = f"Within {nearest_water_m:.0f} m of mapped water in a coastal zone — exposed to both rainfall runoff and water-level rise from the adjacent water body."
+    elif flat and elevation <= 25:
+        key = "flat_basin"
+        detail = f"Very flat terrain (~{slope_percent:.1f}% grade) at a modest elevation (~{elevation:.0f} m). Flat ground drains slowly, so water that arrives tends to linger rather than run off."
+    elif elevation > 60:
+        key = "elevated"
+        detail = f"Elevated terrain (~{elevation:.0f} m). Flooding from rainfall alone is unlikely here."
+    elif urbanised and elevation <= 25:
+        key = "urbanised_lowland"
+        detail = f"Low-lying (~{elevation:.0f} m), densely built-up terrain. Paved surfaces increase runoff, and low elevation limits where that runoff can go."
+    else:
+        key = "standard"
+        detail = f"No single dominant terrain hazard detected at ~{elevation:.0f} m elevation."
+
+    meta = TERRAIN_BEHAVIOUR_TYPES[key]
+    label = meta["label"]
+    if urbanised and key not in ("urbanised_lowland", "water_body"):
+        label = "Urbanised " + label[0].lower() + label[1:]
+
+    return {"key": key, "code": meta["code"], "label": label, "icon": meta["icon"], "detail": detail, "is_likely_water_pixel": False}
+
+
 def weather_scene(weather_id, description):
     description = (description or "").lower()
 
@@ -4556,6 +4713,10 @@ def build_prediction(query, known_place=None):
     urban = classify_urbanization(building_count)
     coastal = is_coastal_region(nearest_coast_m)
 
+    terrain_behaviour = classify_terrain_behaviour(
+        elevation, slope_percent, nearest_water_m, coastal, building_count, earth_engine
+    )
+
     clay_percent = geo["clay_percent"]
     soil = classify_soil(clay_percent)
 
@@ -4688,6 +4849,7 @@ def build_prediction(query, known_place=None):
         "weather_condition": weather["description"],
 
         "terrain_risk": terrain,
+        "terrain_behaviour": terrain_behaviour,
         "drainage_status": urban,
         "flood_history": historical_reports,
         "soil_type": soil,
@@ -5176,6 +5338,9 @@ def api_property_check():
         vulnerability = compute_flood_vulnerability(
             terrain, slope, water, soil, coastal, earth_engine, historical_reports
         )
+        terrain_behaviour = classify_terrain_behaviour(
+            elevation, slope_percent, geo["nearest_water_m"], coastal, geo["building_count"], earth_engine
+        )
     except Exception as error:  # noqa: BLE001 — never let an edge case 500 the page
         print(f"Property flood risk assessment failed: {error}")
         return jsonify({"ok": False, "error": "Something went wrong checking this location. Please try again."}), 500
@@ -5186,6 +5351,7 @@ def api_property_check():
         "elevation_m": round(elevation) if elevation is not None else None,
         "coastal": coastal,
         "historical_reports": historical_reports,
+        "terrain_behaviour": terrain_behaviour,
         **vulnerability,
     })
 
