@@ -510,6 +510,14 @@ def init_db():
         conn.execute("ALTER TABLE geo_context_cache ADD COLUMN emergency_contacts_json TEXT")
     except sqlite3.OperationalError:
         pass
+    try:
+        conn.execute("ALTER TABLE geo_context_cache ADD COLUMN basin_relative_depth_m REAL")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE geo_context_cache ADD COLUMN basin_enclosure_ratio REAL")
+    except sqlite3.OperationalError:
+        pass
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS earth_engine_cache (
@@ -2165,6 +2173,140 @@ def fetch_elevation_grid(lat, lon, offset_deg=0.0027):
     return center, round(slope_percent, 1)
 
 
+def fetch_basin_context(lat, lon, offset_deg=0.0135):
+    """One batched Open-Meteo call sampling an 8-point compass ring at
+    roughly 1.5 km radius (plus the center point) — this is deliberately a
+    much wider sample than fetch_elevation_grid's ~300 m cross, because
+    detecting a km-scale drainage basin (the "Gbagada is a valley" case)
+    needs to look well beyond the immediate point. Returns
+    (relative_depth_m, enclosure_ratio):
+      relative_depth_m — how much lower the center sits than the average
+        of the surrounding ring (positive = center is a local low point).
+      enclosure_ratio — fraction of the 8 surrounding points that are
+        higher than the center (1.0 = every direction around it is higher
+        ground, i.e. a genuinely enclosed basin; low = open on some sides).
+    Returns (None, None) on any failure, same fail-open pattern as the
+    other geo lookups in this app."""
+    lon_offset = offset_deg / max(math.cos(math.radians(lat)), 0.01)
+    diag_offset = offset_deg * 0.7071
+    diag_lon_offset = lon_offset * 0.7071
+    points = [
+        (lat, lon),
+        (lat + offset_deg, lon),
+        (lat - offset_deg, lon),
+        (lat, lon + lon_offset),
+        (lat, lon - lon_offset),
+        (lat + diag_offset, lon + diag_lon_offset),
+        (lat + diag_offset, lon - diag_lon_offset),
+        (lat - diag_offset, lon + diag_lon_offset),
+        (lat - diag_offset, lon - diag_lon_offset),
+    ]
+    lats = ",".join(str(p[0]) for p in points)
+    lons = ",".join(str(p[1]) for p in points)
+
+    try:
+        response = request_with_retry(
+            "GET",
+            ELEVATION_URL,
+            service_name="open-meteo-elevation",
+            params={"latitude": lats, "longitude": lons},
+            timeout=8,
+        )
+        response.raise_for_status()
+        values = response.json().get("elevation", [])
+        if len(values) < 9 or any(v is None for v in values):
+            return None, None
+    except (requests.RequestException, ValueError) as error:
+        print(f"Basin context request failed: {error}")
+        return None, None
+
+    center = values[0]
+    ring = values[1:]
+    ring_mean = sum(ring) / len(ring)
+    relative_depth_m = round(ring_mean - center, 1)
+    directions_higher = sum(1 for v in ring if v > center)
+    enclosure_ratio = round(directions_higher / len(ring), 2)
+    return relative_depth_m, enclosure_ratio
+
+
+def classify_water_escape(slope_percent, relative_depth_m, enclosure_ratio, nearest_water_m, coastal, tide=None):
+    """"Once water arrives here, how easily can it leave?" — a terrain-shape
+    proxy built from slope plus relative basin position (how much lower a
+    point sits than the ~1.5 km area around it, and how many directions
+    around it are higher ground).
+
+    IMPORTANT SCOPE NOTE: this deliberately does NOT model engineered
+    drainage capacity, culvert sizing, blocked stormwater infrastructure,
+    or true hydrological flow-accumulation/routing — none of those are
+    available from free, global data sources. It answers a narrower,
+    honestly-scoped question: does the natural terrain shape tend to
+    concentrate water here, or let it disperse. The thresholds below
+    (3 m / 0.75 enclosure for a full basin, 1.5 m / 0.6 for a partial one)
+    are reasonable engineering judgement calls, not calibrated against
+    verified historical flood outcomes — same caveat this app already
+    applies to its other uncalibrated thresholds."""
+    if slope_percent is None or relative_depth_m is None or enclosure_ratio is None:
+        return {
+            "score_bonus": 0,
+            "level": "unknown",
+            "label": "Water escape data unavailable",
+            "status": "Basin/slope lookup failed — this factor is not yet included for this location.",
+        }
+
+    is_basin = relative_depth_m >= 3 and enclosure_ratio >= 0.75
+    is_mild_basin = relative_depth_m >= 1.5 and enclosure_ratio >= 0.6
+    is_flat = slope_percent < 1.5
+    tide_active = bool(tide and tide.get("current_height") is not None and tide.get("current_height") >= 0.6)
+
+    if is_basin and is_flat:
+        return {
+            "score_bonus": 16,
+            "level": "poor",
+            "label": "Poor — enclosed low point",
+            "status": (
+                f"This location sits roughly {relative_depth_m:.1f} m lower than the "
+                f"surrounding area in most directions, on nearly flat ground "
+                f"(~{slope_percent:.1f}% grade). Water that arrives here has limited "
+                "natural gradient to drain away and tends to accumulate rather than run off."
+            ),
+        }
+    if is_basin or (is_mild_basin and is_flat):
+        return {
+            "score_bonus": 10,
+            "level": "constrained",
+            "label": "Constrained — partial basin",
+            "status": (
+                f"This location sits somewhat lower (~{relative_depth_m:.1f} m) than parts "
+                "of the surrounding area. Natural drainage is likely slower here than on "
+                "open, sloped terrain nearby."
+            ),
+        }
+    if is_flat:
+        return {
+            "score_bonus": 5,
+            "level": "slow",
+            "label": "Slow — flat, not enclosed",
+            "status": (
+                f"Terrain here is very flat (~{slope_percent:.1f}% grade) but not a clear "
+                "basin — water can spread rather than drain quickly, though it isn't "
+                "trapped by higher ground on all sides."
+            ),
+        }
+
+    bonus = 0
+    extra = ""
+    if tide_active and coastal:
+        bonus += 4
+        extra = " Rising tide is currently reducing the effective gradient for drainage into nearby coastal water."
+
+    return {
+        "score_bonus": bonus,
+        "level": "good",
+        "label": "Good — sloped, open terrain",
+        "status": f"Terrain slopes away here (~{slope_percent:.1f}% grade) without surrounding high ground trapping water.{extra}",
+    }
+
+
 def classify_slope(slope_percent):
     if slope_percent is None:
         return {"score_bonus": 0, "label": "Slope data unavailable", "status": "Slope lookup failed."}
@@ -3067,6 +3209,7 @@ def estimate_environment(city, weather, community=None, context=None):
     moisture = context.get("soil_moisture")
     earth_engine = context.get("earth_engine")
     historical_reports = context.get("historical_reports", 0)
+    water_escape = context.get("water_escape")
 
     drainage_score = 8 if rainfall >= 30 else 6 if rainfall >= 10 else 3
 
@@ -3136,6 +3279,13 @@ def estimate_environment(city, weather, community=None, context=None):
             "status": "Proxy based on past visitor reports, not a certified historical flood archive.",
         },
     }
+
+    if water_escape:
+        layers["water_escape"] = {
+            "label": f"Water escape: {water_escape['label']}",
+            "score": max(0, min(10, water_escape.get("score_bonus", 0))),
+            "status": water_escape["status"],
+        }
 
     if tide:
         layers["tide"] = {
@@ -3244,6 +3394,7 @@ def _context_bonus(context):
     moisture = context.get("soil_moisture")
     earth_engine = context.get("earth_engine")
     historical_reports = context.get("historical_reports", 0)
+    water_escape = context.get("water_escape")
 
     score = 0
     factors = []
@@ -3253,6 +3404,12 @@ def _context_bonus(context):
         if bonus:
             score += bonus
             factors.append(f"{label_prefix}: {layer['label']}")
+
+    if water_escape:
+        bonus = water_escape.get("score_bonus", 0)
+        if bonus:
+            score += bonus
+            factors.append(f"Water escape: {water_escape['label']}")
 
     if tide:
         bonus = tide.get("score_bonus", 0)
@@ -3901,6 +4058,8 @@ def get_geo_context(city_key, lat, lon):
             "water_lookup_available": row["building_count"] is not None,
             "clay_percent": row["clay_percent"],
             "emergency_contacts": cached_contacts,
+            "basin_relative_depth_m": row["basin_relative_depth_m"],
+            "basin_enclosure_ratio": row["basin_enclosure_ratio"],
         }
 
         age_hours = (datetime.utcnow() - _parse_stored_datetime(row["updated_at"])).total_seconds() / 3600
@@ -3964,6 +4123,11 @@ def get_geo_context(city_key, lat, lon):
     if elevation is None and cached and cached["elevation"] is not None:
         elevation, slope_percent = cached["elevation"], cached["slope_percent"]
 
+    basin_relative_depth_m, basin_enclosure_ratio = fetch_basin_context(lat, lon)
+    if basin_relative_depth_m is None and cached and cached.get("basin_relative_depth_m") is not None:
+        basin_relative_depth_m = cached["basin_relative_depth_m"]
+        basin_enclosure_ratio = cached["basin_enclosure_ratio"]
+
     nearest_water_m, nearest_coast_m, building_count, nearest_water_point, nearest_water_label = (
         fetch_water_and_urban_context(lat, lon)
     )
@@ -3991,8 +4155,8 @@ def get_geo_context(city_key, lat, lon):
         INSERT INTO geo_context_cache
             (city_key, elevation, slope_percent, nearest_water_m, nearest_coast_m,
              nearest_water_lat, nearest_water_lon, nearest_water_label, building_count, clay_percent,
-             emergency_contacts_json, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             emergency_contacts_json, basin_relative_depth_m, basin_enclosure_ratio, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(city_key) DO UPDATE SET
             elevation=excluded.elevation,
             slope_percent=excluded.slope_percent,
@@ -4004,6 +4168,8 @@ def get_geo_context(city_key, lat, lon):
             building_count=excluded.building_count,
             clay_percent=excluded.clay_percent,
             emergency_contacts_json=excluded.emergency_contacts_json,
+            basin_relative_depth_m=excluded.basin_relative_depth_m,
+            basin_enclosure_ratio=excluded.basin_enclosure_ratio,
             updated_at=excluded.updated_at
         """,
         (
@@ -4018,6 +4184,8 @@ def get_geo_context(city_key, lat, lon):
             building_count,
             clay_percent,
             json.dumps(emergency_contacts),
+            basin_relative_depth_m,
+            basin_enclosure_ratio,
             now,
         ),
     )
@@ -4035,6 +4203,8 @@ def get_geo_context(city_key, lat, lon):
         "water_lookup_available": building_count is not None,
         "clay_percent": clay_percent,
         "emergency_contacts": emergency_contacts,
+        "basin_relative_depth_m": basin_relative_depth_m,
+        "basin_enclosure_ratio": basin_enclosure_ratio,
     }
 
 
@@ -4548,7 +4718,7 @@ def set_dam_status(dam_key, status, notes=None, source_url=None):
 
 
 
-def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engine, historical_reports):
+def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engine, historical_reports, water_escape=None):
     """Flood VULNERABILITY — how flood-prone this location inherently is —
     as a separate metric from the Live Flood Risk score above. This is
     deliberately WEATHER-INDEPENDENT: it does not use rainfall, tide, or
@@ -4577,7 +4747,10 @@ def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engi
 
     coastal_sev = 1.0 if coastal else 0.0
 
-    weights = {"terrain": 25, "water": 20, "occurrence": 20, "coastal": 15, "historical": 12, "soil": 8}
+    escape_raw = max(0.0, (water_escape or {}).get("score_bonus", 0))
+    escape_sev = _severity(escape_raw, 16)  # 16 is the worst case classify_water_escape produces
+
+    weights = {"terrain": 22, "water": 18, "occurrence": 18, "coastal": 13, "historical": 10, "soil": 7, "water_escape": 12}
     score = (
         terrain_sev * weights["terrain"]
         + water_sev * weights["water"]
@@ -4585,6 +4758,7 @@ def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engi
         + coastal_sev * weights["coastal"]
         + hist_sev * weights["historical"]
         + soil_sev * weights["soil"]
+        + escape_sev * weights["water_escape"]
     )
     score = max(0, min(round(score), 100))
 
@@ -4610,6 +4784,8 @@ def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engi
         factors.append(f"Earth Engine JRC data shows this area has been water-covered ~{water_occurrence_pct:.0f}% of the time historically")
     if soil.get("score_bonus", 0) > 0:
         factors.append(f"Soil: {soil['label']}")
+    if water_escape and water_escape.get("level") in ("poor", "constrained"):
+        factors.append(f"Water escape: {water_escape['label']}")
     if historical_reports > 0:
         factors.append(f"{historical_reports} community-reported flooding incident(s) at this location since tracking began")
     if not factors:
@@ -4733,6 +4909,10 @@ def build_prediction(query, known_place=None):
     tide_height = fetch_tide_status(lat, lon)
     tide = classify_tide(tide_height)
 
+    water_escape = classify_water_escape(
+        slope_percent, geo.get("basin_relative_depth_m"), geo.get("basin_enclosure_ratio"), nearest_water_m, coastal, tide
+    )
+
     print("STEP 5: River")
     discharge_current, discharge_mean = fetch_river_discharge(lat, lon)
     river = classify_river_discharge(discharge_current, discharge_mean)
@@ -4750,7 +4930,7 @@ def build_prediction(query, known_place=None):
     # flood-prone in general, and the app should say so explicitly rather
     # than implying "safe" just because it isn't raining right now.
     vulnerability = compute_flood_vulnerability(
-        terrain, slope, water, soil, coastal, earth_engine, historical_reports
+        terrain, slope, water, soil, coastal, earth_engine, historical_reports, water_escape
     )
     regional_context = get_regional_flood_context(weather.get("country"), weather["city"])
 
@@ -4766,6 +4946,7 @@ def build_prediction(query, known_place=None):
         "earth_engine": earth_engine,
         "historical_reports": historical_reports,
         "coastal": coastal,
+        "water_escape": water_escape,
     }
 
     # The forecast is fetched after context so each day can be scored with
@@ -5334,9 +5515,12 @@ def api_property_check():
         water = classify_water_proximity(geo["nearest_water_m"], geo["nearest_water_label"])
         coastal = is_coastal_region(geo["nearest_coast_m"])
         soil = classify_soil(geo["clay_percent"])
+        water_escape = classify_water_escape(
+            slope_percent, geo.get("basin_relative_depth_m"), geo.get("basin_enclosure_ratio"), geo["nearest_water_m"], coastal
+        )
 
         vulnerability = compute_flood_vulnerability(
-            terrain, slope, water, soil, coastal, earth_engine, historical_reports
+            terrain, slope, water, soil, coastal, earth_engine, historical_reports, water_escape
         )
         terrain_behaviour = classify_terrain_behaviour(
             elevation, slope_percent, geo["nearest_water_m"], coastal, geo["building_count"], earth_engine
@@ -5352,6 +5536,7 @@ def api_property_check():
         "coastal": coastal,
         "historical_reports": historical_reports,
         "terrain_behaviour": terrain_behaviour,
+        "water_escape": water_escape,
         **vulnerability,
     })
 

@@ -301,6 +301,12 @@
         .terrain-behaviour-water-warning .terrain-behaviour-code {
             color: #fcd34d;
         }
+        .terrain-behaviour-caveat {
+            margin-top: 8px !important;
+            font-size: 11px !important;
+            color: #94a3b8 !important;
+            font-style: italic;
+        }
     </style>
 </head>
 <body class="{% if prediction %}weather-{{ prediction.scene.code }}{% else %}weather-clouds{% endif %}">
@@ -756,6 +762,20 @@
                         </div>
                     </div>
                     <p>{{ prediction.terrain_behaviour.detail }}</p>
+                </div>
+                {% endif %}
+
+                {% if prediction.water_escape and prediction.water_escape.level != "unknown" %}
+                <div class="terrain-behaviour-card{% if prediction.water_escape.level in ("poor", "constrained") %} terrain-behaviour-water-warning{% endif %}">
+                    <div class="terrain-behaviour-header">
+                        <span class="terrain-behaviour-icon">💧</span>
+                        <div>
+                            <span class="terrain-behaviour-code">WATER ESCAPE</span>
+                            <h3>{{ prediction.water_escape.label }}</h3>
+                        </div>
+                    </div>
+                    <p>{{ prediction.water_escape.status }}</p>
+                    <p class="terrain-behaviour-caveat">Based on terrain shape only (slope + surrounding elevation) — this does not account for engineered drainage capacity, culverts, or blocked stormwater infrastructure.</p>
                 </div>
                 {% endif %}
 
