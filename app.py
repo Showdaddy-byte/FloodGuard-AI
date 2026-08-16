@@ -597,6 +597,35 @@ def init_db():
         )
         """
     )
+    # Ground-truth tracking: every prediction FloodGuard makes gets logged
+    # here automatically. actual_outcome starts NULL (unverified) and later
+    # gets filled in — currently via a matching community flooding report
+    # within the confirmation window, in the future potentially via admin
+    # verification too. Without this table, "FloodGuard is accurate" is
+    # only ever an assertion; with it, it's eventually a measurable claim.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS prediction_outcomes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            city_key TEXT NOT NULL,
+            city_label TEXT NOT NULL,
+            latitude REAL,
+            longitude REAL,
+            predicted_at TEXT NOT NULL,
+            predicted_risk TEXT NOT NULL,
+            predicted_score INTEGER NOT NULL,
+            predicted_vulnerability_score INTEGER,
+            coastal INTEGER DEFAULT 0,
+            actual_outcome TEXT,
+            actual_confirmed_at TEXT,
+            actual_source TEXT,
+            notes TEXT
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_prediction_outcomes_city_time ON prediction_outcomes(city_key, predicted_at)"
+    )
     conn.commit()
     conn.close()
 
@@ -677,6 +706,7 @@ def _known_place_for_curated_location(label):
 
 def save_contribution(city, category, rating, comment, water_depth_cm=None, roads_affected=None):
     db = get_db()
+    now = datetime.utcnow().isoformat()
     db.execute(
         "INSERT INTO contributions (city_key, city_label, category, rating, comment, water_depth_cm, roads_affected, created_at) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -688,10 +718,92 @@ def save_contribution(city, category, rating, comment, water_depth_cm=None, road
             comment.strip(),
             water_depth_cm,
             (roads_affected or "").strip() or None,
-            datetime.utcnow().isoformat(),
+            now,
         ),
     )
     db.commit()
+
+    # A "flooding" report is real-world ground truth arriving after the
+    # fact — use it to confirm any recent, still-unverified predictions for
+    # this same location, so FloodGuard starts building an actual
+    # prediction-vs-reality record instead of only ever asserting accuracy.
+    if category == "flooding":
+        link_flood_report_to_predictions(city, now)
+
+
+# How far back a new flooding report is allowed to confirm an existing
+# prediction as accurate. Chosen to comfortably cover "the rain that was
+# forecast this morning caused visible flooding by this evening" without
+# reaching back far enough to link genuinely unrelated events.
+PREDICTION_CONFIRMATION_WINDOW_HOURS = 48
+
+
+def log_prediction_outcome(prediction):
+    """Records one prediction for later accuracy tracking. Uses a raw
+    sqlite3 connection (not get_db()'s Flask g-scoped one) because
+    build_prediction() also runs from background threads — watchlist
+    sweeps, digest sends — that have no Flask request context. Never
+    raises: a logging failure must not break the actual prediction it's
+    trying to record."""
+    if not prediction:
+        return
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute(
+            """
+            INSERT INTO prediction_outcomes
+                (city_key, city_label, latitude, longitude, predicted_at,
+                 predicted_risk, predicted_score, predicted_vulnerability_score, coastal)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                normalize_city(prediction["city"]),
+                prediction["city"],
+                prediction.get("latitude"),
+                prediction.get("longitude"),
+                datetime.utcnow().isoformat(),
+                prediction["risk"],
+                prediction["score"],
+                (prediction.get("vulnerability") or {}).get("score"),
+                1 if prediction.get("coastal") else 0,
+            ),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as error:  # noqa: BLE001 — logging must never break a real prediction
+        print(f"log_prediction_outcome failed (non-fatal): {error}")
+
+
+def link_flood_report_to_predictions(city, report_timestamp_iso):
+    """Marks recent, still-unverified predictions for this city as
+    flood-confirmed, using an incoming community flooding report as the
+    real-world outcome. Deliberately conservative: only touches rows that
+    don't already have an actual_outcome, so an earlier confirmation (or a
+    future admin verification) is never overwritten by this automatic
+    linkage."""
+    try:
+        city_key = normalize_city(city)
+        cutoff = (
+            _parse_stored_datetime(report_timestamp_iso) - timedelta(hours=PREDICTION_CONFIRMATION_WINDOW_HOURS)
+        ).isoformat()
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute(
+            """
+            UPDATE prediction_outcomes
+            SET actual_outcome = 'flood_confirmed',
+                actual_confirmed_at = ?,
+                actual_source = 'community_report'
+            WHERE city_key = ?
+              AND actual_outcome IS NULL
+              AND predicted_at >= ?
+              AND predicted_at <= ?
+            """,
+            (report_timestamp_iso, city_key, cutoff, report_timestamp_iso),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as error:  # noqa: BLE001 — must never break the report submission itself
+        print(f"link_flood_report_to_predictions failed (non-fatal): {error}")
 
 
 def get_city_contributions(city, limit=12):
@@ -4988,7 +5100,7 @@ def build_prediction(query, known_place=None):
     travel_recommendation = build_travel_recommendation(flood_model["risk"], flood_model["score"], timeline)
     rainfall_warning = build_rainfall_warning(timeline, coastal=coastal)
     print("STEP 9: Completed")
-    return {
+    prediction_result = {
         **weather,
         **flood_model,
 
@@ -5037,7 +5149,11 @@ def build_prediction(query, known_place=None):
         "river_status": river,
         "tide_status": tide,
         "soil_moisture": moisture,
-    }, forecast
+    }
+
+    log_prediction_outcome(prediction_result)
+
+    return prediction_result, forecast
 
 
 def _share_card_font(size, bold=False):
