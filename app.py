@@ -5610,7 +5610,11 @@ def api_property_check():
     if len(location) > 150:
         return jsonify({"ok": False, "error": "Location is too long."}), 400
 
-    place = geocode_location(location)
+    known_place = _known_place_for_curated_location(location)
+    if known_place:
+        place = known_place
+    else:
+        place = geocode_location(location)
     if not place:
         return jsonify({"ok": False, "error": f"Could not find '{location}'."}), 400
 
