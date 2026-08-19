@@ -260,6 +260,53 @@
         .fg-info-card-link a {
             color: #2563eb;
         }
+        .terrain-behaviour-card {
+            background: rgba(56, 189, 248, 0.08);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            border-radius: 10px;
+            padding: 16px 18px;
+            margin: 16px 0;
+        }
+        .terrain-behaviour-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 6px;
+        }
+        .terrain-behaviour-icon {
+            font-size: 28px;
+            line-height: 1;
+        }
+        .terrain-behaviour-code {
+            display: block;
+            font-size: 11px;
+            letter-spacing: 0.05em;
+            color: #7dd3fc;
+            font-weight: 700;
+        }
+        .terrain-behaviour-header h3 {
+            margin: 2px 0 0;
+            font-size: 16px;
+        }
+        .terrain-behaviour-card p {
+            margin: 0;
+            font-size: 13px;
+            line-height: 1.6;
+            color: #cbd5e1;
+        }
+        .terrain-behaviour-water-warning {
+            background: rgba(245, 158, 11, 0.1);
+            border-color: rgba(245, 158, 11, 0.4);
+        }
+        .terrain-behaviour-water-warning .terrain-behaviour-code {
+            color: #fcd34d;
+        }
+        .terrain-behaviour-caveat {
+            margin-top: 8px !important;
+            font-size: 11px !important;
+            color: #94a3b8 !important;
+            font-style: italic;
+        }
     </style>
 </head>
 <body class="{% if prediction %}weather-{{ prediction.scene.code }}{% else %}weather-clouds{% endif %}">
@@ -705,6 +752,33 @@
                     <p class="map-limits">This is a location assessment, not a street-by-street flood boundary. Compare the selected time periods, check local conditions, and avoid routes that look unsafe.</p>
                 </section>
 
+                {% if prediction.terrain_behaviour %}
+                <div class="terrain-behaviour-card{% if prediction.terrain_behaviour.is_likely_water_pixel %} terrain-behaviour-water-warning{% endif %}">
+                    <div class="terrain-behaviour-header">
+                        <span class="terrain-behaviour-icon">{{ prediction.terrain_behaviour.icon }}</span>
+                        <div>
+                            <span class="terrain-behaviour-code">{{ prediction.terrain_behaviour.code }}</span>
+                            <h3>{{ prediction.terrain_behaviour.label }}</h3>
+                        </div>
+                    </div>
+                    <p>{{ prediction.terrain_behaviour.detail }}</p>
+                </div>
+                {% endif %}
+
+                {% if prediction.water_escape and prediction.water_escape.level != "unknown" %}
+                <div class="terrain-behaviour-card{% if prediction.water_escape.level in ("poor", "constrained") %} terrain-behaviour-water-warning{% endif %}">
+                    <div class="terrain-behaviour-header">
+                        <span class="terrain-behaviour-icon">💧</span>
+                        <div>
+                            <span class="terrain-behaviour-code">WATER ESCAPE</span>
+                            <h3>{{ prediction.water_escape.label }}</h3>
+                        </div>
+                    </div>
+                    <p>{{ prediction.water_escape.status }}</p>
+                    <p class="terrain-behaviour-caveat">Based on terrain shape only (slope + surrounding elevation) — this does not account for engineered drainage capacity, culverts, or blocked stormwater infrastructure.</p>
+                </div>
+                {% endif %}
+
                 <div class="insight-grid">
                     <section>
                         <h3>FloodGuard AI says {{ prediction.risk }} because:</h3>
@@ -938,6 +1012,7 @@
                 <a href="mailto:info@myfloodguard.online">info@myfloodguard.online</a>
             </div>
         </div>
+        <p>Weather data by <a href="https://openweathermap.org" target="_blank" rel="noopener" style="color:#9ca3af;">OpenWeather</a></p>
         <p><a href="/terms" style="color:#9ca3af;">Terms of Service &amp; Legal Disclaimer</a></p>
         <p>Copyright 2026 FloodGuard AI. All Rights Reserved.</p>
     </footer>
@@ -1439,6 +1514,16 @@
         const warningHtml = data.rent_purchase_warning
             ? '<div class="rent-warning-banner risk-border-' + color + '">' + data.rent_purchase_warning + "</div>"
             : "";
+        const terrainBehaviourHtml = data.terrain_behaviour
+            ? '<div class="terrain-behaviour-card' + (data.terrain_behaviour.is_likely_water_pixel ? ' terrain-behaviour-water-warning' : '') + '">' +
+                '<div class="terrain-behaviour-header">' +
+                    '<span class="terrain-behaviour-icon">' + data.terrain_behaviour.icon + '</span>' +
+                    '<div><span class="terrain-behaviour-code">' + data.terrain_behaviour.code + '</span>' +
+                    '<h3>' + data.terrain_behaviour.label + '</h3></div>' +
+                '</div>' +
+                '<p>' + data.terrain_behaviour.detail + '</p>' +
+              '</div>'
+            : "";
 
         resultsEl.innerHTML =
             '<div class="route-verdict-banner risk-border-' + color + '">' +
@@ -1446,6 +1531,7 @@
                 "<p>" + data.location + " — long-term vulnerability score " + data.score + "/100</p>" +
                 "<p>" + data.guidance + "</p>" +
             "</div>" +
+            terrainBehaviourHtml +
             warningHtml +
             '<div class="route-risky-list"><strong>What this is based on:</strong><ul>' + factorsHtml + "</ul></div>" +
             '<p class="property-disclaimer">' + data.disclaimer + "</p>";
