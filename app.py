@@ -518,6 +518,15 @@ def init_db():
         conn.execute("ALTER TABLE geo_context_cache ADD COLUMN basin_enclosure_ratio REAL")
     except sqlite3.OperationalError:
         pass
+    try:
+        conn.execute("ALTER TABLE geo_context_cache ADD COLUMN soil_moisture REAL")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        conn.execute("ALTER TABLE geo_context_cache ADD COLUMN soil_moisture_updated_at TEXT")
+    except sqlite3.OperationalError:
+        pass
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS earth_engine_cache (
@@ -4172,6 +4181,8 @@ def get_geo_context(city_key, lat, lon):
             "emergency_contacts": cached_contacts,
             "basin_relative_depth_m": row["basin_relative_depth_m"],
             "basin_enclosure_ratio": row["basin_enclosure_ratio"],
+            "soil_moisture": row["soil_moisture"],
+            "soil_moisture_updated_at": row["soil_moisture_updated_at"],
         }
 
         age_hours = (datetime.utcnow() - _parse_stored_datetime(row["updated_at"])).total_seconds() / 3600
@@ -4196,6 +4207,52 @@ def get_geo_context(city_key, lat, lon):
         )
 
         if age_hours < GEO_CONTEXT_TTL_HOURS and not critical_fields_missing:
+                        # Soil moisture changes more slowly than weather but faster than
+            # static terrain. Reuse it for up to 60 minutes to avoid hitting
+            # Open-Meteo on every watchlist prediction.
+            soil_moisture_value = cached.get("soil_moisture")
+            soil_moisture_updated_at = cached.get("soil_moisture_updated_at")
+
+            if soil_moisture_value is not None and soil_moisture_updated_at:
+                try:
+                    soil_moisture_age_minutes = (
+                        datetime.utcnow()
+                        - _parse_stored_datetime(soil_moisture_updated_at)
+                    ).total_seconds() / 60
+                except (TypeError, ValueError):
+                    soil_moisture_age_minutes = float("inf")
+            else:
+                soil_moisture_age_minutes = float("inf")
+
+            if soil_moisture_age_minutes >= 60:
+                fresh_moisture = fetch_soil_moisture(lat, lon)
+
+                if fresh_moisture is not None:
+                    soil_moisture_value = fresh_moisture
+                    soil_moisture_updated_at = datetime.utcnow().isoformat()
+
+                    conn.execute(
+                        """
+                        UPDATE geo_context_cache
+                        SET soil_moisture = ?,
+                            soil_moisture_updated_at = ?
+                        WHERE city_key = ?
+                        """,
+                        (
+                            soil_moisture_value,
+                            soil_moisture_updated_at,
+                            city_key,
+                        ),
+                    )
+                    conn.commit()
+                elif soil_moisture_value is not None:
+                    print(
+                        f"Soil moisture refresh failed for '{city_key}' "
+                        "— using last known-good cached value."
+                    )
+
+            cached["soil_moisture"] = soil_moisture_value
+            cached["soil_moisture_updated_at"] = soil_moisture_updated_at
             if cached["emergency_contacts"]:
                 conn.close()
                 cached["building_count"] = cached["building_count"] or 0
@@ -4261,14 +4318,42 @@ def get_geo_context(city_key, lat, lon):
     if not emergency_contacts and cached and cached["emergency_contacts"]:
         emergency_contacts = cached["emergency_contacts"]
 
-    now = datetime.utcnow().isoformat()
+    # Soil moisture is dynamic but slower-changing than weather. Fetch it
+    # only when there is no usable cached value or it is at least an hour old.
+    soil_moisture = cached.get("soil_moisture") if cached else None
+    soil_moisture_updated_at = cached.get("soil_moisture_updated_at") if cached else None
+
+    if soil_moisture is not None and soil_moisture_updated_at:
+        try:
+            soil_moisture_age_minutes = (
+                datetime.now(timezone.utc).replace(tzinfo=None)
+                - _parse_stored_datetime(soil_moisture_updated_at)
+            ).total_seconds() / 60
+        except (TypeError, ValueError):
+            soil_moisture_age_minutes = float("inf")
+    else:
+        soil_moisture_age_minutes = float("inf")
+
+    if soil_moisture_age_minutes >= 60:
+        fresh_moisture = fetch_soil_moisture(lat, lon)
+        if fresh_moisture is not None:
+            soil_moisture = fresh_moisture
+            soil_moisture_updated_at = datetime.now(timezone.utc).isoformat()
+        elif soil_moisture is None:
+            print(
+                f"Soil moisture unavailable for '{city_key}' "
+                "and no previous cached value exists."
+            )
+
+    now = datetime.now(timezone.utc).isoformat()
     conn.execute(
         """
         INSERT INTO geo_context_cache
             (city_key, elevation, slope_percent, nearest_water_m, nearest_coast_m,
              nearest_water_lat, nearest_water_lon, nearest_water_label, building_count, clay_percent,
-             emergency_contacts_json, basin_relative_depth_m, basin_enclosure_ratio, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             emergency_contacts_json, basin_relative_depth_m, basin_enclosure_ratio,
+             soil_moisture, soil_moisture_updated_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(city_key) DO UPDATE SET
             elevation=excluded.elevation,
             slope_percent=excluded.slope_percent,
@@ -4282,6 +4367,8 @@ def get_geo_context(city_key, lat, lon):
             emergency_contacts_json=excluded.emergency_contacts_json,
             basin_relative_depth_m=excluded.basin_relative_depth_m,
             basin_enclosure_ratio=excluded.basin_enclosure_ratio,
+            soil_moisture=excluded.soil_moisture,
+            soil_moisture_updated_at=excluded.soil_moisture_updated_at,
             updated_at=excluded.updated_at
         """,
         (
@@ -4298,6 +4385,8 @@ def get_geo_context(city_key, lat, lon):
             json.dumps(emergency_contacts),
             basin_relative_depth_m,
             basin_enclosure_ratio,
+            soil_moisture,
+            soil_moisture_updated_at,
             now,
         ),
     )
@@ -4317,6 +4406,8 @@ def get_geo_context(city_key, lat, lon):
         "emergency_contacts": emergency_contacts,
         "basin_relative_depth_m": basin_relative_depth_m,
         "basin_enclosure_ratio": basin_enclosure_ratio,
+        "soil_moisture": soil_moisture,
+        "soil_moisture_updated_at": soil_moisture_updated_at,
     }
 
 
@@ -5088,7 +5179,7 @@ def build_prediction(query, known_place=None):
     river = classify_river_discharge(discharge_current, discharge_mean)
 
     print("STEP 6: Soil Moisture")
-    moisture_value = fetch_soil_moisture(lat, lon)
+    moisture_value = geo.get("soil_moisture")
     moisture = classify_soil_moisture(moisture_value)
 
     community = get_city_stats(weather["city"])
