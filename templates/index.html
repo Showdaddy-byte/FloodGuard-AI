@@ -627,8 +627,13 @@
                     </div>
                     <div class="dual-score-card risk-border-{{ prediction.vulnerability.color }}">
                         <span class="dual-score-label">Flood Vulnerability</span>
+                        {% if prediction.vulnerability.data_incomplete %}
+                        <strong class="dual-score-value">Incomplete</strong>
+                        <p>Key location data could not be retrieved right now — this is not a confirmation of low risk. See details below.</p>
+                        {% else %}
                         <strong class="dual-score-value">{{ prediction.vulnerability.score }}/100</strong>
                         <p>How flood-prone this location inherently is: elevation, water proximity, and flood history. Does not depend on today's weather.</p>
+                        {% endif %}
                     </div>
                 </div>
 
@@ -1398,7 +1403,7 @@
     }
 
     function riskColorClassRoute(level) {
-        const map = { LOW: "low", WATCH: "watch", MODERATE: "moderate", HIGH: "high", SEVERE: "severe", CRITICAL: "critical" };
+        const map = { LOW: "low", WATCH: "watch", UNKNOWN: "watch", MODERATE: "moderate", HIGH: "high", SEVERE: "severe", CRITICAL: "critical" };
         return map[level] || "low";
     }
 
@@ -1528,7 +1533,9 @@
         resultsEl.innerHTML =
             '<div class="route-verdict-banner risk-border-' + color + '">' +
                 '<div class="travel-verdict risk-' + color + '">' + data.headline + "</div>" +
-                "<p>" + data.location + " — long-term vulnerability score " + data.score + "/100</p>" +
+                (data.data_incomplete
+                    ? "<p>" + data.location + "</p>"
+                    : "<p>" + data.location + " — long-term vulnerability score " + data.score + "/100</p>") +
                 "<p>" + data.guidance + "</p>" +
             "</div>" +
             terrainBehaviourHtml +

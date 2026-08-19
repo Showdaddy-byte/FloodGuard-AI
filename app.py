@@ -4517,6 +4517,12 @@ def _severity(raw, max_raw):
 
 
 VULNERABILITY_LEVELS = {
+    "UNKNOWN": {
+        "color": "watch",
+        "headline": "Could not fully assess this location right now",
+        "guidance": "Key location data (elevation, terrain, or water proximity) could not be retrieved due to a temporary service issue. This is NOT a confirmation of low risk — it means the assessment is incomplete. Please try again in a few minutes.",
+        "warn_renters": False,
+    },
     "LOW": {
         "color": "low",
         "headline": "Low long-term flood vulnerability",
@@ -4830,7 +4836,33 @@ def set_dam_status(dam_key, status, notes=None, source_url=None):
 
 
 
-def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engine, historical_reports, water_escape=None):
+def compute_geo_data_confidence(geo):
+    """How much of the core terrain/water/soil data actually loaded for
+    this location, versus fell back to unavailable because an external
+    service (Overpass, Open-Meteo) failed or was rate-limited. Returns
+    "high" (nothing missing), "medium" (one gap), or "low" (two or more
+    gaps) — "low" is what forces compute_flood_vulnerability to present
+    an UNKNOWN result instead of a numeric score that could be silently
+    low only because the inputs were missing, not because the location
+    is actually safe."""
+    core_values = [
+        geo.get("elevation"),
+        geo.get("slope_percent"),
+        geo.get("nearest_water_m"),
+        geo.get("clay_percent"),
+    ]
+    missing = sum(1 for value in core_values if value is None)
+    if not geo.get("water_lookup_available", True):
+        missing += 1
+
+    if missing == 0:
+        return "high"
+    if missing == 1:
+        return "medium"
+    return "low"
+
+
+def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engine, historical_reports, water_escape=None, data_confidence="high"):
     """Flood VULNERABILITY — how flood-prone this location inherently is —
     as a separate metric from the Live Flood Risk score above. This is
     deliberately WEATHER-INDEPENDENT: it does not use rainfall, tide, or
@@ -4839,7 +4871,20 @@ def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engi
     location can show LOW live risk on a dry day while still being highly
     vulnerable in general — that distinction is the entire point of this
     function, and why it's shown as a second, separate number rather than
-    folded into the main score."""
+    folded into the main score.
+
+    data_confidence: "high"/"medium"/"low", computed by the caller from
+    how many of the raw geo lookups (elevation, slope, water proximity,
+    soil) actually succeeded. This exists because every classify_*()
+    function below silently contributes score_bonus=0 when its input is
+    None — which is numerically indistinguishable from "this location
+    genuinely has no risk factor here". Without this override, a
+    location can show a reassuring LOW score purely because an external
+    service (Overpass, Open-Meteo) was down or rate-limited when it was
+    checked, not because it's actually low-vulnerability. When
+    confidence is "low", the result is forced to UNKNOWN regardless of
+    the numeric score, so an incomplete assessment is never presented as
+    a confirmed low-risk one."""
     terrain_raw = max(0.0, terrain.get("score_bonus", 0)) + max(0.0, slope.get("score_bonus", 0))
     terrain_sev = _severity(terrain_raw, 31)
 
@@ -4883,6 +4928,10 @@ def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engi
     else:
         level = "LOW"
 
+    data_incomplete = data_confidence == "low"
+    if data_incomplete:
+        level = "UNKNOWN"
+
     factors = []
     if terrain.get("score_bonus", 0) > 0:
         factors.append(f"Terrain: {terrain['label']}")
@@ -4900,13 +4949,20 @@ def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engi
         factors.append(f"Water escape: {water_escape['label']}")
     if historical_reports > 0:
         factors.append(f"{historical_reports} community-reported flooding incident(s) at this location since tracking began")
-    if not factors:
+
+    if data_incomplete:
+        factors = [
+            "Elevation, terrain, and/or water-proximity data could not be retrieved right now "
+            "(a data source may be temporarily rate-limited or unavailable) — this is not a "
+            "confirmation of low risk, the assessment is simply incomplete."
+        ] + factors
+    elif not factors:
         factors.append("No significant long-term flood indicators found for this location")
 
     meta = VULNERABILITY_LEVELS[level]
 
     rent_warning = None
-    if meta["warn_renters"] or historical_reports >= 3:
+    if not data_incomplete and (meta["warn_renters"] or historical_reports >= 3):
         if historical_reports >= 3:
             reason = f"a documented history of {historical_reports} community-reported flooding incidents"
         else:
@@ -4926,6 +4982,8 @@ def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engi
         "factors": factors,
         "water_occurrence_pct": round(water_occurrence_pct) if water_occurrence_pct is not None else None,
         "rent_purchase_warning": rent_warning,
+        "data_confidence": data_confidence,
+        "data_incomplete": data_incomplete,
         "disclaimer": (
             "This is a location-history and terrain-based estimate for general awareness, not a certified "
             "flood-zone survey, insurance assessment, or legal disclosure. Always get a professional flood-risk "
@@ -5041,8 +5099,9 @@ def build_prediction(query, known_place=None):
     # show low live risk on a dry day while still being highly
     # flood-prone in general, and the app should say so explicitly rather
     # than implying "safe" just because it isn't raining right now.
+    data_confidence = compute_geo_data_confidence(geo)
     vulnerability = compute_flood_vulnerability(
-        terrain, slope, water, soil, coastal, earth_engine, historical_reports, water_escape
+        terrain, slope, water, soil, coastal, earth_engine, historical_reports, water_escape, data_confidence
     )
     regional_context = get_regional_flood_context(weather.get("country"), weather["city"])
 
@@ -5624,8 +5683,7 @@ def api_property_check():
         city_key = normalize_city(location_label)
 
         geo = get_geo_context(city_key, lat, lon)
-        # Temporarily disable Earth Engine availability for assessments
-        earth_engine = {"available": False}
+        earth_engine = get_earth_engine_context(city_key, lat, lon)
         historical_reports = get_historical_frequency(location_label)
 
         elevation = geo["elevation"]
@@ -5639,8 +5697,9 @@ def api_property_check():
             slope_percent, geo.get("basin_relative_depth_m"), geo.get("basin_enclosure_ratio"), geo["nearest_water_m"], coastal
         )
 
+        data_confidence = compute_geo_data_confidence(geo)
         vulnerability = compute_flood_vulnerability(
-            terrain, slope, water, soil, coastal, earth_engine, historical_reports, water_escape
+            terrain, slope, water, soil, coastal, earth_engine, historical_reports, water_escape, data_confidence
         )
         terrain_behaviour = classify_terrain_behaviour(
             elevation, slope_percent, geo["nearest_water_m"], coastal, geo["building_count"], earth_engine
