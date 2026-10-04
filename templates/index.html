@@ -15,37 +15,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    {% if google_maps_browser_key %}
-    <script>
-        // Google's Maps JS script loads with `async` — there is no reliable
-        // guarantee it has finished by the time any later inline script
-        // block on this page runs. Each map section used to guard against
-        // this with its own ad-hoc check (a bare IIFE, a "load" listener, a
-        // "DOMContentLoaded" listener) — none of those actually guarantee
-        // Google Maps itself is ready, just that the PAGE is at some stage.
-        // This uses Google's own `callback` URL parameter instead, which
-        // only fires once google.maps is genuinely usable, and exposes it
-        // as a small helper so every map section can depend on the same,
-        // correct signal rather than each guessing independently.
-        window.__fgGoogleMapsReady = false;
-        window.__fgGoogleMapsReadyCallbacks = [];
-        window.onFloodGuardMapsReady = function (callback) {
-            if (window.__fgGoogleMapsReady && window.google && window.google.maps) {
-                callback();
-            } else {
-                window.__fgGoogleMapsReadyCallbacks.push(callback);
-            }
-        };
-        window.__fgInitGoogleMaps = function () {
-            window.__fgGoogleMapsReady = true;
-            window.__fgGoogleMapsReadyCallbacks.forEach(function (callback) {
-                callback();
-            });
-            window.__fgGoogleMapsReadyCallbacks = [];
-        };
-    </script>
-    <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_browser_key }}&libraries=places&callback=__fgInitGoogleMaps" async defer></script>
-    {% endif %}
+    
     <style>
         #route-map {
             height: 380px;
@@ -210,8 +180,8 @@
             cursor: pointer;
             white-space: nowrap;
         }
-        /* FloodGuard's InfoWindow content. Explicit colors throughout —
-           Google's InfoWindow bubble is always white, and without an
+        /* FloodGuard's map popup content. Explicit colors throughout —
+           Leaflet's popup bubble is always white, and without an
            explicit color here the content inherits this page's light,
            dark-theme text color and becomes nearly unreadable. */
         .fg-info-card {
@@ -390,11 +360,11 @@
                     </div>
                     </div>
                 <div id="global-map" role="region" aria-label="Global flood situation map">
-                    {% if not google_maps_browser_key %}
-                    <div class="traffic-not-configured">Map is not configured yet — add <code>GOOGLE_MAPS_BROWSER_KEY</code> to your environment to enable it.</div>
+                    {% if not geoapify_api_key %}
+                    <div class="traffic-not-configured">Map is not configured yet — add <code>GEOAPIFY_API_KEY</code> to your environment to enable it.</div>
                     {% endif %}
                 </div>
-                <p class="global-map-attribution">Map: Google Maps; optional NASA GPM IMERG satellite precipitation estimate; GDACS flood alerts. Satellite rain is a broad estimate, not street-level radar.</p>
+                <p class="global-map-attribution">Map: Geoapify / OpenStreetMap; optional NASA GPM IMERG satellite precipitation estimate; GDACS flood alerts. Satellite rain is a broad estimate, not street-level radar.</p>
             </div>
 
             <aside class="my-places-panel" aria-labelledby="my-places-title">
@@ -430,16 +400,16 @@
         <div class="traffic-panel-heading">
             <div>
                 <p class="global-kicker">Live Traffic</p>
-                <h2 id="live-traffic-title">🚦 Live Traffic Map</h2>
-                <p>See real-time road congestion anywhere in the world, powered by Google Maps — pan and zoom to check the route you're about to take before you leave.</p>
+                <h2 id="live-traffic-title">🗺️ World Map &amp; Route Check</h2>
+                <p>Search any city, address, or neighbourhood anywhere in the world, or plan a route and see FloodGuard's own flood-risk coloring along the way before you leave.</p>
             </div>
         </div>
 
-        {% if google_maps_browser_key %}
+        {% if geoapify_api_key %}
         <div class="traffic-toolbar">
             <div>
-                <strong>Traffic conditions</strong>
-                <span id="traffic-map-status">Loading live traffic…</span>
+                <strong>Map status</strong>
+                <span id="traffic-map-status">Loading map…</span>
             </div>
         </div>
 
@@ -462,11 +432,11 @@
         <div id="traffic-route-feedback" class="route-feedback"></div>
         <div id="traffic-route-results"></div>
 
-        <div id="live-traffic-map" role="region" aria-label="Live traffic map"></div>
-        <p class="global-map-attribution">Powered by Google Maps. The background road tint shows live congestion, and the route line (once you check a route) shows FloodGuard's own flood risk along the way — see the map legend for exact colors.</p>
+        <div id="live-traffic-map" role="region" aria-label="Searchable world map"></div>
+        <p class="global-map-attribution">Map: Geoapify / OpenStreetMap. The route line (once you check a route) shows FloodGuard's own flood risk along the way — see the map legend for exact colors.</p>
         {% else %}
         <div class="traffic-not-configured">
-            Live traffic map is not configured yet — add <code>GOOGLE_MAPS_BROWSER_KEY</code> to your environment to enable it.
+            Map is not configured yet — add <code>GEOAPIFY_API_KEY</code> to your environment to enable it.
         </div>
         {% endif %}
     </section>
@@ -716,7 +686,7 @@
                     <form id="map-search-form" class="map-search-panel" action="/" method="GET" role="search">
                         <label for="map-search-input">Search or pin another location</label>
                         <div class="map-search-actions">
-                            <input id="map-search-input" name="location" type="search" placeholder="City, address, or neighbourhood" autocomplete="off">
+                            <input id="map-search-input" type="search" placeholder="City, address, or neighbourhood" autocomplete="off">
                             <button type="submit" class="map-search-btn">Search map</button>
                             <button type="button" id="map-pin-button" class="map-pin-btn" aria-pressed="false">Pin a location</button>
                         </div>
@@ -724,8 +694,8 @@
                     </form>
 
                     <div id="map" role="region" aria-label="Flood decision map for {{ prediction.city }}">
-                        {% if not google_maps_browser_key %}
-                        <div class="traffic-not-configured">Map is not configured yet — add <code>GOOGLE_MAPS_BROWSER_KEY</code> to your environment to enable it.</div>
+                        {% if not geoapify_api_key %}
+                        <div class="traffic-not-configured">Map is not configured yet — add <code>GEOAPIFY_API_KEY</code> to your environment to enable it.</div>
                         {% endif %}
                     </div>
 
@@ -1309,13 +1279,16 @@
         return map[color] || "#f59e0b";
     }
 
+    let routeMapLegendControl = null;
+
     function renderRouteMap(data) {
         const mapEl = document.getElementById("route-map");
         if (!mapEl) return;
 
-        if (!window.google || !google.maps) {
+        const geoapifyKey = {{ geoapify_api_key | default('') | tojson }};
+        if (!window.L || !geoapifyKey) {
             mapEl.style.display = "block";
-            mapEl.innerHTML = '<div class="traffic-not-configured">Route map is not configured yet — add <code>GOOGLE_MAPS_BROWSER_KEY</code> to your environment to enable it.</div>';
+            mapEl.innerHTML = '<div class="traffic-not-configured">Route map is not configured yet — add <code>GEOAPIFY_API_KEY</code> to your environment to enable it.</div>';
             return;
         }
 
@@ -1326,80 +1299,73 @@
         }
 
         mapEl.style.display = "block";
-        mapEl.innerHTML = ""; // clear any previous "not configured" message before (re)initializing
 
-        routeMapOverlays.forEach((overlay) => overlay.setMap(null));
+        routeMapOverlays.forEach((overlay) => routeMap.removeLayer(overlay));
         routeMapOverlays = [];
 
         if (!routeMap) {
-            routeMap = new google.maps.Map(mapEl, {
-                mapTypeControl: false,
-                streetViewControl: false,
-            });
-            new google.maps.TrafficLayer().setMap(routeMap);
+            mapEl.innerHTML = ""; // clear any previous "not configured" message before (re)initializing
+            routeMap = L.map(mapEl, { attributionControl: true });
+            L.tileLayer("https://maps.geoapify.com/v1/tile/osm-bright/{z}/{x}/{y}.png?apiKey=" + geoapifyKey, {
+                maxZoom: 20,
+                attribution: 'Powered by <a href="https://www.geoapify.com/" target="_blank" rel="noopener">Geoapify</a> | &copy; OpenStreetMap contributors',
+            }).addTo(routeMap);
         }
 
-        const pathLatLng = route.path.map((p) => ({ lat: p[0], lng: p[1] }));
-        const bounds = new google.maps.LatLngBounds();
-        pathLatLng.forEach((p) => bounds.extend(p));
+        const pathLatLng = route.path.map((p) => [p[0], p[1]]);
 
         // --- Primary route, colored by worst-case risk along the way ---
-        const primaryLine = new google.maps.Polyline({
-            path: pathLatLng,
-            strokeColor: riskHexRoute(riskColorClassRoute(route.worst_risk)),
-            strokeWeight: 5,
-            strokeOpacity: 0.9,
-            map: routeMap,
-        });
+        const primaryLine = L.polyline(pathLatLng, {
+            color: riskHexRoute(riskColorClassRoute(route.worst_risk)),
+            weight: 5,
+            opacity: 0.9,
+        }).addTo(routeMap);
         routeMapOverlays.push(primaryLine);
 
         // --- Risk-colored segment markers, reusing the same data as the segment bar ---
         route.segments.forEach((s) => {
-            const marker = new google.maps.Marker({
-                position: { lat: s.lat, lng: s.lon },
-                map: routeMap,
-                title: s.risk + (s.water_label ? " — near " + s.water_label : ""),
-                icon: {
-                    path: google.maps.SymbolPath.CIRCLE,
-                    scale: 6,
-                    fillColor: riskHexRoute(riskColorClassRoute(s.risk)),
-                    fillOpacity: 1,
-                    strokeColor: "#fff",
-                    strokeWeight: 2,
-                },
-            });
+            const marker = L.circleMarker([s.lat, s.lon], {
+                radius: 6,
+                color: "#fff",
+                weight: 2,
+                fillColor: riskHexRoute(riskColorClassRoute(s.risk)),
+                fillOpacity: 1,
+            }).addTo(routeMap);
+            marker.bindTooltip(s.risk + (s.water_label ? " — near " + s.water_label : ""));
             routeMapOverlays.push(marker);
         });
 
         // --- Alternate route, shown lighter for comparison ---
         if (data.alternative_route && data.alternative_route.path) {
-            const altLine = new google.maps.Polyline({
-                path: data.alternative_route.path.map((p) => ({ lat: p[0], lng: p[1] })),
-                strokeColor: "#9ca3af",
-                strokeWeight: 3,
-                strokeOpacity: 0.6,
-                map: routeMap,
-            });
+            const altLine = L.polyline(data.alternative_route.path.map((p) => [p[0], p[1]]), {
+                color: "#9ca3af",
+                weight: 3,
+                opacity: 0.6,
+            }).addTo(routeMap);
             routeMapOverlays.push(altLine);
         }
 
         // --- Origin / destination markers ---
-        const originMarker = new google.maps.Marker({ position: { lat: data.origin_coords[0], lng: data.origin_coords[1] }, map: routeMap, title: data.origin });
-        const destMarker = new google.maps.Marker({ position: { lat: data.destination_coords[0], lng: data.destination_coords[1] }, map: routeMap, title: data.destination });
+        const originMarker = L.marker([data.origin_coords[0], data.origin_coords[1]]).addTo(routeMap).bindTooltip(data.origin);
+        const destMarker = L.marker([data.destination_coords[0], data.destination_coords[1]]).addTo(routeMap).bindTooltip(data.destination);
         routeMapOverlays.push(originMarker, destMarker);
 
-        routeMap.fitBounds(bounds, 30);
+        routeMap.fitBounds(primaryLine.getBounds(), { padding: [30, 30] });
 
         // --- Legend ---
-        const legend = document.createElement("div");
-        legend.className = "route-map-legend";
-        legend.innerHTML =
-            '<div class="route-map-legend-row"><span class="route-map-legend-line" style="background:' + riskHexRoute(riskColorClassRoute(route.worst_risk)) + '"></span> Route (flood risk, FloodGuard)</div>' +
-            '<div class="route-map-legend-row" style="color:#9ca3af;">Background road tint: live traffic (Google)</div>';
-        routeMap.controls[google.maps.ControlPosition.RIGHT_BOTTOM].clear();
-        routeMap.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(legend);
+        if (routeMapLegendControl) {
+            routeMapLegendControl.remove();
+        }
+        routeMapLegendControl = L.control({ position: "bottomright" });
+        routeMapLegendControl.onAdd = function () {
+            const div = L.DomUtil.create("div", "route-map-legend");
+            div.innerHTML =
+                '<div class="route-map-legend-row"><span class="route-map-legend-line" style="background:' + riskHexRoute(riskColorClassRoute(route.worst_risk)) + '"></span> Route (flood risk, FloodGuard)</div>';
+            return div;
+        };
+        routeMapLegendControl.addTo(routeMap);
 
-        google.maps.event.trigger(routeMap, "resize");
+        setTimeout(() => routeMap.invalidateSize(), 150);
     }
 
     function riskColorClassRoute(level) {
@@ -1620,63 +1586,43 @@
     }
     </script>
 
-    {% if google_maps_browser_key %}
+    {% if geoapify_api_key %}
     <script>
-    onFloodGuardMapsReady(function () {
+    (function () {
         const mapElement = document.getElementById("global-map");
         if (!mapElement) return;
 
-        const globalMap = new google.maps.Map(mapElement, {
-            center: { lat: 18, lng: 0 },
-            zoom: 2,
-            minZoom: 1,
-            mapTypeControl: false,
-            streetViewControl: false,
-        });
+        const geoapifyKey = {{ geoapify_api_key | tojson }};
+
+        const globalMap = L.map(mapElement, { minZoom: 1, worldCopyJump: true }).setView([18, 0], 2);
+
+        L.tileLayer("https://maps.geoapify.com/v1/tile/osm-bright/{z}/{x}/{y}.png?apiKey=" + geoapifyKey, {
+            maxZoom: 20,
+            attribution: 'Powered by <a href="https://www.geoapify.com/" target="_blank" rel="noopener">Geoapify</a> | &copy; OpenStreetMap contributors',
+        }).addTo(globalMap);
 
         // NASA GIBS publishes this as a broad, satellite-derived rain
         // estimate. Use the previous UTC day because the newest product can
         // arrive after a processing delay; it is intentionally off by default.
         const imergDate = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-        const IMERG_MAX_NATIVE_ZOOM = 7;
-        const IMERG_MAX_ZOOM = 9;
-
-        function imergTileUrl(coord, zoom) {
-            if (zoom > IMERG_MAX_ZOOM || zoom < 0) return null;
-            const tileCount = Math.pow(2, zoom);
-            let x = ((coord.x % tileCount) + tileCount) % tileCount;
-            let y = coord.y;
-            let z = zoom;
-            if (y < 0 || y >= tileCount) return null;
-
-            // Beyond NASA's native zoom, reuse the correct lower-resolution
-            // parent tile (standard tile-pyramid overzoom) rather than
-            // requesting a zoom level NASA doesn't actually publish —
-            // matches the effect Leaflet's maxNativeZoom/maxZoom gave us.
-            if (z > IMERG_MAX_NATIVE_ZOOM) {
-                const shift = z - IMERG_MAX_NATIVE_ZOOM;
-                x = Math.floor(x / Math.pow(2, shift));
-                y = Math.floor(y / Math.pow(2, shift));
-                z = IMERG_MAX_NATIVE_ZOOM;
+        const satelliteRainLayer = L.tileLayer(
+            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/IMERG_Precipitation_Rate/default/" +
+                imergDate + "/GoogleMapsCompatible_Level7/{z}/{y}/{x}.png",
+            {
+                maxNativeZoom: 7,
+                maxZoom: 9,
+                opacity: 0.62,
+                attribution: "NASA GIBS IMERG (satellite rain estimate)",
             }
-            return "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/IMERG_Precipitation_Rate/default/" +
-                imergDate + "/GoogleMapsCompatible_Level7/" + z + "/" + y + "/" + x + ".png";
-        }
-
-        const satelliteRainMapType = new google.maps.ImageMapType({
-            getTileUrl: imergTileUrl,
-            tileSize: new google.maps.Size(256, 256),
-            opacity: 0.62,
-            maxZoom: IMERG_MAX_ZOOM,
-            minZoom: 0,
-            name: "Satellite rain estimate (NASA IMERG)",
-        });
-        let rainLayerIndex = -1; // not shown by default, same as before
+        );
+        let rainLayerOn = false; // not shown by default, same as before
 
         let alertMarkers = [];
         let alertsVisible = true;
+        const alertLayer = L.layerGroup().addTo(globalMap);
         let savedPlaceMarkers = [];
         let placesVisible = true;
+        const placesLayer = L.layerGroup().addTo(globalMap);
 
         const statusEl = document.getElementById("global-map-status");
         const refreshButton = document.getElementById("global-refresh-button");
@@ -1691,7 +1637,6 @@
         const experienceStorageKey = "floodguard-experience-v1";
         let pinMode = false;
         let pointMarker = null;
-        let pointInfoWindow = null;
 
         function escapeHtml(value) {
             return String(value).replace(/[&<>'"]/g, (character) => ({
@@ -1721,37 +1666,41 @@
         }
 
         // ---------------------------------------------------------------
-        // Layer toggle control — Google Maps has no built-in equivalent to
-        // Leaflet's layer-control panel, so this is a small custom control
-        // with the same three toggles, in the same default states (alerts
-        // and saved places on, satellite rain off).
+        // Layer toggle control — a small custom Leaflet control with three
+        // toggles, in the same default states as before (alerts and saved
+        // places on, satellite rain off).
         // ---------------------------------------------------------------
-        const layerControl = document.createElement("div");
-        layerControl.className = "traffic-map-legend";
-        layerControl.innerHTML =
-            '<div class="traffic-map-legend-title">Map layers</div>' +
-            '<label class="global-layer-toggle-row"><input type="checkbox" id="layer-toggle-rain"> Satellite rain estimate (NASA IMERG)</label>' +
-            '<label class="global-layer-toggle-row"><input type="checkbox" id="layer-toggle-alerts" checked> GDACS flood alerts</label>' +
-            '<label class="global-layer-toggle-row"><input type="checkbox" id="layer-toggle-places" checked> My saved places</label>';
-        globalMap.controls[google.maps.ControlPosition.TOP_RIGHT].push(layerControl);
+        const layerControl = L.control({ position: "topright" });
+        layerControl.onAdd = function () {
+            const div = L.DomUtil.create("div", "traffic-map-legend");
+            L.DomEvent.disableClickPropagation(div);
+            div.innerHTML =
+                '<div class="traffic-map-legend-title">Map layers</div>' +
+                '<label class="global-layer-toggle-row"><input type="checkbox" id="layer-toggle-rain"> Satellite rain estimate (NASA IMERG)</label>' +
+                '<label class="global-layer-toggle-row"><input type="checkbox" id="layer-toggle-alerts" checked> GDACS flood alerts</label>' +
+                '<label class="global-layer-toggle-row"><input type="checkbox" id="layer-toggle-places" checked> My saved places</label>';
+            return div;
+        };
+        layerControl.addTo(globalMap);
 
-        layerControl.querySelector("#layer-toggle-rain").addEventListener("change", (event) => {
+        document.getElementById("layer-toggle-rain").addEventListener("change", (event) => {
             if (event.target.checked) {
-                if (rainLayerIndex === -1) {
-                    rainLayerIndex = globalMap.overlayMapTypes.push(satelliteRainMapType) - 1;
+                if (!rainLayerOn) {
+                    satelliteRainLayer.addTo(globalMap);
+                    rainLayerOn = true;
                 }
-            } else if (rainLayerIndex !== -1) {
-                globalMap.overlayMapTypes.removeAt(rainLayerIndex);
-                rainLayerIndex = -1;
+            } else if (rainLayerOn) {
+                globalMap.removeLayer(satelliteRainLayer);
+                rainLayerOn = false;
             }
         });
-        layerControl.querySelector("#layer-toggle-alerts").addEventListener("change", (event) => {
+        document.getElementById("layer-toggle-alerts").addEventListener("change", (event) => {
             alertsVisible = event.target.checked;
-            alertMarkers.forEach((marker) => marker.setMap(alertsVisible ? globalMap : null));
+            if (alertsVisible) { alertLayer.addTo(globalMap); } else { globalMap.removeLayer(alertLayer); }
         });
-        layerControl.querySelector("#layer-toggle-places").addEventListener("change", (event) => {
+        document.getElementById("layer-toggle-places").addEventListener("change", (event) => {
             placesVisible = event.target.checked;
-            savedPlaceMarkers.forEach((marker) => marker.setMap(placesVisible ? globalMap : null));
+            if (placesVisible) { placesLayer.addTo(globalMap); } else { globalMap.removeLayer(placesLayer); }
         });
 
         function getSavedPlaces() {
@@ -1771,7 +1720,7 @@
 
         function renderSavedPlaces() {
             const places = getSavedPlaces();
-            savedPlaceMarkers.forEach((marker) => marker.setMap(null));
+            placesLayer.clearLayers();
             savedPlaceMarkers = [];
             myPlacesList.replaceChildren();
 
@@ -1784,23 +1733,14 @@
             }
 
             places.forEach((place, index) => {
-                const marker = new google.maps.Marker({
-                    position: { lat: place.lat, lng: place.lon },
-                    map: placesVisible ? globalMap : null,
-                    title: place.label,
-                    icon: {
-                        path: google.maps.SymbolPath.CIRCLE,
-                        scale: 8,
-                        fillColor: "#2563eb",
-                        fillOpacity: 0.95,
-                        strokeColor: "#fff",
-                        strokeWeight: 2,
-                    },
-                });
-                const infoWindow = new google.maps.InfoWindow({
-                    content: '<div class="fg-info-card"><div class="fg-info-card-title">📍 ' + escapeHtml(place.label) + '</div><div class="fg-info-card-link"><a href="' + analysisUrl(place) + '">Run FloodGuard analysis</a></div></div>'
-                });
-                marker.addListener("click", () => infoWindow.open({ map: globalMap, anchor: marker }));
+                const marker = L.circleMarker([place.lat, place.lon], {
+                    radius: 8,
+                    color: "#fff",
+                    weight: 2,
+                    fillColor: "#2563eb",
+                    fillOpacity: 0.95,
+                }).addTo(placesLayer);
+                marker.bindPopup('<div class="fg-info-card"><div class="fg-info-card-title">📍 ' + escapeHtml(place.label) + '</div><div class="fg-info-card-link"><a href="' + analysisUrl(place) + '">Run FloodGuard analysis</a></div></div>');
                 savedPlaceMarkers.push(marker);
 
                 const item = document.createElement("div");
@@ -1810,9 +1750,8 @@
                 open.className = "my-place-open";
                 open.textContent = place.label;
                 open.addEventListener("click", () => {
-                    globalMap.panTo({ lat: place.lat, lng: place.lon });
-                    globalMap.setZoom(9);
-                    infoWindow.open({ map: globalMap, anchor: marker });
+                    globalMap.flyTo([place.lat, place.lon], 9, { duration: 0.75 });
+                    marker.openPopup();
                 });
                 const remove = document.createElement("button");
                 remove.type = "button";
@@ -1843,42 +1782,34 @@
             document.getElementById("global-elevated-count").textContent = data.elevated_locations;
             document.getElementById("global-report-count").textContent = data.recent_community_reports;
 
-            alertMarkers.forEach((marker) => marker.setMap(null));
+            alertLayer.clearLayers();
             alertMarkers = [];
 
             data.global_alerts.forEach((alert) => {
                 if (!Number.isFinite(Number(alert.latitude)) || !Number.isFinite(Number(alert.longitude))) return;
                 const colour = colourForRisk(alert.risk_color);
-                const marker = new google.maps.Marker({
-                    position: { lat: alert.latitude, lng: alert.longitude },
-                    map: alertsVisible ? globalMap : null,
-                    icon: {
-                        path: google.maps.SymbolPath.CIRCLE,
-                        scale: 14,
-                        fillColor: colour,
-                        fillOpacity: 1,
-                        strokeColor: "#fff",
-                        strokeWeight: 2,
-                    },
-                    label: { text: "!", color: "#fff", fontWeight: "bold" },
-                });
+                const marker = L.circleMarker([alert.latitude, alert.longitude], {
+                    radius: 12,
+                    color: "#fff",
+                    weight: 2,
+                    fillColor: colour,
+                    fillOpacity: 1,
+                }).addTo(alertLayer);
                 const sourceLink = /^https?:\/\//i.test(alert.event_url || "")
                     ? '<div class="fg-info-card-link"><a href="' + escapeHtml(alert.event_url) + '" target="_blank" rel="noopener">Open GDACS report ↗</a></div>'
                     : "";
                 const alertEmoji = RISK_EMOJI[String(alert.risk_color).toLowerCase()] || "⚪";
-                const infoWindow = new google.maps.InfoWindow({
-                    content:
-                        '<div class="fg-info-card">' +
-                            '<div class="fg-info-card-title">📍 ' + escapeHtml(alert.country || "Flood alert") + '</div>' +
-                            '<div class="fg-info-card-risk-row">' +
-                                '<span class="fg-info-card-dot" style="background:' + colour + '"></span>' +
-                                '<span class="fg-info-card-risk-label" style="color:' + colour + '">' + alertEmoji + ' ' + escapeHtml(alert.risk_level) + ' FLOOD ALERT</span>' +
-                            '</div>' +
-                            '<div class="fg-info-card-note">' + escapeHtml(alert.title) + '</div>' +
-                            sourceLink +
-                        '</div>'
-                });
-                marker.addListener("click", () => infoWindow.open({ map: globalMap, anchor: marker }));
+                marker.bindPopup(
+                    '<div class="fg-info-card">' +
+                        '<div class="fg-info-card-title">📍 ' + escapeHtml(alert.country || "Flood alert") + '</div>' +
+                        '<div class="fg-info-card-risk-row">' +
+                            '<span class="fg-info-card-dot" style="background:' + colour + '"></span>' +
+                            '<span class="fg-info-card-risk-label" style="color:' + colour + '">' + alertEmoji + ' ' + escapeHtml(alert.risk_level) + ' FLOOD ALERT</span>' +
+                        '</div>' +
+                        '<div class="fg-info-card-note">' + escapeHtml(alert.title) + '</div>' +
+                        sourceLink +
+                    '</div>'
+                );
                 alertMarkers.push(marker);
             });
 
@@ -1924,16 +1855,14 @@
         });
 
         pinButton.addEventListener("click", () => setPinMode(!pinMode));
-        globalMap.addListener("click", async (event) => {
+        globalMap.on("click", async (event) => {
             if (!pinMode) return;
             setPinMode(false);
-            const lat = event.latLng.lat();
-            const lng = event.latLng.lng();
-            if (pointMarker) pointMarker.setMap(null);
-            if (pointInfoWindow) pointInfoWindow.close();
-            pointMarker = new google.maps.Marker({ position: { lat, lng }, map: globalMap });
-            pointInfoWindow = new google.maps.InfoWindow({ content: '<div class="fg-info-card">Preparing analysis…</div>' });
-            pointInfoWindow.open({ map: globalMap, anchor: pointMarker });
+            const lat = event.latlng.lat;
+            const lng = event.latlng.lng;
+            if (pointMarker) globalMap.removeLayer(pointMarker);
+            pointMarker = L.marker([lat, lng]).addTo(globalMap);
+            pointMarker.bindPopup('<div class="fg-info-card">Preparing analysis…</div>').openPopup();
             statusEl.textContent = "Naming this point and starting FloodGuard's full location analysis…";
             pinButton.disabled = true;
             try {
@@ -1943,7 +1872,7 @@
                 window.location.assign(analysisUrl({ label: data.label, lat: data.lat, lon: data.lon }));
             } catch (error) {
                 statusEl.textContent = error.message || "Could not analyse that point. Try again.";
-                if (pointInfoWindow) pointInfoWindow.setContent('<div class="fg-info-card">Point not analysed - try again</div>');
+                if (pointMarker) pointMarker.setPopupContent('<div class="fg-info-card">Point not analysed - try again</div>');
                 pinButton.disabled = false;
             }
         });
@@ -1966,7 +1895,7 @@
             experienceButton.setAttribute("aria-pressed", String(simple));
             experienceButton.textContent = simple ? "Explore view" : "Simple view";
             localStorage.setItem(experienceStorageKey, simple ? "simple" : "explore");
-            setTimeout(() => google.maps.event.trigger(globalMap, "resize"), 150);
+            setTimeout(() => globalMap.invalidateSize(), 150);
         }
 
         experienceButton.addEventListener("click", () => setExperience(!document.body.classList.contains("simple-view")));
@@ -1974,15 +1903,17 @@
         renderSavedPlaces();
         loadSituation();
         setInterval(loadSituation, 120000);
-    });
+    })();
     </script>
     {% endif %}
 
-    {% if google_maps_browser_key %}
+    {% if geoapify_api_key %}
     <script>
-    onFloodGuardMapsReady(function () {
+    (function () {
         const mapElement = document.getElementById("live-traffic-map");
         if (!mapElement) return;
+
+        const geoapifyKey = {{ geoapify_api_key | tojson }};
 
         const statusEl = document.getElementById("traffic-map-status");
         const searchForm = document.getElementById("traffic-search-form");
@@ -1996,47 +1927,35 @@
 
         // Global, pannable/zoomable default view — this map isn't scoped to
         // any one city, so it opens the same way the Global Now map does.
-        const map = new google.maps.Map(mapElement, {
-            center: { lat: 18, lng: 0 },
-            zoom: 2,
-            mapTypeControl: true,
-            streetViewControl: false,
-        });
-        new google.maps.TrafficLayer().setMap(map);
-        if (statusEl) statusEl.textContent = "Showing live Google traffic. Search a place or plan a route below.";
+        const map = L.map(mapElement, { minZoom: 1, worldCopyJump: true }).setView([18, 0], 2);
+
+        L.tileLayer("https://maps.geoapify.com/v1/tile/osm-bright/{z}/{x}/{y}.png?apiKey=" + geoapifyKey, {
+            maxZoom: 20,
+            attribution: 'Powered by <a href="https://www.geoapify.com/" target="_blank" rel="noopener">Geoapify</a> | &copy; OpenStreetMap contributors',
+        }).addTo(map);
+
+        if (statusEl) statusEl.textContent = "Search a place or plan a route below.";
 
         // ---------------------------------------------------------------
-        // Search: Places Autocomplete where available, falling back to a
-        // plain Geocoder lookup on submit (e.g. if Autocomplete's dropdown
-        // wasn't used).
+        // Search — resolved through FloodGuard's own backend geocoder
+        // (Geoapify), the same endpoint used by "My Places" above, so a
+        // place name resolves the same way everywhere on this site.
         // ---------------------------------------------------------------
-        if (searchInput && google.maps.places) {
-            const autocomplete = new google.maps.places.Autocomplete(searchInput, {
-                fields: ["geometry", "name", "formatted_address"],
-            });
-            autocomplete.addListener("place_changed", function () {
-                const place = autocomplete.getPlace();
-                if (place.geometry) {
-                    map.fitBounds(place.geometry.viewport || new google.maps.LatLngBounds(place.geometry.location));
-                    if (statusEl) statusEl.textContent = "Showing " + (place.name || place.formatted_address || "that location") + ".";
-                }
-            });
-        }
         if (searchForm) {
-            searchForm.addEventListener("submit", function (event) {
+            searchForm.addEventListener("submit", async function (event) {
                 event.preventDefault();
                 const query = (searchInput.value || "").trim();
                 if (!query) return;
                 if (statusEl) statusEl.textContent = "Finding \"" + query + "\"…";
-                const geocoder = new google.maps.Geocoder();
-                geocoder.geocode({ address: query }, function (results, geocodeStatus) {
-                    if (geocodeStatus === "OK" && results[0]) {
-                        map.fitBounds(results[0].geometry.viewport || new google.maps.LatLngBounds(results[0].geometry.location));
-                        if (statusEl) statusEl.textContent = "Showing " + query + ".";
-                    } else if (statusEl) {
-                        statusEl.textContent = "Location not found. Try a more specific place name.";
-                    }
-                });
+                try {
+                    const response = await fetch("/api/map-geocode?q=" + encodeURIComponent(query));
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) throw new Error(data.error || "Location not found.");
+                    map.flyTo([data.lat, data.lon], 13, { duration: 0.75 });
+                    if (statusEl) statusEl.textContent = "Showing " + (data.label || query) + ".";
+                } catch (error) {
+                    if (statusEl) statusEl.textContent = error.message || "Location not found. Try a more specific place name.";
+                }
             });
         }
 
@@ -2067,8 +1986,9 @@
         // endpoint and flood-risk model as the "Can I Travel There
         // Safely?" section below, so a route drawn here reflects
         // FloodGuard's own scoring, not a second, different assessment.
-        // Google only supplies the base map, live traffic, and search;
-        // the route line's color is entirely FloodGuard's.
+        // The base map here is Geoapify/OpenStreetMap; the route line's
+        // color is entirely FloodGuard's own flood-risk model — there is
+        // no live traffic layer on this map.
         // ---------------------------------------------------------------
         function riskColorClassRoute(level) {
             const levels = { LOW: "low", WATCH: "watch", MODERATE: "moderate", HIGH: "high", SEVERE: "severe", CRITICAL: "critical" };
@@ -2081,7 +2001,7 @@
 
         let routeOverlays = [];
         function clearRoute() {
-            routeOverlays.forEach((overlay) => overlay.setMap(null));
+            routeOverlays.forEach((overlay) => map.removeLayer(overlay));
             routeOverlays = [];
             if (routeResultsEl) routeResultsEl.innerHTML = "";
             if (routeFeedbackEl) {
@@ -2095,59 +2015,48 @@
         }
 
         function drawTrafficRoute(data) {
-            routeOverlays.forEach((overlay) => overlay.setMap(null));
+            routeOverlays.forEach((overlay) => map.removeLayer(overlay));
             routeOverlays = [];
 
             const route = data.primary_route;
             if (!route.path || !route.path.length) return;
 
-            const pathLatLng = route.path.map((p) => ({ lat: p[0], lng: p[1] }));
-            const bounds = new google.maps.LatLngBounds();
-            pathLatLng.forEach((p) => bounds.extend(p));
+            const pathLatLng = route.path.map((p) => [p[0], p[1]]);
 
             const primaryColor = riskHexRoute(riskColorClassRoute(route.worst_risk));
-            const primaryLine = new google.maps.Polyline({
-                path: pathLatLng,
-                strokeColor: primaryColor,
-                strokeWeight: 6,
-                strokeOpacity: 0.95,
-                map: map,
-            });
+            const primaryLine = L.polyline(pathLatLng, {
+                color: primaryColor,
+                weight: 6,
+                opacity: 0.95,
+            }).addTo(map);
             routeOverlays.push(primaryLine);
 
             route.segments.forEach((s) => {
-                const marker = new google.maps.Marker({
-                    position: { lat: s.lat, lng: s.lon },
-                    map: map,
-                    title: s.risk + " flood risk" + (s.water_label ? " — near " + s.water_label : ""),
-                    icon: {
-                        path: google.maps.SymbolPath.CIRCLE,
-                        scale: 6,
-                        fillColor: riskHexRoute(riskColorClassRoute(s.risk)),
-                        fillOpacity: 1,
-                        strokeColor: "#fff",
-                        strokeWeight: 2,
-                    },
-                });
+                const marker = L.circleMarker([s.lat, s.lon], {
+                    radius: 6,
+                    color: "#fff",
+                    weight: 2,
+                    fillColor: riskHexRoute(riskColorClassRoute(s.risk)),
+                    fillOpacity: 1,
+                }).addTo(map);
+                marker.bindTooltip(s.risk + " flood risk" + (s.water_label ? " — near " + s.water_label : ""));
                 routeOverlays.push(marker);
             });
 
             if (data.alternative_route && data.alternative_route.path) {
-                const altLine = new google.maps.Polyline({
-                    path: data.alternative_route.path.map((p) => ({ lat: p[0], lng: p[1] })),
-                    strokeColor: "#9ca3af",
-                    strokeWeight: 3,
-                    strokeOpacity: 0.6,
-                    map: map,
-                });
+                const altLine = L.polyline(data.alternative_route.path.map((p) => [p[0], p[1]]), {
+                    color: "#9ca3af",
+                    weight: 3,
+                    opacity: 0.6,
+                }).addTo(map);
                 routeOverlays.push(altLine);
             }
 
-            const originMarker = new google.maps.Marker({ position: { lat: data.origin_coords[0], lng: data.origin_coords[1] }, map: map, title: data.origin });
-            const destMarker = new google.maps.Marker({ position: { lat: data.destination_coords[0], lng: data.destination_coords[1] }, map: map, title: data.destination });
+            const originMarker = L.marker([data.origin_coords[0], data.origin_coords[1]]).addTo(map).bindTooltip(data.origin);
+            const destMarker = L.marker([data.destination_coords[0], data.destination_coords[1]]).addTo(map).bindTooltip(data.destination);
             routeOverlays.push(originMarker, destMarker);
 
-            map.fitBounds(bounds, 30);
+            map.fitBounds(primaryLine.getBounds(), { padding: [30, 30] });
             if (routeClearBtn) routeClearBtn.style.display = "inline-block";
         }
 
@@ -2158,7 +2067,7 @@
                 routeFeedbackEl.textContent = data.error || "Could not assess this route.";
                 routeFeedbackEl.className = "route-feedback error";
                 routeResultsEl.innerHTML = "";
-                routeOverlays.forEach((overlay) => overlay.setMap(null));
+                routeOverlays.forEach((overlay) => map.removeLayer(overlay));
                 routeOverlays = [];
                 if (routeClearBtn) routeClearBtn.style.display = "none";
                 return;
@@ -2238,25 +2147,23 @@
         }
 
         // ---------------------------------------------------------------
-        // Legend — Google's live traffic colors are rendered by Google
-        // and not something this app controls or can guarantee exact hex
-        // values for, so that part is described qualitatively. The route
-        // flood-risk colors ARE this app's own choice, so those are exact.
+        // Legend — this map has no live-traffic layer; the only colors it
+        // draws are FloodGuard's own route flood-risk colors.
         // ---------------------------------------------------------------
-        const legend = document.createElement("div");
-        legend.className = "traffic-map-legend";
-        legend.innerHTML =
-            '<div class="traffic-map-legend-title">How to read this map</div>' +
-            '<div class="traffic-map-legend-row"><strong>Live traffic (Google)</strong></div>' +
-            '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#4caf50"></span> Green — light traffic</div>' +
-            '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#ff9800"></span> Orange — moderate traffic</div>' +
-            '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#f44336"></span> Red — heavy traffic</div>' +
-            '<div class="traffic-map-legend-row" style="margin-top:6px;"><strong>Route flood risk (FloodGuard)</strong></div>' +
-            '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#16a34a"></span> Low / Watch</div>' +
-            '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#dc2626"></span> High</div>' +
-            '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#7f1d1d"></span> Severe / Critical</div>';
-        map.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(legend);
-    });
+        const legend = L.control({ position: "bottomright" });
+        legend.onAdd = function () {
+            const div = L.DomUtil.create("div", "traffic-map-legend");
+            div.innerHTML =
+                '<div class="traffic-map-legend-title">Route flood risk (FloodGuard)</div>' +
+                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#16a34a"></span> Low / Watch</div>' +
+                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#dc2626"></span> High</div>' +
+                '<div class="traffic-map-legend-row"><span class="traffic-map-legend-line" style="background:#7f1d1d"></span> Severe / Critical</div>';
+            return div;
+        };
+        legend.addTo(map);
+
+        setTimeout(() => map.invalidateSize(), 250);
+    })();
     </script>
     {% endif %}
 
@@ -2299,14 +2206,15 @@
     })();
     </script>
 
-    {% if google_maps_browser_key %}
+    {% if geoapify_api_key %}
     <script>
-    onFloodGuardMapsReady(function () {
+    (function () {
         const latitude = {{ prediction.latitude }};
         const longitude = {{ prediction.longitude }};
         const riskColor = "{{ prediction.map_color }}";
         const cityName = {{ prediction.city | tojson }};
         const isCoastal = {{ prediction.coastal | tojson }};
+        const geoapifyKey = {{ geoapify_api_key | tojson }};
         const currentMapPeriod = {
             id: "now",
             label: "Right now",
@@ -2336,17 +2244,12 @@
         };
 
         const mapElement = document.getElementById("map");
-        const map = new google.maps.Map(mapElement, {
-            center: { lat: latitude, lng: longitude },
-            zoom: 12,
-            mapTypeControl: false,
-            streetViewControl: false,
-        });
+        const map = L.map(mapElement).setView([latitude, longitude], 12);
 
-        // Live traffic (Google) — always on, same as the other two maps on
-        // this site. No separate token needed here, unlike the old Mapbox
-        // layer this replaces.
-        new google.maps.TrafficLayer().setMap(map);
+        L.tileLayer("https://maps.geoapify.com/v1/tile/osm-bright/{z}/{x}/{y}.png?apiKey=" + geoapifyKey, {
+            maxZoom: 20,
+            attribution: 'Powered by <a href="https://www.geoapify.com/" target="_blank" rel="noopener">Geoapify</a> | &copy; OpenStreetMap contributors',
+        }).addTo(map);
 
         function escapeHtml(value) {
             return String(value).replace(/[&<>'"]/g, (character) => ({
@@ -2359,10 +2262,10 @@
         // the actual color-coding always comes from riskColours above.
         const RISK_EMOJI = { low: "🟢", watch: "🟡", high: "🟠", severe: "🔴", critical: "⚫" };
 
-        // Single source of truth for the InfoWindow "risk card" markup.
-        // Used both for the initial render and every time-period switch
-        // (see updateMapPeriod below), so the card is never built twice
-        // from two different hardcoded templates that could drift apart.
+        // Single source of truth for the popup "risk card" markup. Used
+        // both for the initial render and every time-period switch (see
+        // updateMapPeriod below), so the card is never built twice from
+        // two different hardcoded templates that could drift apart.
         function buildRiskCardHtml(period, colour, options) {
             options = options || {};
             const emoji = RISK_EMOJI[period.riskColor] || "⚪";
@@ -2391,7 +2294,6 @@
         const mapSearchFeedback = document.getElementById("map-search-feedback");
         let pinMode = false;
         let selectedPointMarker = null;
-        let selectedPointInfoWindow = null;
 
         function setPinMode(enabled) {
             pinMode = enabled;
@@ -2406,32 +2308,47 @@
             }
         }
 
-        mapSearchForm.addEventListener("submit", (event) => {
-            event.preventDefault();
-            const query = mapSearchInput.value.trim();
-            if (!query) {
-                mapSearchFeedback.textContent = "Enter a location to search, or choose “Pin a location”.";
-                mapSearchInput.focus();
-                return;
-            }
-            mapSearchFeedback.textContent = "Loading the flood analysis for " + query + "...";
-            window.location.assign("/?location=" + encodeURIComponent(query));
-        });
+        // Geoapify's geocoder (with this app's Nigeria-preference and
+        // name-matching logic) is the authoritative location resolver for
+        // visitor searches, via FloodGuard's own backend. OpenWeather is
+        // used for weather only. This is the same /api/map-geocode
+        // endpoint used by every other search box on this site, so a
+        // place name resolves the same way everywhere.
+        if (mapSearchForm) {
+            mapSearchForm.addEventListener("submit", async (event) => {
+                event.preventDefault();
+                const query = (mapSearchInput.value || "").trim();
+                if (!query) return;
+                mapSearchFeedback.textContent = "Finding \"" + query + "\"…";
+                try {
+                    const response = await fetch("/api/map-geocode?q=" + encodeURIComponent(query));
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) throw new Error(data.error || "Location not found.");
+                    const parameters = new URLSearchParams({
+                        map_lat: Number(data.lat).toFixed(6),
+                        map_lon: Number(data.lon).toFixed(6),
+                        map_label: data.label
+                    });
+                    mapSearchFeedback.textContent = "Loading the flood analysis for " + data.label + "...";
+                    window.location.assign("/?" + parameters.toString());
+                } catch (error) {
+                    mapSearchFeedback.textContent = error.message || "Could not identify that location. Please try a more specific place name.";
+                }
+            });
+        }
 
         mapPinButton.addEventListener("click", () => setPinMode(!pinMode));
 
-        map.addListener("click", async (event) => {
+        map.on("click", async (event) => {
             if (!pinMode) return;
             setPinMode(false);
 
-            const lat = event.latLng.lat();
-            const lng = event.latLng.lng();
-            if (selectedPointMarker) selectedPointMarker.setMap(null);
-            if (selectedPointInfoWindow) selectedPointInfoWindow.close();
+            const lat = event.latlng.lat;
+            const lng = event.latlng.lng;
+            if (selectedPointMarker) map.removeLayer(selectedPointMarker);
 
-            selectedPointMarker = new google.maps.Marker({ position: { lat, lng }, map, opacity: 0.85 });
-            selectedPointInfoWindow = new google.maps.InfoWindow({ content: '<div class="fg-info-card">Analysing this point...</div>' });
-            selectedPointInfoWindow.open({ map, anchor: selectedPointMarker });
+            selectedPointMarker = L.marker([lat, lng], { opacity: 0.85 }).addTo(map);
+            selectedPointMarker.bindPopup('<div class="fg-info-card">Analysing this point...</div>').openPopup();
             mapSearchFeedback.textContent = "Finding this location and building its flood analysis...";
             mapPinButton.disabled = true;
 
@@ -2450,102 +2367,87 @@
                 window.location.assign("/?" + parameters.toString());
             } catch (error) {
                 mapSearchFeedback.textContent = error.message || "Could not analyse that point. Please try again.";
-                if (selectedPointInfoWindow) selectedPointInfoWindow.setContent('<div class="fg-info-card">Point not analysed - try again</div>');
+                if (selectedPointMarker) selectedPointMarker.setPopupContent('<div class="fg-info-card">Point not analysed - try again</div>');
                 mapPinButton.disabled = false;
             }
         });
 
         // This ring marks the assessed location context, not a claimed
-        // street-by-street flood boundary. Click it for details (Google's
-        // shape overlays don't support Leaflet's hover-follow tooltip, so
-        // this is click-to-view rather than hover, unlike before).
-        const riskCircle = new google.maps.Circle({
-            strokeColor: riskColor,
-            strokeOpacity: 0.9,
-            strokeWeight: 2,
+        // street-by-street flood boundary. Click it for details.
+        const riskCircle = L.circle([latitude, longitude], {
+            color: riskColor,
+            opacity: 0.9,
+            weight: 2,
             fillColor: riskColor,
             fillOpacity: 0.13,
-            map: map,
-            center: { lat: latitude, lng: longitude },
             radius: 1400,
-        });
-        const riskCircleInfoWindow = new google.maps.InfoWindow();
-        riskCircle.addListener("click", (event) => {
-            riskCircleInfoWindow.setPosition(event.latLng);
-            riskCircleInfoWindow.open(map);
+        }).addTo(map);
+        riskCircle.bindPopup("");
+        riskCircle.on("click", (event) => {
+            riskCircle.openPopup(event.latlng);
         });
 
         // --- Main location marker, with its info shown by default ---
-        const mainMarker = new google.maps.Marker({ position: { lat: latitude, lng: longitude }, map: map });
-        const mainInfoWindow = new google.maps.InfoWindow();
-        mainInfoWindow.open({ map, anchor: mainMarker });
-        mainMarker.addListener("click", () => mainInfoWindow.open({ map, anchor: mainMarker }));
+        const mainMarker = L.marker([latitude, longitude]).addTo(map);
+        mainMarker.bindPopup("").openPopup();
 
         // --- Nearest water body: shows why a location is flood-prone ---
         {% if prediction.nearest_water_lat is not none and prediction.nearest_water_lon is not none %}
-        const waterPoint = { lat: {{ prediction.nearest_water_lat }}, lng: {{ prediction.nearest_water_lon }} };
+        const waterPoint = [{{ prediction.nearest_water_lat }}, {{ prediction.nearest_water_lon }}];
         const waterLabel = {{ (prediction.nearest_water_label or "Nearest water body") | tojson }};
         const waterDistanceM = {{ prediction.nearest_water_m | tojson }};
-        const waterMarker = new google.maps.Marker({
-            position: waterPoint,
-            map: map,
-            icon: {
-                path: google.maps.SymbolPath.CIRCLE,
-                scale: 7,
-                fillColor: "#38bdf8",
-                fillOpacity: 0.85,
-                strokeColor: "#38bdf8",
-                strokeWeight: 2,
-            },
-            title: waterLabel + " (~" + waterDistanceM + " m)",
-        });
-        const waterInfoWindow = new google.maps.InfoWindow({
-            content: '<div class="fg-info-card"><div class="fg-info-card-title">' + escapeHtml(waterLabel) + '</div><div class="fg-info-card-note">Roughly ' + waterDistanceM + ' m away. Proximity to water is a major flood-risk factor.</div></div>'
-        });
-        waterMarker.addListener("click", () => waterInfoWindow.open({ map, anchor: waterMarker }));
+        const waterMarker = L.circleMarker(waterPoint, {
+            radius: 7,
+            color: "#38bdf8",
+            weight: 2,
+            fillColor: "#38bdf8",
+            fillOpacity: 0.85,
+        }).addTo(map);
+        waterMarker.bindTooltip(waterLabel + " (~" + waterDistanceM + " m)");
+        waterMarker.bindPopup('<div class="fg-info-card"><div class="fg-info-card-title">' + escapeHtml(waterLabel) + '</div><div class="fg-info-card-note">Roughly ' + waterDistanceM + ' m away. Proximity to water is a major flood-risk factor.</div></div>');
 
-        new google.maps.Polyline({
-            path: [{ lat: latitude, lng: longitude }, waterPoint],
-            strokeColor: "#38bdf8",
-            strokeOpacity: 0.7,
-            strokeWeight: 2,
-            map: map,
-        });
+        L.polyline([[latitude, longitude], waterPoint], {
+            color: "#38bdf8",
+            opacity: 0.7,
+            weight: 2,
+        }).addTo(map);
         {% endif %}
 
         // Community reports are city-level evidence. No artificial marker is
         // placed because FloodGuard does not store reporters' exact locations.
 
         // --- Legend ---
-        const legend = document.createElement("div");
-        legend.className = "map-legend";
-        let legendRows = "";
-        legendRows += '<div class="map-legend-row"><span id="map-legend-risk" class="map-legend-swatch" style="background:' + riskColor + '"></span> Location risk context</div>';
-        legendRows += '<div class="map-legend-row"><span class="map-legend-dot" style="background:#38bdf8"></span> Nearest mapped water</div>';
-        {% if prediction.community.flooding_reports > 0 %}
-        legendRows += '<div class="map-legend-row map-legend-note">Community reports inform the score; exact pins are hidden</div>';
-        {% endif %}
-        legendRows += '<div class="map-legend-row map-legend-note">Background road tint: live traffic (Google)</div>';
-        legend.innerHTML = legendRows;
-        map.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(legend);
+        const legend = L.control({ position: "bottomright" });
+        legend.onAdd = function () {
+            const div = L.DomUtil.create("div", "map-legend");
+            let legendRows = "";
+            legendRows += '<div class="map-legend-row"><span id="map-legend-risk" class="map-legend-swatch" style="background:' + riskColor + '"></span> Location risk context</div>';
+            legendRows += '<div class="map-legend-row"><span class="map-legend-dot" style="background:#38bdf8"></span> Nearest mapped water</div>';
+            {% if prediction.community.flooding_reports > 0 %}
+            legendRows += '<div class="map-legend-row map-legend-note">Community reports inform the score; exact pins are hidden</div>';
+            {% endif %}
+            div.innerHTML = legendRows;
+            return div;
+        };
+        legend.addTo(map);
 
         function updateMapPeriod(period) {
             const colourName = riskColours[period.riskColor] ? period.riskColor : "low";
             const colour = period.mapColor || riskColours[colourName] || riskColor;
             const isNow = period.id === "now";
 
-            riskCircle.setOptions({
-                strokeColor: colour,
+            riskCircle.setStyle({
+                color: colour,
                 fillColor: colour,
                 fillOpacity: isNow ? 0.13 : 0.09,
             });
-            riskCircleInfoWindow.setContent(
+            riskCircle.setPopupContent(
                 buildRiskCardHtml(period, colour, {
                     title: "Location risk context",
                     note: "This ring highlights the map context for the searched location. It is not an exact flood boundary.",
                 })
             );
-            mainInfoWindow.setContent(buildRiskCardHtml(period, colour));
+            mainMarker.setPopupContent(buildRiskCardHtml(period, colour));
 
             const actionSummary = document.querySelector(".map-action-summary");
             actionSummary.className = "map-action-summary risk-border-" + colourName;
@@ -2571,9 +2473,9 @@
         updateMapPeriod(currentMapPeriod);
 
         setTimeout(function () {
-            google.maps.event.trigger(map, "resize");
+            map.invalidateSize();
         }, 300);
-    });
+    })();
     </script>
     {% endif %}
 

@@ -18,6 +18,10 @@ from PIL import Image, ImageDraw, ImageFont
 from itsdangerous import BadSignature, URLSafeSerializer
 from werkzeug.security import check_password_hash, generate_password_hash
 from dotenv import load_dotenv
+from rainfall_engine import (
+    calculate_forecast_rainfall_windows,
+    build_rainfall_state,
+)
 try:
     import ee
 except ImportError:
@@ -54,13 +58,12 @@ CATEGORY_LABELS = {
 }
 
 API_KEY = os.getenv("OPENWEATHER_API_KEY")
+GEOAPIFY_API_KEY = os.getenv("GEOAPIFY_API_KEY")
+GEOAPIFY_GEOCODE_URL = "https://api.geoapify.com/v1/geocode/search"
+GEOAPIFY_REVERSE_GEOCODE_URL = "https://api.geoapify.com/v1/geocode/reverse"
 WEATHERAPI_KEY = os.getenv("WEATHERAPI_KEY")  # optional — WeatherAPI.com fallback, only used if OpenWeather fails
 TIDE_API_KEY = os.getenv("TIDE_API_KEY")  # optional — WorldTides free tier; tidal factor is skipped if unset
 MAPBOX_ACCESS_TOKEN = os.getenv("MAPBOX_ACCESS_TOKEN")  # optional — enables the live traffic map layer
-# Browser-safe key: restrict it in Google Cloud to this site's HTTP referrers
-# and Maps JavaScript API / Places API. A future Routes API key must remain
-# server-only and must never be rendered into this template.
-GOOGLE_MAPS_BROWSER_KEY = os.getenv("GOOGLE_MAPS_BROWSER_KEY") or os.getenv("GOOGLE_MAPS_API_KEY")
 
 EARTH_ENGINE_ENABLED = os.getenv("EARTH_ENGINE_ENABLED", "1").lower() not in ("0", "false", "no")
 GEE_SERVICE_ACCOUNT = os.getenv("GEE_SERVICE_ACCOUNT")
@@ -2147,34 +2150,160 @@ def check_and_send_location_alerts(prediction):
 
 
 def geocode_location(query):
-    """Resolve a free-text place name (city, neighborhood, suburb) to precise
-    coordinates. This is what lets Lekki and Maryland resolve to different
-    points instead of both collapsing into one city-wide weather reading."""
-    if not API_KEY:
+    """Resolve a free-text place name using Geoapify Geocoding.
+
+    Geoapify handles location resolution. OpenWeather remains responsible
+    for weather data.
+
+    Multiple candidates are requested so ambiguous Nigerian place names
+    can be resolved using country, state, and place-name information.
+    """
+    if not GEOAPIFY_API_KEY:
+        print("Missing GEOAPIFY_API_KEY environment variable.")
         return None
 
     try:
         response = requests.get(
-            OPENWEATHER_GEO_URL,
-            params={"q": query, "limit": 1, "appid": API_KEY},
+            GEOAPIFY_GEOCODE_URL,
+            params={
+                "text": query,
+                "limit": 5,
+                "apiKey": GEOAPIFY_API_KEY,
+            },
             timeout=10,
         )
         response.raise_for_status()
-        results = response.json()
-    except requests.RequestException as error:
-        print(f"Geocoding request failed: {error}")
+        data = response.json()
+    except (requests.RequestException, ValueError) as error:
+        print(f"Geoapify geocoding request failed: {error}")
         return None
 
-    if not results:
+    features = data.get("features", [])
+    if not features:
+        print(f"Geoapify returned no location for: {query}")
         return None
 
-    place = results[0]
+    # Prefer Nigerian results for FloodGuard's Nigerian location searches.
+    nigeria_features = [
+        feature
+        for feature in features
+        if feature.get("properties", {}).get("country_code", "").lower() == "ng"
+    ]
+    candidates = nigeria_features or features
+
+    # Prefer a place whose actual name matches the user's search term.
+    query_parts = [part.strip().lower() for part in query.split(",") if part.strip()]
+    primary_query = query_parts[0] if query_parts else query.strip().lower()
+
+    def name_matches(feature):
+        properties = feature.get("properties", {})
+        names = {
+            str(properties.get(key, "")).strip().lower()
+            for key in ("name", "city", "suburb", "district", "county", "locality")
+        }
+        return primary_query in names
+
+    exact_name_matches = [feature for feature in candidates if name_matches(feature)]
+    if exact_name_matches:
+        candidates = exact_name_matches
+
+    # Prefer meaningful populated-place results over buildings/amenities.
+    preferred_types = {
+        "city", "town", "village", "suburb", "district", "locality",
+        "neighbourhood", "county",
+    }
+    place = next(
+        (
+            feature
+            for feature in candidates
+            if feature.get("properties", {}).get("result_type") in preferred_types
+        ),
+        candidates[0],
+    )
+
+    properties = place.get("properties", {})
+    geometry = place.get("geometry", {})
+    coordinates = geometry.get("coordinates", [])
+
+    if len(coordinates) < 2:
+        print(f"Geoapify returned invalid coordinates for: {query}")
+        return None
+
+    lon, lat = coordinates[0], coordinates[1]
+
+    selected_name = (
+        properties.get("name")
+        or properties.get("suburb")
+        or properties.get("district")
+        or properties.get("city")
+        or properties.get("county")
+        or properties.get("formatted")
+        or query
+    )
+
+    print(
+        f"Geoapify selected: {selected_name} "
+        f"({properties.get('state', '')}, {properties.get('country', '')}) "
+        f"at {lat},{lon}"
+    )
+
     return {
-        "lat": place["lat"],
-        "lon": place["lon"],
-        "name": place.get("name", query),
-        "state": place.get("state", ""),
-        "country": place.get("country", ""),
+        "lat": lat,
+        "lon": lon,
+        "name": selected_name,
+        "state": properties.get("state", ""),
+        "country": properties.get("country", ""),
+    }
+
+
+def reverse_geocode_location(lat, lon):
+    """Resolve a coordinate (e.g. a map click) to a readable place label
+    using Geoapify Reverse Geocoding. This replaces OpenWeather's reverse
+    geocoder, which was confirmed labeling a point actually located near
+    Ebute-Metta as "Surulere" — the same underlying unreliability as the
+    forward-geocoding bug geocode_location() above already fixes. Returns
+    None on any failure; the caller falls back to a generic label rather
+    than blocking the pin-drop flow entirely."""
+    if not GEOAPIFY_API_KEY:
+        print("Missing GEOAPIFY_API_KEY environment variable.")
+        return None
+
+    try:
+        response = requests.get(
+            GEOAPIFY_REVERSE_GEOCODE_URL,
+            params={"lat": lat, "lon": lon, "apiKey": GEOAPIFY_API_KEY},
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except (requests.RequestException, ValueError) as error:
+        print(f"Geoapify reverse geocoding request failed: {error}")
+        return None
+
+    features = data.get("features", [])
+    if not features:
+        return None
+
+    properties = features[0].get("properties", {})
+    name = (
+        properties.get("name")
+        or properties.get("suburb")
+        or properties.get("district")
+        or properties.get("city")
+        or properties.get("county")
+        or properties.get("formatted")
+        or "Pinned map location"
+    )
+    label_parts = [name]
+    if properties.get("state") and properties["state"] not in name:
+        label_parts.append(properties["state"])
+    if properties.get("country") and properties["country"] not in name:
+        label_parts.append(properties["country"])
+
+    return {
+        "lat": properties.get("lat", lat),
+        "lon": properties.get("lon", lon),
+        "label": ", ".join(label_parts),
     }
 
 
@@ -3568,22 +3697,61 @@ def _context_bonus(context):
 
 
 def calculate_day_score(rainfall, humidity, pressure, wind_speed, context):
-    """Same terrain/coastal-aware model as 'right now', applied to a single
-    forecast day's weather — so the 5-day forecast can warn ahead of time
-    for vulnerable terrain, not just flag it once flooding is already
-    happening."""
-    weather_bonus, _ = _weather_bonus(rainfall, humidity, pressure, wind_speed, rainfall_word="forecast")
-    context_bonus, _ = _context_bonus(context)
-    score = weather_bonus + context_bonus
+    """Calculate forecast flood risk for a single forecast slot.
 
-    if rainfall < 10:
-        score = min(score, 24)
-    elif rainfall < 30:
-        score = min(score, 44)
+    Forecast risk is driven by the actual weather hazard plus the
+    location's physical vulnerability. Vulnerability amplifies a
+    meaningful weather signal but cannot create flood risk by itself.
+    """
+    context = context or {}
+
+    weather_bonus, weather_factors = _weather_bonus(
+        rainfall, humidity, pressure, wind_speed, rainfall_word="forecast"
+    )
+    context_bonus, context_factors = _context_bonus(context)
+
+    if rainfall <= 0:
+        score = 0
+        if humidity >= 90:
+            score += 3
+        elif humidity >= 75:
+            score += 1
+
+        if pressure <= 995:
+            score += 3
+        elif pressure <= 1005:
+            score += 1
+
+        if wind_speed >= 12:
+            score += 2
+        elif wind_speed >= 8:
+            score += 1
+
+        score = min(score, 15)
+    else:
+        vulnerability_factor = min(1.0 + (context_bonus / 100.0), 1.35)
+        score = round(weather_bonus * vulnerability_factor)
+        score += max(0, weather_bonus // 4)
+
+        if rainfall >= 5 and context_bonus >= 25:
+            score += 5
+        if rainfall >= 10 and context_bonus >= 35:
+            score += 8
+        if rainfall >= 30 and context_bonus >= 35:
+            score += 10
 
     score = max(0, min(score, 100))
     coastal = bool((context or {}).get("coastal"))
     risk = classify_risk(score, coastal=coastal)
+
+    factors = []
+    factors.extend(weather_factors)
+    factors.extend(context_factors)
+    if rainfall <= 0:
+        factors.append("No forecast rainfall in this time slot")
+    elif context_bonus >= 25:
+        factors.append("Location vulnerability amplifies the rainfall signal")
+
     return score, risk
 
 
@@ -3983,7 +4151,7 @@ def _compute_earth_engine_context(lat, lon):
     }
 
     try:
-        dem = ee.Image("COPERNICUS/DEM/GLO30").select("DEM")
+        dem = ee.Image("NASA/NASADEM_HGT/001").select("elevation")
         slope_img = ee.Terrain.slope(dem).rename("slope")
         terrain_stats = _ee_reduce_mean(dem.rename("elevation").addBands(slope_img), region, 30)
         result["gee_elevation_m"] = _round_or_none(terrain_stats.get("elevation"), 1)
@@ -4006,13 +4174,177 @@ def _compute_earth_engine_context(lat, lon):
     except Exception as error:  # noqa: BLE001
         result["jrc_error"] = str(error)
 
+    # ------------------------------------------------------------------
+    # Recent satellite rainfall: NASA GPM IMERG V07
+    #
+    # IMERG V07 provides precipitation every 30 minutes.
+    # The "precipitation" band is mm/hour, so each half-hour observation
+    # contributes precipitation_rate * 0.5 to an accumulation total.
+    #
+    # This is deliberately kept separate from CHIRPS:
+    #   GPM IMERG = recent satellite precipitation
+    #   CHIRPS    = longer historical rainfall context
+    #
+    # We do NOT substitute zeros when GPM has no observations. Missing
+    # satellite data must remain missing so FloodGuard does not interpret
+    # "no data" as "no rain".
+    # ------------------------------------------------------------------
     try:
-        chirps = ee.ImageCollection("UCSB-CHG/CHIRPS/DAILY").select("precipitation")
-        rain_7d = chirps.filterDate(chirps_7d_start, today).sum().rename("rain_7d")
-        rain_30d = chirps.filterDate(chirps_30d_start, today).sum().rename("rain_30d")
-        rain_stats = _ee_reduce_mean(rain_7d.addBands(rain_30d), region, 5500)
-        result["chirps_7d_mm"] = _round_or_none(rain_stats.get("rain_7d"), 1)
-        result["chirps_30d_mm"] = _round_or_none(rain_stats.get("rain_30d"), 1)
+        gpm = (
+            ee.ImageCollection("NASA/GPM_L3/IMERG_V07")
+            .select("precipitation")
+            .filterBounds(point)
+        )
+
+        gpm_windows = {
+            3: "gpm_3h_mm",
+            6: "gpm_6h_mm",
+            12: "gpm_12h_mm",
+            24: "gpm_24h_mm",
+        }
+
+        gpm_now = datetime.now(timezone.utc)
+        result["gpm_source"] = "NASA/GPM_L3/IMERG_V07"
+        result["gpm_updated_at"] = gpm_now.isoformat()
+
+        for hours, output_key in gpm_windows.items():
+            window_start = (
+                gpm_now - timedelta(hours=hours)
+            ).strftime("%Y-%m-%dT%H:%M:%S")
+            window_end = gpm_now.strftime("%Y-%m-%dT%H:%M:%S")
+
+            window = gpm.filterDate(window_start, window_end)
+            count = window.size().getInfo()
+
+            result[f"gpm_{hours}h_image_count"] = count
+
+            if count > 0:
+                # IMERG precipitation is mm/hour and observations are
+                # spaced at 30-minute intervals.
+                accumulation = (
+                    window
+                    .sum()
+                    .multiply(0.5)
+                    .rename("rainfall_mm")
+                )
+
+                stats = _ee_reduce_mean(
+                    accumulation,
+                    region,
+                    11132,
+                )
+
+                result[output_key] = _round_or_none(
+                    stats.get("rainfall_mm"),
+                    2,
+                )
+            else:
+                result[output_key] = None
+
+        # Identify the most recent available satellite observation.
+        recent_window = (
+            gpm
+            .filterDate(
+                (gpm_now - timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%S"),
+                gpm_now.strftime("%Y-%m-%dT%H:%M:%S"),
+            )
+            .sort("system:time_start", False)
+        )
+
+        recent_count = recent_window.size().getInfo()
+
+        if recent_count > 0:
+            latest = recent_window.first()
+
+            latest_timestamp = latest.get("system:time_start").getInfo()
+            latest_status = latest.get("status").getInfo()
+
+            latest_datetime = datetime.fromtimestamp(
+                latest_timestamp / 1000,
+                tz=timezone.utc,
+            )
+
+            result["gpm_latest_time"] = latest_datetime.isoformat()
+            result["gpm_latest_status"] = latest_status
+
+            # Measure how old the latest satellite observation is.
+            # This prevents FloodGuard from treating stale satellite data
+            # as if it were a current observation.
+            age_hours = (
+                gpm_now - latest_datetime
+            ).total_seconds() / 3600
+
+            result["gpm_latest_age_hours"] = round(
+                max(0.0, age_hours),
+                1,
+            )
+
+            # Freshness classification:
+            #   <= 6h   = fresh
+            #   <= 18h  = delayed
+            #   > 18h   = stale
+            #
+            # These labels describe data quality only. They do NOT
+            # directly change the flood-risk score.
+            if age_hours <= 6:
+                result["gpm_data_quality"] = "fresh"
+            elif age_hours <= 18:
+                result["gpm_data_quality"] = "delayed"
+            else:
+                result["gpm_data_quality"] = "stale"
+
+        else:
+            result["gpm_latest_time"] = None
+            result["gpm_latest_status"] = None
+            result["gpm_latest_age_hours"] = None
+            result["gpm_data_quality"] = "unavailable"
+
+    except Exception as error:  # noqa: BLE001
+        result["gpm_error"] = str(error)
+
+    # ------------------------------------------------------------------
+    # Historical rainfall: CHIRPS
+    #
+    # CHIRPS is retained for longer historical context. It is NOT used
+    # as the primary recent-rainfall source because its latest available
+    # observations can lag the present date.
+    # ------------------------------------------------------------------
+    try:
+        chirps = (
+            ee.ImageCollection("UCSB-CHG/CHIRPS/DAILY")
+            .select("precipitation")
+        )
+
+        rain_7d = (
+            chirps
+            .filterDate(chirps_7d_start, today)
+            .sum()
+            .rename("rain_7d")
+        )
+
+        rain_30d = (
+            chirps
+            .filterDate(chirps_30d_start, today)
+            .sum()
+            .rename("rain_30d")
+        )
+
+        rain_stats = _ee_reduce_mean(
+            rain_7d.addBands(rain_30d),
+            region,
+            5500,
+        )
+
+        result["chirps_7d_mm"] = _round_or_none(
+            rain_stats.get("rain_7d"),
+            1,
+        )
+
+        result["chirps_30d_mm"] = _round_or_none(
+            rain_stats.get("rain_30d"),
+            1,
+        )
+
     except Exception as error:  # noqa: BLE001
         result["chirps_error"] = str(error)
 
@@ -5218,6 +5550,97 @@ def build_prediction(query, known_place=None):
     print("STEP 7: Forecast")
     forecast, timeline = get_forecast(lat, lon, context)
 
+    print("STEP 7A: Rainfall State")
+    forecast_rainfall_windows = calculate_forecast_rainfall_windows(timeline)
+
+    # Build a data-quality-aware rainfall state from all available
+    # precipitation layers.
+    #
+    # Current rainfall:
+    #   OpenWeather observation when explicitly reported.
+    #
+    # Forecast rainfall:
+    #   OpenWeather 3-hour forecast timeline.
+    #
+    # Recent satellite rainfall:
+    #   GPM IMERG, retained separately because its observations may
+    #   arrive with a significant delay.
+    #
+    # Historical rainfall:
+    #   CHIRPS 7-day and 30-day accumulated rainfall.
+    #
+    # IMPORTANT:
+    # Missing or stale satellite observations are never converted to
+    # zero rainfall and are never silently presented as current rain.
+
+    ee_rainfall = earth_engine if earth_engine.get("available") else {}
+
+    gpm_quality = ee_rainfall.get("gpm_data_quality")
+    gpm_24h = ee_rainfall.get("gpm_24h_mm")
+    gpm_12h = ee_rainfall.get("gpm_12h_mm")
+    gpm_6h = ee_rainfall.get("gpm_6h_mm")
+    gpm_3h = ee_rainfall.get("gpm_3h_mm")
+
+    # GPM is used as recent satellite context only when its observation
+    # is fresh or delayed. Stale data remain visible in the Earth Engine
+    # details but are not promoted into the active rainfall state.
+    if gpm_quality in ("fresh", "delayed"):
+        satellite_recent = {
+            "3h": gpm_3h,
+            "6h": gpm_6h,
+            "12h": gpm_12h,
+            "24h": gpm_24h,
+        }
+    else:
+        satellite_recent = {
+            "3h": None,
+            "6h": None,
+            "12h": None,
+            "24h": None,
+        }
+
+    rainfall_historical = {
+        "24h": None,
+        "72h": None,
+        "7d": ee_rainfall.get("chirps_7d_mm"),
+        "30d": ee_rainfall.get("chirps_30d_mm"),
+    }
+
+    rainfall_state = build_rainfall_state(
+        current_rainfall=weather.get("rainfall"),
+        forecast_windows=forecast_rainfall_windows,
+        historical=rainfall_historical,
+        current_source=weather.get("source", "unknown"),
+        current_period_hours=1,
+    )
+
+    rainfall_state["satellite_recent"] = satellite_recent
+    rainfall_state["satellite"] = {
+        "source": ee_rainfall.get("gpm_source"),
+        "quality": gpm_quality or "unavailable",
+        "latest_time": ee_rainfall.get("gpm_latest_time"),
+        "latest_status": ee_rainfall.get("gpm_latest_status"),
+        "age_hours": ee_rainfall.get("gpm_latest_age_hours"),
+        "windows": satellite_recent,
+    }
+
+    rainfall_state["historical"]["7d"] = ee_rainfall.get("chirps_7d_mm")
+    rainfall_state["historical"]["30d"] = ee_rainfall.get("chirps_30d_mm")
+
+    rainfall_state["data_quality"]["historical"] = (
+        "available"
+        if any(
+            value is not None
+            for value in (
+                ee_rainfall.get("chirps_7d_mm"),
+                ee_rainfall.get("chirps_30d_mm"),
+            )
+        )
+        else "unavailable"
+    )
+
+    print("Rainfall State:", rainfall_state)
+
     print("STEP 8: Flood Model")
     flood_model = calculate_flood_score(weather, forecast, context)
     environment = estimate_environment(weather["city"], weather, community, context)
@@ -5271,6 +5694,7 @@ def build_prediction(query, known_place=None):
 
         "travel_recommendation": travel_recommendation,
         "rainfall_warning": rainfall_warning,
+        "rainfall_state": rainfall_state,
         "timeline": timeline,
 
         "emergency_contacts": emergency_contacts,
@@ -5463,7 +5887,7 @@ def home():
         watchlist=get_watchlist_status(),
         watchlist_refresh_minutes=WATCHLIST_REFRESH_MINUTES,
         global_alerts=get_global_alerts_status(),
-        google_maps_browser_key=GOOGLE_MAPS_BROWSER_KEY,
+        geoapify_api_key=GEOAPIFY_API_KEY,
         share_card_token=share_card_token,
     )
 
@@ -5471,7 +5895,7 @@ def home():
 @app.route("/api/map-reverse-geocode")
 def map_reverse_geocode():
     """Name a user-selected map point without exposing a third-party API to the browser."""
-    if not API_KEY:
+    if not GEOAPIFY_API_KEY:
         return jsonify({"ok": False, "error": "Location search is unavailable right now."}), 503
 
     try:
@@ -5482,29 +5906,13 @@ def map_reverse_geocode():
     except (TypeError, ValueError):
         return jsonify({"ok": False, "error": "That map point is invalid."}), 400
 
-    label = "Pinned map location"
-    try:
-        response = requests.get(
-            "https://api.openweathermap.org/geo/1.0/reverse",
-            params={"lat": latitude, "lon": longitude, "limit": 1, "appid": API_KEY},
-            timeout=8,
-        )
-        response.raise_for_status()
-        results = response.json()
-        if results:
-            place = results[0]
-            label_parts = [place.get("name") or "Pinned map location"]
-            if place.get("state"):
-                label_parts.append(place["state"])
-            if place.get("country"):
-                label_parts.append(place["country"])
-            label = ", ".join(label_parts)
-    except (requests.RequestException, ValueError) as error:
-        # The coordinates are still enough to run the analysis. Falling back
-        # to a generic label keeps map pinning useful during a geocoder outage.
-        print(f"Map reverse geocoding failed: {error}")
+    resolved = reverse_geocode_location(latitude, longitude)
+    if resolved:
+        return jsonify({"ok": True, "label": resolved["label"], "lat": resolved["lat"], "lon": resolved["lon"]})
 
-    return jsonify({"ok": True, "label": label, "lat": latitude, "lon": longitude})
+    # The coordinates are still enough to run the analysis. Falling back to
+    # a generic label keeps map pinning useful during a geocoder outage.
+    return jsonify({"ok": True, "label": "Pinned map location", "lat": latitude, "lon": longitude})
 
 
 @app.route("/api/map-geocode")
