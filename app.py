@@ -185,6 +185,7 @@ CURATED_LOCATIONS = [
     {"label": "Lekki, Lagos", "lat": 6.4698, "lon": 3.5852, "category": "coastal"},
     {"label": "Ajah, Lagos", "lat": 6.4670, "lon": 3.6010, "category": "coastal"},
     {"label": "Apapa, Lagos", "lat": 6.4500, "lon": 3.3650, "category": "coastal"},  # VERIFIED
+    {"label": "Surulere, Lagos", "lat": 6.5000, "lon": 3.3500, "category": "coastal"},  # VERIFIED
     {"label": "Bariga, Lagos", "lat": 6.5310, "lon": 3.3860, "category": "coastal"},
     {"label": "Gbagada, Lagos", "lat": 6.5482, "lon": 3.3859, "category": "coastal"},
     {"label": "Somolu, Lagos", "lat": 6.5392, "lon": 3.3790, "category": "coastal"},
