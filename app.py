@@ -191,13 +191,6 @@ CURATED_LOCATIONS = [
     {"label": "Ajah, Lagos", "lat": 6.4670, "lon": 3.6010, "category": "coastal"},
     {"label": "Apapa, Lagos", "lat": 6.4500, "lon": 3.3650, "category": "coastal"},  # VERIFIED
     {"label": "Surulere, Lagos", "lat": 6.5000, "lon": 3.3500, "category": "coastal"},  # VERIFIED
-    # Surulere LGA is large and heterogeneous — these two sub-areas are
-    # individually documented as flash-flood-prone (ageing drainage
-    # infrastructure, not just low elevation) and are close to but
-    # distinct from the Surulere LGA centroid above, so they get their
-    # own curated points rather than being folded into one average.
-    {"label": "Aguda, Surulere, Lagos", "lat": 6.4880, "lon": 3.3379, "category": "coastal"},  # LGA-APPROX — single independent source
-    {"label": "Adeniran Ogunsanya, Surulere, Lagos", "lat": 6.4936, "lon": 3.3573, "category": "coastal"},  # VERIFIED — two independent sources agree
     {"label": "Bariga, Lagos", "lat": 6.5310, "lon": 3.3860, "category": "coastal"},
     {"label": "Gbagada, Lagos", "lat": 6.5482, "lon": 3.3859, "category": "coastal"},
     {"label": "Somolu, Lagos", "lat": 6.5392, "lon": 3.3790, "category": "coastal"},
