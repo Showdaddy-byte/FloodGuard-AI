@@ -112,6 +112,11 @@ SOIL_MOISTURE_URL = "https://api.open-meteo.com/v1/forecast"
 OSRM_URL = "https://router.project-osrm.org/route/v1/driving"
 ROUTE_SAMPLE_POINTS = 7
 
+# Below this percentage of sample points along a route having real
+# elevation/terrain data, the computed risk score is built mostly from
+# neutral defaults rather than actual local data — see assess_route_safety.
+ROUTE_MIN_CONFIDENCE_PCT = 50
+
 # How recent a "flooding observed" report must be to count as live ground-truth
 GROUND_TRUTH_WINDOW_HOURS = 12
 
@@ -186,6 +191,13 @@ CURATED_LOCATIONS = [
     {"label": "Ajah, Lagos", "lat": 6.4670, "lon": 3.6010, "category": "coastal"},
     {"label": "Apapa, Lagos", "lat": 6.4500, "lon": 3.3650, "category": "coastal"},  # VERIFIED
     {"label": "Surulere, Lagos", "lat": 6.5000, "lon": 3.3500, "category": "coastal"},  # VERIFIED
+    # Surulere LGA is large and heterogeneous — these two sub-areas are
+    # individually documented as flash-flood-prone (ageing drainage
+    # infrastructure, not just low elevation) and are close to but
+    # distinct from the Surulere LGA centroid above, so they get their
+    # own curated points rather than being folded into one average.
+    {"label": "Aguda, Surulere, Lagos", "lat": 6.4880, "lon": 3.3379, "category": "coastal"},  # LGA-APPROX — single independent source
+    {"label": "Adeniran Ogunsanya, Surulere, Lagos", "lat": 6.4936, "lon": 3.3573, "category": "coastal"},  # VERIFIED — two independent sources agree
     {"label": "Bariga, Lagos", "lat": 6.5310, "lon": 3.3860, "category": "coastal"},
     {"label": "Gbagada, Lagos", "lat": 6.5482, "lon": 3.3859, "category": "coastal"},
     {"label": "Somolu, Lagos", "lat": 6.5392, "lon": 3.3790, "category": "coastal"},
@@ -4911,8 +4923,37 @@ def assess_route_safety(origin_query, destination_query):
     alternative = assessed_routes[1] if len(assessed_routes) > 1 else None
 
     primary_coastal = any(s["coastal"] for s in primary["segments"])
-    risk_meta = classify_risk(primary["worst_score"], coastal=primary_coastal)
-    travel_rec = build_travel_recommendation(primary["worst_risk"], primary["worst_score"], None)
+
+    # A route's score is only as good as the elevation/terrain data behind
+    # it. When most sample points along the route had no real data
+    # available (confidence_pct is low — e.g. a remote area, or Overpass/
+    # elevation API having a bad moment), the segments fall back to
+    # neutral defaults, which pull the score toward LOW/"SAFE TO TRAVEL"
+    # for the wrong reason: missing data, not an actual low-risk
+    # assessment. That's the same mistake already fixed for the main
+    # location check via VULNERABILITY_LEVELS["UNKNOWN"] — applied here
+    # too, so a low-confidence route is flagged honestly instead of
+    # defaulting to a reassuring verdict.
+    low_confidence = primary["confidence_pct"] < ROUTE_MIN_CONFIDENCE_PCT
+
+    if low_confidence:
+        primary["worst_risk"] = "UNKNOWN"
+        verdict = "COULD NOT FULLY ASSESS"
+        verdict_color = "watch"
+        advice = (
+            f"Only {primary['confidence_pct']}% of this route had usable terrain/elevation data "
+            "available just now, so this is not a confirmed safe route — the assessment is "
+            "incomplete, not a low-risk result. Try again in a few minutes, or check current "
+            "local road/tide conditions before travelling."
+        )
+        priority_action = "Verify current road and tide conditions locally before travelling — this route could not be fully assessed."
+    else:
+        risk_meta = classify_risk(primary["worst_score"], coastal=primary_coastal)
+        travel_rec = build_travel_recommendation(primary["worst_risk"], primary["worst_score"], None)
+        verdict = travel_rec["verdict"]
+        verdict_color = travel_rec["color"]
+        advice = risk_meta["advice"]
+        priority_action = risk_meta["priority_action"]
 
     origin_label = origin["name"] + (f", {origin['state']}" if origin.get("state") else "")
     destination_label = destination["name"] + (f", {destination['state']}" if destination.get("state") else "")
@@ -4925,10 +4966,11 @@ def assess_route_safety(origin_query, destination_query):
         "destination_coords": [destination["lat"], destination["lon"]],
         "primary_route": primary,
         "alternative_route": alternative,
-        "verdict": travel_rec["verdict"],
-        "verdict_color": travel_rec["color"],
-        "advice": risk_meta["advice"],
-        "priority_action": risk_meta["priority_action"],
+        "verdict": verdict,
+        "verdict_color": verdict_color,
+        "advice": advice,
+        "priority_action": priority_action,
+        "data_incomplete": low_confidence,
     }
 
 
@@ -5828,7 +5870,7 @@ def home():
         maybe_refresh_watchlist_async()
         maybe_send_daily_digests()
 
-    city = (request.form.get("city") if request.method == "POST" else request.args.get("location", "")).strip()
+    city = (request.form.get("city", "") if request.method == "POST" else request.args.get("location", "")).strip()
     map_known_place = None
     map_lat_raw = request.args.get("map_lat") if request.method == "GET" else None
     map_lon_raw = request.args.get("map_lon") if request.method == "GET" else None
