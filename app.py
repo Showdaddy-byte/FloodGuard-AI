@@ -5863,7 +5863,7 @@ def home():
         maybe_refresh_watchlist_async()
         maybe_send_daily_digests()
 
-    city = (request.form.get("city", "") if request.method == "POST" else request.args.get("location", "")).strip()
+    city = (request.form.get("city") if request.method == "POST" else request.args.get("location", "")).strip()
     map_known_place = None
     map_lat_raw = request.args.get("map_lat") if request.method == "GET" else None
     map_lon_raw = request.args.get("map_lon") if request.method == "GET" else None
