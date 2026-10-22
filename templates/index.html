@@ -543,6 +543,10 @@
                 <input type="text" name="city" placeholder="Enter a city or neighborhood, e.g. Lekki, Lagos" required>
                 <button type="submit">Analyze Flood Risk</button>
             </form>
+            <div class="use-location-row">
+                <button type="button" id="use-my-location-button" class="map-pin-btn">📍 Use my location</button>
+                <span id="use-my-location-feedback" class="map-search-feedback" aria-live="polite"></span>
+            </div>
             <p class="search-hint">Search a specific neighborhood for the most accurate result — flood risk can vary block to block within the same city, so "Lagos" alone is far less precise than "Lekki, Lagos" or "Maryland, Lagos".</p>
 
             {% if error %}
@@ -2653,5 +2657,56 @@
     })();
     </script>
     {% endif %}
+
+    <script>
+        // "Use my location": asks the browser for the visitor's position
+        // (only when they click, and only with their permission), names it
+        // via the existing reverse-geocode endpoint, then opens the same
+        // pinned-point analysis the map's "Pin a location" uses.
+        (function () {
+            const button = document.getElementById("use-my-location-button");
+            const feedback = document.getElementById("use-my-location-feedback");
+            if (!button) return;
+
+            if (!("geolocation" in navigator)) {
+                button.style.display = "none";
+                return;
+            }
+
+            button.addEventListener("click", function () {
+                feedback.textContent = "Waiting for your browser to share your location...";
+                button.disabled = true;
+
+                navigator.geolocation.getCurrentPosition(async function (position) {
+                    try {
+                        feedback.textContent = "Finding your area and building its flood analysis...";
+                        const response = await fetch(
+                            "/api/map-reverse-geocode?lat=" + encodeURIComponent(position.coords.latitude) +
+                            "&lon=" + encodeURIComponent(position.coords.longitude)
+                        );
+                        const data = await response.json();
+                        if (!response.ok || !data.ok) throw new Error(data.error || "Could not identify your location.");
+                        const parameters = new URLSearchParams({
+                            map_lat: Number(data.lat).toFixed(6),
+                            map_lon: Number(data.lon).toFixed(6),
+                            map_label: data.label
+                        });
+                        window.location.assign("/?" + parameters.toString());
+                    } catch (error) {
+                        feedback.textContent = error.message || "Could not analyse your location. Please try again.";
+                        button.disabled = false;
+                    }
+                }, function (error) {
+                    const messages = {
+                        1: "Location permission was denied. You can still search for a place by name.",
+                        2: "Your device could not work out its location. Try searching by name instead.",
+                        3: "Finding your location took too long. Please try again."
+                    };
+                    feedback.textContent = messages[error.code] || "Could not get your location.";
+                    button.disabled = false;
+                }, { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 });
+            });
+        })();
+    </script>
 </body>
 </html>

@@ -3016,3 +3016,11 @@ input:focus{
         opacity:1;
     }
 }
+
+.use-location-row {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 10px 0 4px;
+}

@@ -47,6 +47,10 @@ app.secret_key = _secret_key_env or secrets.token_hex(32)
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH")
 
+# Shared secret for the scheduler-triggered endpoints (/api/send-digest and
+# /api/refresh-watchlist). Pass it as ?token=... or an X-Cron-Token header.
+CRON_SECRET = os.getenv("CRON_SECRET")
+
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "community.db")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_GEE_KEY_PATH = os.path.join(BASE_DIR, "credentials", "floodguard-ai-502609-81e725f17c81.json")
@@ -2026,7 +2030,7 @@ def send_daily_digests(digest_type):
         unsubscribe_url = f"{SITE_BASE_URL}/unsubscribe/{subscriber['unsubscribe_token']}"
         sent = send_alert_email(
             subscriber["email"],
-            f"{DIGEST_GREETING.get(digest_type, 'Good morning')} — FloodGuard AI Morning Briefing",
+            f"{DIGEST_GREETING.get(digest_type, 'Good morning')} — FloodGuard AI {'Evening' if digest_type == 'evening' else 'Morning'} Briefing",
             build_digest_email_html(subscriber["name"], digest_type, location_lines, unsubscribe_url),
         )
         if sent:
@@ -6461,6 +6465,12 @@ def api_refresh_watchlist():
     if not API_KEY:
         return jsonify({"ok": False, "error": "OPENWEATHER_API_KEY is not configured."}), 400
 
+    # Once CRON_SECRET is set, the scheduler must send it. (Left open only
+    # while it is unset, so an existing cron job keeps working until you
+    # add the token to its URL.)
+    if CRON_SECRET and not _cron_token_ok():
+        return jsonify({"ok": False, "error": "Unauthorized."}), 403
+
     if not try_acquire_lock("watchlist_refresh", max_age_minutes=60):
         return jsonify({"ok": True, "note": "A refresh is already in progress; returning current cache.", **get_watchlist_status()})
 
@@ -6506,6 +6516,11 @@ def api_refresh_global_alerts():
     return jsonify({"ok": True, **get_global_alerts_status()})
 
 
+def _cron_token_ok():
+    supplied = request.args.get("token") or request.headers.get("X-Cron-Token") or ""
+    return bool(CRON_SECRET) and secrets.compare_digest(supplied, CRON_SECRET)
+
+
 @app.route("/api/send-digest", methods=["GET", "POST"])
 def api_send_digest():
     """Triggers the twice-daily subscriber weather digest. Intended for an
@@ -6515,6 +6530,13 @@ def api_send_digest():
     only a best-effort fallback for when no scheduler is configured.
     Requires ?type=morning or ?type=evening; still deduplicated by
     digest_sends so calling this more than once in the target hour is safe."""
+    # This emails every subscriber, so it must not be callable by anyone
+    # who finds the URL.
+    if not CRON_SECRET:
+        return jsonify({"ok": False, "error": "CRON_SECRET is not configured, so this endpoint is disabled."}), 503
+    if not _cron_token_ok():
+        return jsonify({"ok": False, "error": "Unauthorized."}), 403
+
     digest_type = (request.args.get("type") or request.form.get("type") or "").strip().lower()
     if digest_type not in ("morning", "evening"):
         return jsonify({"ok": False, "error": "Query param 'type' must be 'morning' or 'evening'."}), 400
@@ -6522,15 +6544,17 @@ def api_send_digest():
     today_str = datetime.utcnow().strftime("%Y-%m-%d")
     digest_key = f"{digest_type}:{today_str}"
 
-    print(f"DIGEST: /api/send-digest hit for '{digest_type}' (key={digest_key})")
-    print("DIGEST: TEST MODE — daily lock temporarily bypassed")
+    # Same once-per-day marker the traffic-triggered path uses, so a
+    # repeated call (or both paths firing) can't email subscribers twice.
+    # ?force=1 (with a valid token) bypasses it for a deliberate re-send.
+    force = (request.args.get("force") or "").strip() == "1"
+    if not force and not try_acquire_lock(f"digest_send:{digest_key}", max_age_minutes=90):
+        return jsonify({"ok": True, "note": f"The {digest_type} digest was already sent today; nothing re-sent."})
 
+    print(f"DIGEST: /api/send-digest hit for '{digest_type}' (key={digest_key}, force={force})")
     send_daily_digests(digest_type)
 
-    return jsonify({
-        "ok": True,
-        "note": f"{digest_type} digest test finished."
-    })
+    return jsonify({"ok": True, "note": f"{digest_type} digest run finished."})
 
 
 @app.route("/api/route-safety", methods=["POST"])
