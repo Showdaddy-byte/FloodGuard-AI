@@ -177,6 +177,15 @@ GROUND_TRUTH_WINDOW_HOURS = 12
 # visitors without anyone needing to search that exact place first.
 WATCHLIST_REFRESH_MINUTES = 15
 
+# Development mode: disable the recurring full-watchlist risk sweep by default.
+# Manual searches still calculate the selected location. Subscriber weather
+# digests remain enabled and can calculate the locations subscribers opted into.
+# Set ENABLE_BACKGROUND_LOCATION_MONITORING=true to restore full watchlist sweeps.
+ENABLE_BACKGROUND_LOCATION_MONITORING = (
+    os.getenv("ENABLE_BACKGROUND_LOCATION_MONITORING", "false").strip().lower()
+    in {"1", "true", "yes", "on"}
+)
+
 # Seconds to wait between each monitored location during a full watchlist
 # sweep. Widened from an earlier 1.5s: on a fresh deploy (no persistent
 # disk => empty cache), a full sweep hits Overpass for every one of
@@ -1129,9 +1138,11 @@ def refresh_watchlist_cache():
 
 
 def maybe_refresh_watchlist_async():
-    """Kick off a background refresh if the cache is stale. Non-blocking, so
-    a visitor's page load is never delayed by the monitoring sweep."""
+    """Kick off a background refresh if enabled and the cache is stale."""
     global _watchlist_refreshing
+
+    if not ENABLE_BACKGROUND_LOCATION_MONITORING:
+        return
 
     conn = sqlite3.connect(DB_PATH)
     row = conn.execute("SELECT MIN(updated_at) FROM watchlist_cache").fetchone()
@@ -6458,10 +6469,14 @@ def api_watchlist_status():
 
 @app.route("/api/refresh-watchlist", methods=["GET", "POST"])
 def api_refresh_watchlist():
-    """Trigger a synchronous refresh of all monitored locations. Intended to
-    be called by an external scheduler (e.g. a free GitHub Actions cron job
-    or cron-job.org) every 10-15 minutes so the homepage alert banner stays
-    current even with zero visitor traffic in between."""
+    """Trigger a synchronous refresh only when background monitoring is enabled."""
+    if not ENABLE_BACKGROUND_LOCATION_MONITORING:
+        return jsonify({
+            "ok": True,
+            "disabled": True,
+            "note": "Background location monitoring is disabled; locations are analysed on search.",
+        })
+
     if not API_KEY:
         return jsonify({"ok": False, "error": "OPENWEATHER_API_KEY is not configured."}), 400
 
