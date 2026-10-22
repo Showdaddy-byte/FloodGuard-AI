@@ -132,6 +132,7 @@ KNOWN_TIDAL_CROSSINGS = [
         "lat": 46.93384,
         "lon": -2.147782,  # Atlas Obscura; causeway runs ~4 km across the Baie de Bourgneuf
         "radius_m": 3000,
+        "short_note": "Tidal crossing: underwater for most of each tide — check the posted tide times before crossing",
         "explanation": (
             "This route uses the Passage du Gois, a public road across the Baie de Bourgneuf between "
             "Beauvoir-sur-Mer and the island of Noirmoutier (France). It is underwater for most of every tide "
@@ -5145,12 +5146,41 @@ def assess_route_safety(origin_query, destination_query):
             bridge_ways.extend(fetch_bridge_ways([path[i] for i in extra_chosen]))
         for mid in extra_chosen:
             segments.append(assess_point(mid))
+
+        # Known tidal crossings: mark the stretch near the crossing as HIGH
+        # on the bar, even when no sample point happened to land on it.
+        known_here = _known_tidal_crossings_on_path(path)
+        crossing_meta = classify_risk(75, coastal=True)
+        for crossing in known_here:
+            near_segs = [
+                sg for sg in segments
+                if haversine_meters(sg["lat"], sg["lon"], crossing["lat"], crossing["lon"]) <= crossing["radius_m"]
+            ]
+            if near_segs:
+                for sg in near_segs:
+                    sg.update(score=max(sg["score"], 75), risk=crossing_meta["level"],
+                              risk_color=crossing_meta["color"], tidal_exposure=True, known_crossing=crossing["name"],
+                              note=f'{crossing["name"]} — {crossing["short_note"]}')
+            else:
+                nearest_idx = min(
+                    range(len(path)),
+                    key=lambda i: haversine_meters(path[i][0], path[i][1], crossing["lat"], crossing["lon"]),
+                )
+                segments.append({
+                    "path_idx": nearest_idx, "lat": path[nearest_idx][0], "lon": path[nearest_idx][1],
+                    "score": 75, "risk": crossing_meta["level"], "risk_color": crossing_meta["color"],
+                    "coastal": True, "tidal_exposure": True, "on_bridge": False, "nearest_coast_m": None,
+                    "water_label": crossing["name"], "elevation": None, "known_crossing": crossing["name"],
+                    "note": f'{crossing["name"]} — {crossing["short_note"]}',
+                    "synthetic": True,
+                })
         segments.sort(key=lambda sg: sg["path_idx"])
 
         last_idx = max(1, len(path) - 1)
         for seg in segments:
             seg["position_pct"] = round(seg["path_idx"] / last_idx * 100)
-        available_count = sum(1 for sg in segments if sg["elevation"] is not None)
+        real_segments = [sg for sg in segments if not sg.get("synthetic")]
+        available_count = sum(1 for sg in real_segments if sg["elevation"] is not None)
 
         worst_segment = max(segments, key=lambda s: s["score"]) if segments else None
         risky_segments = [s for s in segments if s["risk"] in ("HIGH", "SEVERE", "CRITICAL")]
@@ -5166,10 +5196,14 @@ def assess_route_safety(origin_query, destination_query):
                 "tidal_exposure": any(sg["tidal_exposure"] for sg in segments),
                 "known_crossings": [c_["name"] for c_ in _known_tidal_crossings_on_path(path)],
                 "bridge_points": sum(1 for sg in segments if sg["on_bridge"]),
-                "confidence_pct": round(100 * available_count / len(segments)) if segments else 0,
+                "confidence_pct": round(100 * available_count / len(real_segments)) if real_segments else 0,
                 "path": route["path"],  # full OSRM geometry — for accurate road-following map drawing, distinct from the sparse `segments` sample points
             }
         )
+
+    for r_ in assessed_routes:
+        if r_["confidence_pct"] < ROUTE_MIN_CONFIDENCE_PCT and r_["worst_risk"] in ("LOW", "WATCH"):
+            r_["worst_risk"] = "UNKNOWN"
 
     # Sort so the lowest-risk route comes first.
     assessed_routes.sort(key=lambda r: r["worst_score"])

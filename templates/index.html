@@ -1330,7 +1330,7 @@
                 fillColor: riskHexRoute(riskColorClassRoute(s.risk)),
                 fillOpacity: 1,
             }).addTo(routeMap);
-            marker.bindTooltip(s.risk + (s.water_label ? " — near " + s.water_label : ""));
+            marker.bindTooltip(s.note ? s.risk + " — " + s.note : s.risk + (s.water_label ? " — near " + s.water_label : ""));
             routeMapOverlays.push(marker);
         });
 
@@ -1394,14 +1394,14 @@
 
         const segmentBar = route.segments.map((s) => {
             const color = riskColorClassRoute(s.risk);
-            return '<div class="route-segment risk-' + color + '" title="' + s.risk + (s.water_label ? " — near " + s.water_label : "") + '"></div>';
+            return '<div class="route-segment risk-' + color + '" title="' + (s.note ? s.risk + " — " + s.note : s.risk + (s.water_label ? " — near " + s.water_label : "")) + '"></div>';
         }).join("");
 
         let riskyHtml = "";
         if (route.risky_segments.length) {
             riskyHtml = '<div class="route-risky-list"><strong>⚠ Risky sections along this route:</strong><ul>' +
                 route.risky_segments.map((s) => {
-                    const label = s.water_label ? " — near " + s.water_label : "";
+                    const label = s.note ? " — " + s.note : (s.water_label ? " — near " + s.water_label : "");
                     return "<li>~" + s.position_pct + "% of the way (" + s.risk + label + ")</li>";
                 }).join("") +
                 "</ul></div>";
@@ -2037,7 +2037,7 @@
                     fillColor: riskHexRoute(riskColorClassRoute(s.risk)),
                     fillOpacity: 1,
                 }).addTo(map);
-                marker.bindTooltip(s.risk + " flood risk" + (s.water_label ? " — near " + s.water_label : ""));
+                marker.bindTooltip(s.note ? s.risk + " — " + s.note : s.risk + " flood risk" + (s.water_label ? " — near " + s.water_label : ""));
                 routeOverlays.push(marker);
             });
 
@@ -2081,7 +2081,7 @@
             if (route.risky_segments.length) {
                 riskyHtml = '<div class="route-risky-list"><strong>⚠ Risky sections along this route:</strong><ul>' +
                     route.risky_segments.map((s) => {
-                        const label = s.water_label ? " — near " + s.water_label : "";
+                        const label = s.note ? " — " + s.note : (s.water_label ? " — near " + s.water_label : "");
                         return "<li>~" + s.position_pct + "% of the way (" + s.risk + label + ")</li>";
                     }).join("") +
                     "</ul></div>";
