@@ -3025,11 +3025,45 @@ def fetch_soil_moisture(lat, lon):
         )
         response.raise_for_status()
         data = response.json()
-        values = data.get("hourly", {}).get("soil_moisture_0_to_1cm") or []
-        for value in values:
-            if value is not None:
-                return float(value)
-        return None
+        hourly = data.get("hourly", {})
+        times = hourly.get("time") or []
+        values = hourly.get("soil_moisture_0_to_1cm") or []
+
+        # Open-Meteo can return hourly values for both past and future hours.
+        # Select the most recent non-null value whose timestamp is not later
+        # than the current UTC time, rather than returning the first value
+        # (which is usually midnight).
+        now_utc = datetime.now(timezone.utc)
+        latest_timestamp = None
+        latest_value = None
+
+        for timestamp, value in zip(times, values):
+            if value is None or not timestamp:
+                continue
+            try:
+                parsed_timestamp = datetime.fromisoformat(
+                    str(timestamp).replace("Z", "+00:00")
+                )
+                # The API response may contain timezone-naive timestamps
+                # (e.g. "2026-10-22T19:00") with timezone given separately.
+                # This request defaults to GMT/UTC, so interpret these as UTC.
+                if parsed_timestamp.tzinfo is None:
+                    parsed_timestamp = parsed_timestamp.replace(tzinfo=timezone.utc)
+                else:
+                    parsed_timestamp = parsed_timestamp.astimezone(timezone.utc)
+            except (TypeError, ValueError):
+                continue
+
+            if parsed_timestamp <= now_utc and (
+                latest_timestamp is None or parsed_timestamp > latest_timestamp
+            ):
+                try:
+                    latest_value = float(value)
+                    latest_timestamp = parsed_timestamp
+                except (TypeError, ValueError):
+                    continue
+
+        return latest_value
     except (requests.RequestException, ValueError, KeyError, TypeError) as error:
         print(f"Soil moisture request failed: {_redact(error)}")
         return None
