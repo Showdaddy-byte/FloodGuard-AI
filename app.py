@@ -7,8 +7,10 @@ import os
 import socket
 import sqlite3
 import threading
+import re
 import time
 import xml.etree.ElementTree as ET
+from urllib.parse import quote
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -91,6 +93,8 @@ ELEVATION_URL = "https://api.open-meteo.com/v1/elevation"
 OVERPASS_URLS = (
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 )
 SOILGRIDS_URL = "https://rest.isric.org/soilgrids/v2.0/properties/query"
 WORLDTIDES_URL = "https://www.worldtides.info/api/v3"
@@ -116,6 +120,48 @@ ROUTE_SAMPLE_POINTS = 7
 # elevation/terrain data, the computed risk score is built mostly from
 # neutral defaults rather than actual local data — see assess_route_safety.
 ROUTE_MIN_CONFIDENCE_PCT = 50
+
+# Hand-verified tidal crossings. These are submerged for most of every tide
+# cycle, which the rain/terrain scoring cannot see, so any route whose full
+# road geometry passes within radius_m is given an explicit explanation
+# instead of a generic score. Revisit once live tide data (WorldTides) is
+# wired into Route Safety.
+KNOWN_TIDAL_CROSSINGS = [
+    {
+        "name": "Passage du Gois",
+        "lat": 46.93384,
+        "lon": -2.147782,  # Atlas Obscura; causeway runs ~4 km across the Baie de Bourgneuf
+        "radius_m": 3000,
+        "explanation": (
+            "This route uses the Passage du Gois, a public road across the Baie de Bourgneuf between "
+            "Beauvoir-sur-Mer and the island of Noirmoutier (France). It is underwater for most of every tide "
+            "cycle and only passable for a limited window around low tide, twice a day. The sea comes back in "
+            "quickly and drivers are caught out every year. Check the tide times posted at both ends of the "
+            "crossing, or the Noirmoutier tide timetable, before you go, and never start across when the "
+            "window is closing. Noirmoutier can also be reached by a road bridge. FloodGuard does not yet "
+            "read live tide times for this route, so this warning applies at any hour and any weather."
+        ),
+    },
+]
+
+
+def _known_tidal_crossings_on_path(path):
+    found = []
+    for crossing in KNOWN_TIDAL_CROSSINGS:
+        for lat, lon in path or []:
+            if haversine_meters(lat, lon, crossing["lat"], crossing["lon"]) <= crossing["radius_m"]:
+                found.append(crossing)
+                break
+    return found
+
+# Tidal-exposure caution: a route point this close to the sea AND this low
+# may be a tidal crossing / coastal flat that tide tables decide, not rain.
+ROUTE_TIDAL_COAST_M = 500
+ROUTE_TIDAL_ELEVATION_M = 5
+# Add extra sample points beside samples within this distance of the sea,
+# up to a per-route cap (each extra point costs one geo-context lookup).
+ROUTE_COAST_DENSIFY_M = 2000
+ROUTE_MAX_EXTRA_COASTAL_POINTS = 6
 
 # How recent a "flooding observed" report must be to count as live ground-truth
 GROUND_TRUTH_WINDOW_HOURS = 12
@@ -191,6 +237,13 @@ CURATED_LOCATIONS = [
     {"label": "Ajah, Lagos", "lat": 6.4670, "lon": 3.6010, "category": "coastal"},
     {"label": "Apapa, Lagos", "lat": 6.4500, "lon": 3.3650, "category": "coastal"},  # VERIFIED
     {"label": "Surulere, Lagos", "lat": 6.5000, "lon": 3.3500, "category": "coastal"},  # VERIFIED
+    # Surulere LGA is large and heterogeneous — these two sub-areas are
+    # individually documented as flash-flood-prone (ageing drainage
+    # infrastructure, not just low elevation) and are close to but
+    # distinct from the Surulere LGA centroid above, so they get their
+    # own curated points rather than being folded into one average.
+    {"label": "Aguda, Surulere, Lagos", "lat": 6.4880, "lon": 3.3379, "category": "coastal"},  # LGA-APPROX — single independent source
+    {"label": "Adeniran Ogunsanya, Surulere, Lagos", "lat": 6.4936, "lon": 3.3573, "category": "coastal"},  # VERIFIED — two independent sources agree
     {"label": "Bariga, Lagos", "lat": 6.5310, "lon": 3.3860, "category": "coastal"},
     {"label": "Gbagada, Lagos", "lat": 6.5482, "lon": 3.3859, "category": "coastal"},
     {"label": "Somolu, Lagos", "lat": 6.5392, "lon": 3.3790, "category": "coastal"},
@@ -309,6 +362,12 @@ def _force_ipv4_gai_family():
 urllib3_cn.allowed_gai_family = _force_ipv4_gai_family
 
 
+def _redact(error):
+    """Error text with API keys stripped (requests embeds the full URL,
+    including ?key=/appid=/apiKey=, in its exception messages)."""
+    return re.sub(r"(?i)((?:api_?key|appid|key|token)=)[^&\s'\"]+", r"\1***", str(error))
+
+
 _service_cooldowns = {}
 SERVICE_COOLDOWN_SECONDS = 120
 
@@ -390,7 +449,7 @@ def query_overpass(query):
             response.raise_for_status()
             return response.json()
         except (requests.RequestException, ValueError) as error:
-            print(f"Overpass endpoint {index} request failed: {error}")
+            print(f"Overpass endpoint {index} request failed: {_redact(error)}")
 
     return None
 
@@ -515,6 +574,10 @@ def init_db():
         )
         """
     )
+    try:
+        conn.execute("ALTER TABLE geo_context_cache ADD COLUMN nearest_open_water_m REAL")
+    except sqlite3.OperationalError:
+        pass
     try:
         conn.execute("ALTER TABLE geo_context_cache ADD COLUMN emergency_contacts_json TEXT")
     except sqlite3.OperationalError:
@@ -716,6 +779,22 @@ def _known_place_for_curated_location(label):
     already used throughout searches/watchlist_cache."""
     normalized = normalize_city(label)
     entry = CURATED_LOCATION_LOOKUP.get(normalized) or CURATED_LOCATION_NAME_ONLY_LOOKUP.get(normalized)
+    if not entry:
+        # Autocomplete/search labels often arrive as "Name, Lagos State" or
+        # "Name, Lagos, Nigeria", which match neither form above and used to
+        # fall through to the geocoder (e.g. "Surulere, Lagos State" landed
+        # on a different point than the curated Surulere). Accept the bare
+        # name plus any of: generic Lagos/Nigeria qualifiers, or the
+        # curated entry's own extra parts (e.g. "Aguda, Surulere").
+        parts = [normalize_city(p) for p in label.split(",") if p.strip()]
+        if len(parts) > 1:
+            candidate = CURATED_LOCATION_NAME_ONLY_LOOKUP.get(parts[0])
+            if candidate:
+                allowed = {"lagos", "lagos state", "nigeria", "ng"} | {
+                    normalize_city(p) for p in candidate["label"].split(",")
+                }
+                if all(p in allowed for p in parts[1:]):
+                    entry = candidate
     if not entry:
         return None
     name, _, state = entry["label"].partition(",")
@@ -1168,7 +1247,7 @@ def fetch_global_flood_alerts():
         response.raise_for_status()
         root = ET.fromstring(response.content)
     except (requests.RequestException, ET.ParseError) as error:
-        print(f"GDACS feed request failed: {error}")
+        print(f"GDACS feed request failed: {_redact(error)}")
         return []
 
     alerts = []
@@ -1407,7 +1486,7 @@ def fetch_openweather(endpoint, params):
         response.raise_for_status()
         return response.json()
     except requests.RequestException as error:
-        print(f"OpenWeather request failed: {error}")
+        print(f"OpenWeather request failed: {_redact(error)}")
         return None
 
 
@@ -1430,7 +1509,7 @@ def fetch_weatherapi_current(lat, lon):
         response.raise_for_status()
         return response.json()
     except (requests.RequestException, ValueError) as error:
-        print(f"WeatherAPI current-conditions fallback request failed: {error}")
+        print(f"WeatherAPI current-conditions fallback request failed: {_redact(error)}")
         return None
 
 
@@ -1453,7 +1532,7 @@ def fetch_weatherapi_forecast(lat, lon, days=5):
         response.raise_for_status()
         return response.json()
     except (requests.RequestException, ValueError) as error:
-        print(f"WeatherAPI forecast fallback request failed: {error}")
+        print(f"WeatherAPI forecast fallback request failed: {_redact(error)}")
         return None
 
 
@@ -1585,7 +1664,7 @@ def sync_contact_to_brevo(email, name=None):
         return True
 
     except requests.RequestException as error:
-        print(f"Brevo contact sync request failed for {email}: {error}")
+        print(f"Brevo contact sync request failed for {email}: {_redact(error)}")
         return False
 TIER_COLORS = {"watch": "#f59e0b", "warning": "#dc2626", "emergency": "#7f1d1d"}
 TIER_MESSAGES = {
@@ -2173,7 +2252,12 @@ def geocode_location(query):
             GEOAPIFY_GEOCODE_URL,
             params={
                 "text": query,
-                "limit": 5,
+                "limit": 10,
+                # Soft bias toward Lagos so a bare name like "Apapa" or
+                # "Yaba" surfaces the Lagos place among the candidates
+                # instead of a same-named village in another state. Only
+                # a ranking hint: specific queries elsewhere still win.
+                "bias": "proximity:3.3792,6.5244",
                 "apiKey": GEOAPIFY_API_KEY,
             },
             timeout=10,
@@ -2181,7 +2265,7 @@ def geocode_location(query):
         response.raise_for_status()
         data = response.json()
     except (requests.RequestException, ValueError) as error:
-        print(f"Geoapify geocoding request failed: {error}")
+        print(f"Geoapify geocoding request failed: {_redact(error)}")
         return None
 
     features = data.get("features", [])
@@ -2199,6 +2283,17 @@ def geocode_location(query):
 
     # Prefer a place whose actual name matches the user's search term.
     query_parts = [part.strip().lower() for part in query.split(",") if part.strip()]
+
+    # Nigeria-first is the default, but a search that explicitly names
+    # another country ("Paris, France") must be respected as typed.
+    named_country = [
+        feature for feature in features
+        if len(query_parts) > 1
+        and str(feature.get("properties", {}).get("country", "")).strip().lower() in query_parts[1:]
+        and feature.get("properties", {}).get("country_code", "").lower() != "ng"
+    ]
+    if named_country:
+        candidates = named_country
     primary_query = query_parts[0] if query_parts else query.strip().lower()
 
     def name_matches(feature):
@@ -2212,6 +2307,18 @@ def geocode_location(query):
     exact_name_matches = [feature for feature in candidates if name_matches(feature)]
     if exact_name_matches:
         candidates = exact_name_matches
+
+    # A bare Nigerian place name with no state/country given ("Apapa",
+    # "Yaba") is ambiguous across states. FloodGuard's focus is Lagos, so
+    # prefer the Lagos State match when there is one; an explicit state in
+    # the query (a comma) is respected as typed.
+    if len(query_parts) <= 1 and nigeria_features:
+        lagos_matches = [
+            feature for feature in candidates
+            if "lagos" in str(feature.get("properties", {}).get("state", "")).lower()
+        ]
+        if lagos_matches:
+            candidates = lagos_matches
 
     # Prefer meaningful populated-place results over buildings/amenities.
     preferred_types = {
@@ -2283,7 +2390,7 @@ def reverse_geocode_location(lat, lon):
         response.raise_for_status()
         data = response.json()
     except (requests.RequestException, ValueError) as error:
-        print(f"Geoapify reverse geocoding request failed: {error}")
+        print(f"Geoapify reverse geocoding request failed: {_redact(error)}")
         return None
 
     features = data.get("features", [])
@@ -2329,7 +2436,7 @@ def fetch_elevation(lat, lon):
         values = data.get("elevation", [])
         return values[0] if values else None
     except (requests.RequestException, KeyError, IndexError, ValueError) as error:
-        print(f"Elevation request failed: {error}")
+        print(f"Elevation request failed: {_redact(error)}")
         return None
 
 
@@ -2420,7 +2527,7 @@ def fetch_elevation_grid(lat, lon, offset_deg=0.0027):
         if len(values) < 5 or any(v is None for v in values):
             return None, None
     except (requests.RequestException, ValueError) as error:
-        print(f"Elevation grid request failed: {error}")
+        print(f"Elevation grid request failed: {_redact(error)}")
         return None, None
 
     center = values[0]
@@ -2473,7 +2580,7 @@ def fetch_basin_context(lat, lon, offset_deg=0.0135):
         if len(values) < 9 or any(v is None for v in values):
             return None, None
     except (requests.RequestException, ValueError) as error:
-        print(f"Basin context request failed: {error}")
+        print(f"Basin context request failed: {_redact(error)}")
         return None, None
 
     center = values[0]
@@ -2596,7 +2703,12 @@ def fetch_water_and_urban_context(lat, lon, radius_m=3000):
     water/coastline features and built-up density within radius_m, to keep
     this to one external call instead of two. Coastline/sea features are
     tracked separately from rivers/lakes so we can tell whether a location
-    is genuinely a coastal region, anywhere in the world."""
+    is genuinely a coastal region, anywhere in the world.
+
+    Returns a 6th value, nearest_open_water_m, counting ONLY open water
+    (coastline/sea, rivers, lakes/lagoons). Streams and canals still count
+    toward nearest_water_m (drainage matters for flooding) but not toward
+    nearest_open_water_m, which drives the >1 km proximity rule."""
     query = f"""
     [out:json][timeout:12];
     (
@@ -2614,10 +2726,11 @@ def fetch_water_and_urban_context(lat, lon, radius_m=3000):
     data = query_overpass(query)
     if data is None:
         print("Water and urban-context request failed on every Overpass endpoint.")
-        return None, None, None, None, None
+        return None, None, None, None, None, None
 
     elements = data.get("elements", [])
     water_candidates = []  # (point, tags)
+    open_water_points = []
     coast_points = []
     building_count = 0
 
@@ -2641,6 +2754,8 @@ def fetch_water_and_urban_context(lat, lon, radius_m=3000):
 
         tags = el.get("tags", {})
         water_candidates.append((point, tags))
+        if not (tags.get("waterway") in ("stream", "canal")):
+            open_water_points.append(point)
         if tags.get("natural") == "coastline" or tags.get("place") == "sea":
             coast_points.append(point)
 
@@ -2659,7 +2774,11 @@ def fetch_water_and_urban_context(lat, lon, radius_m=3000):
     if coast_points:
         nearest_coast_m = min(haversine_meters(lat, lon, cp[0], cp[1]) for cp in coast_points)
 
-    return nearest_water_m, nearest_coast_m, building_count, nearest_water_point, nearest_water_label
+    nearest_open_water_m = None
+    if open_water_points:
+        nearest_open_water_m = min(haversine_meters(lat, lon, p[0], p[1]) for p in open_water_points)
+
+    return nearest_water_m, nearest_coast_m, building_count, nearest_water_point, nearest_water_label, nearest_open_water_m
 
 
 def _describe_water_feature(tags):
@@ -2781,7 +2900,7 @@ def fetch_soil_clay(lat, lon):
                     if raw is not None:
                         return raw / 10  # SoilGrids returns g/kg *10; convert to %
     except (requests.RequestException, ValueError, KeyError, IndexError) as error:
-        print(f"SoilGrids request failed: {error}")
+        print(f"SoilGrids request failed: {_redact(error)}")
     return None
 
 
@@ -2845,7 +2964,7 @@ def fetch_river_discharge(lat, lon):
             return None, None
         return float(current), float(mean)
     except (requests.RequestException, ValueError, KeyError, IndexError, TypeError) as error:
-        print(f"GloFAS river discharge request failed: {error}")
+        print(f"GloFAS river discharge request failed: {_redact(error)}")
         return None, None
 
 
@@ -2896,7 +3015,7 @@ def fetch_soil_moisture(lat, lon):
                 return float(value)
         return None
     except (requests.RequestException, ValueError, KeyError, TypeError) as error:
-        print(f"Soil moisture request failed: {error}")
+        print(f"Soil moisture request failed: {_redact(error)}")
         return None
 
 
@@ -2935,22 +3054,22 @@ def fetch_tide_status(lat, lon):
         return None
 
     try:
-        response = requests.get(
-            WORLDTIDES_URL,
-            params={
-                "heights": "",
-                "extremes": "",
-                "lat": lat,
-                "lon": lon,
-                "key": TIDE_API_KEY,
-                "duration": 1440,  # next 24h of extremes
-            },
-            timeout=10,
+        # WorldTides wants BARE flags (?heights&extremes&lat=...), not
+        # "heights=&extremes=" — passing empty-valued params through
+        # requests produced a 400 Bad Request on every call. Building the
+        # query string by hand keeps the flags valueless.
+        query_string = (
+            f"heights&extremes&lat={lat}&lon={lon}"
+            f"&key={quote(str(TIDE_API_KEY))}&duration=1440"  # next 24h
         )
+        response = requests.get(f"{WORLDTIDES_URL}?{query_string}", timeout=10)
         response.raise_for_status()
         data = response.json()
     except (requests.RequestException, ValueError) as error:
-        print(f"WorldTides request failed: {error}")
+        # Never print the raw error: requests embeds the full URL, which
+        # includes the API key.
+        status = getattr(getattr(error, "response", None), "status_code", None)
+        print(f"WorldTides request failed: {type(error).__name__}" + (f" (HTTP {status})" if status else ""))
         return None
 
     heights = data.get("heights", [])
@@ -3126,7 +3245,7 @@ def classify_terrain(elevation):
 TERRAIN_BEHAVIOUR_TYPES = {
     "water_body": {
         "code": "T-WATER",
-        "label": "Likely open water",
+        "label": "Highly flood-prone location",
         "icon": "🌊",
     },
     "wetland_seasonal": {
@@ -3193,18 +3312,32 @@ def classify_terrain_behaviour(elevation, slope_percent, nearest_water_m, coasta
     near_water = nearest_water_m is not None and nearest_water_m <= 500
 
     # --- The critical distinction: is this pixel most likely water itself? ---
-    if (water_occurrence_pct is not None and water_occurrence_pct >= 70) or land_cover == "water":
+    # JRC occurrence is a 1984-2021 HISTORICAL aggregate: it never updates
+    # when land is sand-filled/reclaimed, so on its own it cannot say the
+    # point is water NOW. Open water therefore requires CURRENT evidence
+    # (Dynamic World, ~10 m, recent months), and is rejected if mapped
+    # water is far away.
+    dw_water_prob = None
+    dw_built_prob = None
+    if earth_engine and earth_engine.get("available"):
+        dw_water_prob = earth_engine.get("dynamic_world_water_prob")
+        dw_built_prob = earth_engine.get("dynamic_world_built_prob")
+    currently_water = land_cover == "water" or (dw_water_prob is not None and dw_water_prob >= 0.5)
+    if currently_water and nearest_water_m is not None and nearest_water_m > 300:
+        currently_water = False  # satellite says water but no mapped water nearby: don't trust it
+    historically_wet = water_occurrence_pct is not None and water_occurrence_pct >= 20
+    no_current_data = land_cover is None and dw_water_prob is None
+
+    if currently_water or (historically_wet and no_current_data and water_occurrence_pct >= 70
+                           and (nearest_water_m is None or nearest_water_m <= 150)):
         key = "water_body"
         detail = (
-            "This exact point shows a high rate of historical water presence"
-            + (f" (~{water_occurrence_pct:.0f}% of satellite observations)" if water_occurrence_pct is not None else "")
-            + (f", and current land cover here is classified as {land_cover}" if land_cover else "")
-            + ". This most likely means the coordinate is sitting on or very "
-            "close to open water (a lagoon, river, or sea) rather than "
-            "occupied land — not that the surrounding neighbourhood floods "
-            "94% of the time. For a meaningful assessment of a specific "
-            "street or building, try pinning a point slightly further from "
-            "the water's edge."
+            "This location is highly prone to flooding when rainfall reaches "
+            "30 mm or more. Historical satellite observations indicate "
+            "recurring water presence, suggesting an elevated risk of "
+            "flooding during heavy rainfall. Nearby roads, streets, and "
+            "properties may be affected, particularly in areas with poor "
+            "drainage or restricted water flow."
         )
         meta = TERRAIN_BEHAVIOUR_TYPES[key]
         return {
@@ -3217,16 +3350,24 @@ def classify_terrain_behaviour(elevation, slope_percent, nearest_water_m, coasta
         }
 
     # --- Seasonally wet / periodically inundated land ---
-    if water_occurrence_pct is not None and 20 <= water_occurrence_pct < 70 and land_cover != "water":
+    if historically_wet and not currently_water:
         key = "wetland_seasonal"
-        detail = (
-            f"Satellite observations show this area under water roughly "
-            f"{water_occurrence_pct:.0f}% of the time historically, without "
-            "being permanently classified as water today. This is a genuine "
-            "flood-prone signal — periodically inundated or low-lying "
-            "reclaimed land — distinct from a location that is simply "
-            "always a lagoon or river."
-        )
+        built_now = land_cover == "built" or (dw_built_prob is not None and dw_built_prob >= 0.4)
+        if built_now:
+            detail = (
+                f"Older satellite records (1984-2021) show water here roughly "
+                f"{water_occurrence_pct:.0f}% of the time, but current imagery "
+                "shows built-up land, not water — consistent with sand-filled "
+                "or reclaimed ground. It is not open water now. Reclaimed land "
+                "can still sit low and drain poorly, so check local drainage."
+            )
+        else:
+            detail = (
+                f"Older satellite records (1984-2021) show water here roughly "
+                f"{water_occurrence_pct:.0f}% of the time, but current imagery "
+                "does not classify it as open water. It may be seasonally wet "
+                "or reclaimed land; check local drainage conditions."
+            )
         meta = TERRAIN_BEHAVIOUR_TYPES[key]
         return {"key": key, "code": meta["code"], "label": meta["label"], "icon": meta["icon"], "detail": detail, "is_likely_water_pixel": False}
 
@@ -4513,6 +4654,7 @@ def get_geo_context(city_key, lat, lon):
             "nearest_coast_m": row["nearest_coast_m"],
             "nearest_water_point": water_point,
             "nearest_water_label": row["nearest_water_label"],
+            "nearest_open_water_m": row["nearest_open_water_m"],
             "building_count": row["building_count"],
             "water_lookup_available": row["building_count"] is not None,
             "clay_percent": row["clay_percent"],
@@ -4635,7 +4777,7 @@ def get_geo_context(city_key, lat, lon):
         basin_relative_depth_m = cached["basin_relative_depth_m"]
         basin_enclosure_ratio = cached["basin_enclosure_ratio"]
 
-    nearest_water_m, nearest_coast_m, building_count, nearest_water_point, nearest_water_label = (
+    nearest_water_m, nearest_coast_m, building_count, nearest_water_point, nearest_water_label, nearest_open_water_m = (
         fetch_water_and_urban_context(lat, lon)
     )
     # building_count is None only when the Overpass call failed outright
@@ -4647,6 +4789,11 @@ def get_geo_context(city_key, lat, lon):
         building_count = cached["building_count"]
         nearest_water_point = cached["nearest_water_point"]
         nearest_water_label = cached["nearest_water_label"]
+        nearest_open_water_m = cached.get("nearest_open_water_m")
+        if nearest_open_water_m is None:
+            # Older cache rows predate this column: be conservative and
+            # treat the nearest water of any kind as open water.
+            nearest_open_water_m = nearest_water_m
 
     clay_percent = fetch_soil_clay(lat, lon)
     if clay_percent is None and cached and cached["clay_percent"] is not None:
@@ -4689,9 +4836,9 @@ def get_geo_context(city_key, lat, lon):
         INSERT INTO geo_context_cache
             (city_key, elevation, slope_percent, nearest_water_m, nearest_coast_m,
              nearest_water_lat, nearest_water_lon, nearest_water_label, building_count, clay_percent,
-             emergency_contacts_json, basin_relative_depth_m, basin_enclosure_ratio,
+             nearest_open_water_m, emergency_contacts_json, basin_relative_depth_m, basin_enclosure_ratio,
              soil_moisture, soil_moisture_updated_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(city_key) DO UPDATE SET
             elevation=excluded.elevation,
             slope_percent=excluded.slope_percent,
@@ -4702,6 +4849,7 @@ def get_geo_context(city_key, lat, lon):
             nearest_water_label=excluded.nearest_water_label,
             building_count=excluded.building_count,
             clay_percent=excluded.clay_percent,
+            nearest_open_water_m=excluded.nearest_open_water_m,
             emergency_contacts_json=excluded.emergency_contacts_json,
             basin_relative_depth_m=excluded.basin_relative_depth_m,
             basin_enclosure_ratio=excluded.basin_enclosure_ratio,
@@ -4720,6 +4868,7 @@ def get_geo_context(city_key, lat, lon):
             nearest_water_label,
             building_count,
             clay_percent,
+            nearest_open_water_m,
             json.dumps(emergency_contacts),
             basin_relative_depth_m,
             basin_enclosure_ratio,
@@ -4738,6 +4887,7 @@ def get_geo_context(city_key, lat, lon):
         "nearest_coast_m": nearest_coast_m,
         "nearest_water_point": nearest_water_point,
         "nearest_water_label": nearest_water_label,
+        "nearest_open_water_m": nearest_open_water_m,
         "building_count": building_count,
         "water_lookup_available": building_count is not None,
         "clay_percent": clay_percent,
@@ -4768,7 +4918,7 @@ def fetch_route(origin_lat, origin_lon, dest_lat, dest_lon, alternatives=True):
         response.raise_for_status()
         data = response.json()
     except (requests.RequestException, ValueError) as error:
-        print(f"OSRM routing request failed: {error}")
+        print(f"OSRM routing request failed: {_redact(error)}")
         return []
 
     if data.get("code") != "Ok":
@@ -4785,6 +4935,68 @@ def fetch_route(origin_lat, origin_lon, dest_lat, dest_lon, alternatives=True):
             "path": path,
         })
     return routes
+
+
+# OSM bridge= values that are NOT an elevated deck (low-level crossings,
+# causeways and movable bridges still sit at water level).
+ROUTE_NON_ELEVATED_BRIDGE_VALUES = {"no", "causeway", "movable", "low_water_crossing", "culvert", "ford"}
+ROUTE_BRIDGE_MATCH_M = 35
+_bridge_way_cache = {}
+
+
+def fetch_bridge_ways(points):
+    """One Overpass query returning the road-bridge geometries within a
+    short distance of the given (lat, lon) sample points. Returns a list of
+    polylines [(lat, lon), ...]. Returns [] if the lookup fails, in which
+    case points are simply treated as not-on-a-bridge (the previous
+    behaviour) rather than guessing."""
+    ways = []
+    pending = []
+    for lat, lon in points:
+        key = (round(lat, 3), round(lon, 3))
+        if key in _bridge_way_cache:
+            ways.extend(_bridge_way_cache[key])
+        else:
+            pending.append((lat, lon, key))
+    if pending:
+        clauses = "".join(
+            f'way["highway"]["bridge"](around:{ROUTE_BRIDGE_MATCH_M + 25},{lat},{lon});' for lat, lon, _ in pending
+        )
+        data = query_overpass(f"[out:json][timeout:12];({clauses});out tags geom;")
+        if data is None:
+            return ways
+        found = []
+        for el in data.get("elements", []):
+            if (el.get("tags", {}).get("bridge") or "no") in ROUTE_NON_ELEVATED_BRIDGE_VALUES:
+                continue
+            geom = el.get("geometry") or []
+            line = [(g["lat"], g["lon"]) for g in geom if "lat" in g and "lon" in g]
+            if len(line) >= 2:
+                found.append(line)
+        for lat, lon, key in pending:
+            # cache per point whatever was found near it
+            _bridge_way_cache[key] = [ln for ln in found if _point_to_polyline_m(lat, lon, ln) <= ROUTE_BRIDGE_MATCH_M + 25]
+            ways.extend(_bridge_way_cache[key])
+    return ways
+
+
+def _point_to_polyline_m(lat, lon, line):
+    """Approximate distance in metres from a point to a polyline."""
+    kx = 111320 * math.cos(math.radians(lat))
+    ky = 110540
+    best = float("inf")
+    for (la1, lo1), (la2, lo2) in zip(line, line[1:]):
+        ax, ay = (lo1 - lon) * kx, (la1 - lat) * ky
+        bx, by = (lo2 - lon) * kx, (la2 - lat) * ky
+        dx, dy = bx - ax, by - ay
+        seg = dx * dx + dy * dy
+        t = 0 if seg == 0 else max(0, min(1, -(ax * dx + ay * dy) / seg))
+        best = min(best, math.hypot(ax + t * dx, ay + t * dy))
+    return best
+
+
+def _point_on_bridge(lat, lon, bridge_ways):
+    return any(_point_to_polyline_m(lat, lon, ln) <= ROUTE_BRIDGE_MATCH_M for ln in bridge_ways)
 
 
 def sample_route_points(path, n=ROUTE_SAMPLE_POINTS):
@@ -4835,11 +5047,19 @@ def assess_route_safety(origin_query, destination_query):
 
     assessed_routes = []
     for route in routes[:2]:  # primary + at most one alternative
-        sample_points = sample_route_points(route["path"])
-        segments = []
-        available_count = 0
+        path = route["path"]
+        base_indices = []
+        if path:
+            if len(path) <= ROUTE_SAMPLE_POINTS:
+                base_indices = list(range(len(path)))
+            else:
+                step = (len(path) - 1) / (ROUTE_SAMPLE_POINTS - 1)
+                base_indices = [round(i * step) for i in range(ROUTE_SAMPLE_POINTS)]
 
-        for idx, (lat, lon) in enumerate(sample_points):
+        bridge_ways = fetch_bridge_ways([path[i] for i in base_indices])
+
+        def assess_point(path_idx):
+            lat, lon = path[path_idx]
             city_key = f"route:{round(lat, 3)},{round(lon, 3)}"
             geo = get_geo_context(city_key, lat, lon)
             terrain = classify_terrain(geo["elevation"])
@@ -4848,9 +5068,6 @@ def assess_route_safety(origin_query, destination_query):
             urban = classify_urbanization(geo["building_count"])
             coastal = is_coastal_region(geo["nearest_coast_m"])
             soil = classify_soil(geo["clay_percent"])
-
-            if geo["elevation"] is not None:
-                available_count += 1
 
             w = nearest_weather(lat, lon)
             weather_bonus, _ = _weather_bonus(
@@ -4871,6 +5088,12 @@ def assess_route_safety(origin_query, destination_query):
                     "historical_reports": 0,
                 }
             )
+            # On an elevated road bridge the terrain model reports the water
+            # or ground BELOW the deck, so elevation/water-distance/slope are
+            # not evidence about the deck. Score only the weather there.
+            on_bridge = _point_on_bridge(lat, lon, bridge_ways)
+            if on_bridge:
+                context_bonus = 0
             score = weather_bonus + context_bonus
             rainfall = w["rainfall"] if w else 0
             if rainfall < 10:
@@ -4880,19 +5103,54 @@ def assess_route_safety(origin_query, destination_query):
             score = max(0, min(score, 100))
             risk = classify_risk(score, coastal=coastal)
 
-            segments.append(
-                {
-                    "position_pct": round(idx / max(1, len(sample_points) - 1) * 100),
-                    "lat": lat,
-                    "lon": lon,
-                    "score": score,
-                    "risk": risk["level"],
-                    "risk_color": risk["color"],
-                    "coastal": coastal,
-                    "water_label": geo["nearest_water_label"],
-                    "elevation": round(geo["elevation"]) if geo["elevation"] is not None else None,
-                }
+            # Tides are NOT modelled here. Low ground right at the sea is
+            # flagged separately so the verdict can tell the traveller to
+            # check tide tables instead of reporting a plain "safe".
+            coast_m = geo.get("nearest_coast_m")
+            tidal_exposure = (
+                not on_bridge
+                and coast_m is not None and coast_m <= ROUTE_TIDAL_COAST_M
+                and geo["elevation"] is not None and geo["elevation"] <= ROUTE_TIDAL_ELEVATION_M
             )
+            return {
+                "path_idx": path_idx,
+                "lat": lat,
+                "lon": lon,
+                "score": score,
+                "risk": risk["level"],
+                "risk_color": risk["color"],
+                "coastal": coastal,
+                "tidal_exposure": tidal_exposure,
+                "on_bridge": on_bridge,
+                "nearest_coast_m": coast_m,
+                "water_label": geo["nearest_water_label"],
+                "elevation": round(geo["elevation"]) if geo["elevation"] is not None else None,
+            }
+
+        segments = [assess_point(i) for i in base_indices]
+
+        # Denser sampling where the route runs near the sea: add midpoints
+        # beside each near-coast sample so a short low crossing (a causeway,
+        # a coastal flat) is less likely to fall between sample points.
+        extra_indices = set()
+        for pos, seg in enumerate(segments):
+            if seg["nearest_coast_m"] is not None and seg["nearest_coast_m"] <= ROUTE_COAST_DENSIFY_M:
+                for neighbour in (pos - 1, pos + 1):
+                    if 0 <= neighbour < len(segments):
+                        mid = (seg["path_idx"] + segments[neighbour]["path_idx"]) // 2
+                        if mid not in base_indices:
+                            extra_indices.add(mid)
+        extra_chosen = sorted(extra_indices)[:ROUTE_MAX_EXTRA_COASTAL_POINTS]
+        if extra_chosen:
+            bridge_ways.extend(fetch_bridge_ways([path[i] for i in extra_chosen]))
+        for mid in extra_chosen:
+            segments.append(assess_point(mid))
+        segments.sort(key=lambda sg: sg["path_idx"])
+
+        last_idx = max(1, len(path) - 1)
+        for seg in segments:
+            seg["position_pct"] = round(seg["path_idx"] / last_idx * 100)
+        available_count = sum(1 for sg in segments if sg["elevation"] is not None)
 
         worst_segment = max(segments, key=lambda s: s["score"]) if segments else None
         risky_segments = [s for s in segments if s["risk"] in ("HIGH", "SEVERE", "CRITICAL")]
@@ -4905,7 +5163,10 @@ def assess_route_safety(origin_query, destination_query):
                 "worst_risk": worst_segment["risk"] if worst_segment else "LOW",
                 "worst_score": worst_segment["score"] if worst_segment else 0,
                 "risky_segments": risky_segments,
-                "confidence_pct": round(100 * available_count / len(sample_points)) if sample_points else 0,
+                "tidal_exposure": any(sg["tidal_exposure"] for sg in segments),
+                "known_crossings": [c_["name"] for c_ in _known_tidal_crossings_on_path(path)],
+                "bridge_points": sum(1 for sg in segments if sg["on_bridge"]),
+                "confidence_pct": round(100 * available_count / len(segments)) if segments else 0,
                 "path": route["path"],  # full OSRM geometry — for accurate road-following map drawing, distinct from the sparse `segments` sample points
             }
         )
@@ -4948,6 +5209,38 @@ def assess_route_safety(origin_query, destination_query):
         advice = risk_meta["advice"]
         priority_action = risk_meta["priority_action"]
 
+    tidal_warning = None
+    if primary.get("tidal_exposure"):
+        tidal_warning = (
+            "Part of this route runs on low ground right beside the sea. FloodGuard does not model tides: "
+            "check local tide tables before travelling, since a tidal crossing or coastal road can be "
+            "under water at high tide even in dry weather."
+        )
+        if not low_confidence and verdict_color == "low":
+            verdict = "CHECK TIDES BEFORE TRAVEL"
+            verdict_color = "watch"
+        advice = f"{advice} {tidal_warning}"
+        priority_action = "Check tide tables for any low coastal road or causeway on this route before you set off."
+
+    crossing_notes = [
+        c_["explanation"] for c_ in KNOWN_TIDAL_CROSSINGS if c_["name"] in primary.get("known_crossings", [])
+    ]
+    if crossing_notes:
+        verdict = "TIDAL CROSSING — CHECK TIDE TIMES"
+        verdict_color = "high"
+        advice = " ".join(crossing_notes)
+        priority_action = "Check the posted tide times for the crossing before you set off — it is underwater for most of each tide."
+        tidal_warning = advice
+        if alternative and not alternative.get("known_crossings"):
+            advice += " The alternative route shown does not use this crossing."
+
+    if primary.get("bridge_points"):
+        advice = (
+            f"{advice} {primary['bridge_points']} checked point(s) are on an elevated bridge: terrain and "
+            "water-distance checks are skipped there (they would describe the water below, not the deck). "
+            "Flooded approach roads, closures and repairs are not assessed."
+        )
+
     origin_label = origin["name"] + (f", {origin['state']}" if origin.get("state") else "")
     destination_label = destination["name"] + (f", {destination['state']}" if destination.get("state") else "")
 
@@ -4964,6 +5257,7 @@ def assess_route_safety(origin_query, destination_query):
         "advice": advice,
         "priority_action": priority_action,
         "data_incomplete": low_confidence,
+        "tidal_warning": tidal_warning,
     }
 
 
@@ -4974,6 +5268,11 @@ def _severity(raw, max_raw):
         return 0.0
     return max(0.0, min(1.0, raw / max_raw))
 
+
+# Beyond this distance from mapped open water, vulnerability is fixed at LOW / 20.
+PROXIMITY_SAFE_M = 1000
+# Fixed score for flat urban ground >1 km from open water but beside a drainage canal.
+DRAINAGE_FLOOR_SCORE = 33
 
 VULNERABILITY_LEVELS = {
     "UNKNOWN": {
@@ -5321,7 +5620,7 @@ def compute_geo_data_confidence(geo):
     return "low"
 
 
-def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engine, historical_reports, water_escape=None, data_confidence="high"):
+def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engine, historical_reports, water_escape=None, data_confidence="high", nearest_water_m=None, water_lookup_available=False, nearest_open_water_m=None, slope_percent=None, building_count=None):
     """Flood VULNERABILITY — how flood-prone this location inherently is —
     as a separate metric from the Live Flood Risk score above. This is
     deliberately WEATHER-INDEPENDENT: it does not use rainfall, tide, or
@@ -5359,6 +5658,14 @@ def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engi
     water_occurrence_pct = None
     if earth_engine and earth_engine.get("available"):
         water_occurrence_pct = earth_engine.get("jrc_water_occurrence_pct")
+    # JRC occurrence is historical (1984-2021). If current imagery shows the
+    # point is no longer water and is built up, it is likely filled/reclaimed
+    # land, so the stale signal is halved rather than counted in full.
+    if water_occurrence_pct and earth_engine and earth_engine.get("available"):
+        _wp = earth_engine.get("dynamic_world_water_prob")
+        _bp = earth_engine.get("dynamic_world_built_prob")
+        if _wp is not None and _bp is not None and _wp < 0.2 and _bp >= 0.4:
+            water_occurrence_pct = water_occurrence_pct * 0.5
     occurrence_sev = _severity(water_occurrence_pct or 0, 40)  # 40%+ historical water occurrence is a strong signal
 
     coastal_sev = 1.0 if coastal else 0.0
@@ -5387,6 +5694,23 @@ def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engi
     else:
         level = "LOW"
 
+    # Proximity-to-OPEN-water override (product decision): more than
+    # PROXIMITY_SAFE_M from open water (sea, river, lagoon/lake) is LOW / 20 —
+    # EXCEPT flat, built-up ground next to a drainage canal/stream, which
+    # floods from overflowing drains rather than from open water and gets a
+    # modest floor instead. Only applies when the water lookup succeeded: a
+    # failed lookup is missing data, not "far from water".
+    far_from_water = water_lookup_available and (nearest_open_water_m is None or nearest_open_water_m > PROXIMITY_SAFE_M)
+    drainage_floor = False
+    if far_from_water:
+        drainage_floor = bool(
+            nearest_water_m is not None and nearest_water_m <= PROXIMITY_SAFE_M
+            and slope_percent is not None and slope_percent < 1.5
+            and building_count is not None and building_count >= 100
+        )
+        score = DRAINAGE_FLOOR_SCORE if drainage_floor else 20
+        level = "MODERATE" if drainage_floor else "LOW"
+
     data_incomplete = data_confidence == "low"
     if data_incomplete:
         level = "UNKNOWN"
@@ -5409,6 +5733,16 @@ def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engi
     if historical_reports > 0:
         factors.append(f"{historical_reports} community-reported flooding incident(s) at this location since tracking began")
 
+    if far_from_water and not data_incomplete:
+        if drainage_floor:
+            factors = ["More than 1 km from open water, but flat, built-up ground beside a drainage canal — "
+                       "street-level flooding from overflowing or blocked drains is the main risk here, not standing water"] + [
+                f for f in factors if not f.startswith("Earth Engine JRC")
+            ]
+        else:
+            factors = ["More than 1 km from mapped open water — scored as low long-term flood vulnerability"] + [
+                f for f in factors if not f.startswith(("Water proximity", "Earth Engine JRC"))
+            ]
     if data_incomplete:
         factors = [
             "Elevation, terrain, and/or water-proximity data could not be retrieved right now "
@@ -5560,7 +5894,9 @@ def build_prediction(query, known_place=None):
     # than implying "safe" just because it isn't raining right now.
     data_confidence = compute_geo_data_confidence(geo)
     vulnerability = compute_flood_vulnerability(
-        terrain, slope, water, soil, coastal, earth_engine, historical_reports, water_escape, data_confidence
+        terrain, slope, water, soil, coastal, earth_engine, historical_reports, water_escape, data_confidence,
+        nearest_water_m=geo.get("nearest_water_m"), water_lookup_available=geo.get("water_lookup_available", False),
+        nearest_open_water_m=geo.get("nearest_open_water_m"), slope_percent=geo.get("slope_percent"), building_count=geo.get("building_count"),
     )
     regional_context = get_regional_flood_context(weather.get("country"), weather["city"])
 
@@ -5863,7 +6199,7 @@ def home():
         maybe_refresh_watchlist_async()
         maybe_send_daily_digests()
 
-    city = (request.form.get("city") if request.method == "POST" else request.args.get("location", "")).strip()
+    city = (request.form.get("city", "") if request.method == "POST" else request.args.get("location", "")).strip()
     map_known_place = None
     map_lat_raw = request.args.get("map_lat") if request.method == "GET" else None
     map_lon_raw = request.args.get("map_lon") if request.method == "GET" else None
@@ -6234,7 +6570,9 @@ def api_property_check():
 
         data_confidence = compute_geo_data_confidence(geo)
         vulnerability = compute_flood_vulnerability(
-            terrain, slope, water, soil, coastal, earth_engine, historical_reports, water_escape, data_confidence
+            terrain, slope, water, soil, coastal, earth_engine, historical_reports, water_escape, data_confidence,
+            nearest_water_m=geo.get("nearest_water_m"), water_lookup_available=geo.get("water_lookup_available", False),
+        nearest_open_water_m=geo.get("nearest_open_water_m"), slope_percent=geo.get("slope_percent"), building_count=geo.get("building_count"),
         )
         terrain_behaviour = classify_terrain_behaviour(
             elevation, slope_percent, geo["nearest_water_m"], coastal, geo["building_count"], earth_engine
