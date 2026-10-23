@@ -1506,43 +1506,126 @@
                     : "<p>" + data.location + " — long-term vulnerability score " + data.score + "/100</p>") +
                 "<p>" + data.guidance + "</p>" +
             "</div>" +
+            propertyMapHtml(data) +
             terrainBehaviourHtml +
             warningHtml +
             '<div class="route-risky-list"><strong>What this is based on:</strong><ul>' + factorsHtml + "</ul></div>" +
             '<p class="property-disclaimer">' + data.disclaimer + "</p>";
+
+        initPropertyMap(data);
+    }
+
+    // --- Exact-location map for the property check -------------------------
+    // Shows where the pin fell, lets the visitor click the map (or drag the
+    // pin) to move it onto their exact plot, then re-runs the check there.
+    let propertyMap = null;
+
+    function propertyEscape(value) {
+        return String(value).replace(/[&<>'"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[c]);
+    }
+
+    function propertyMapHtml(data) {
+        if (typeof data.latitude !== "number" || typeof data.longitude !== "number") return "";
+        const coords = data.latitude.toFixed(6) + ", " + data.longitude.toFixed(6);
+        const osmUrl = "https://www.openstreetmap.org/?mlat=" + data.latitude + "&mlon=" + data.longitude +
+            "#map=18/" + data.latitude + "/" + data.longitude;
+        return '<div class="property-map-wrap">' +
+            '<h3>📍 Where this check was made</h3>' +
+            '<div id="property-map" class="property-map" style="height:360px;width:100%;border-radius:12px;overflow:hidden;" role="region" aria-label="Map showing the checked location"></div>' +
+            '<p class="property-map-note">' + propertyEscape(data.pin_note || "") + "</p>" +
+            '<p class="property-map-coords"><strong>Coordinates:</strong> <span id="property-coords">' + coords + "</span> " +
+                '<button type="button" id="property-copy-coords" class="map-pin-btn">Copy</button> ' +
+                '<a href="' + osmUrl + '" target="_blank" rel="noopener">Open in OpenStreetMap</a></p>' +
+            '<p id="property-map-feedback" class="map-search-feedback" aria-live="polite"></p>' +
+        "</div>";
+    }
+
+    function initPropertyMap(data) {
+        const mapEl = document.getElementById("property-map");
+        if (!mapEl) return;
+        const geoapifyKey = {{ geoapify_api_key | default('') | tojson }};
+        if (!window.L || !geoapifyKey) {
+            mapEl.innerHTML = '<div class="traffic-not-configured">Map is not configured yet — add <code>GEOAPIFY_API_KEY</code> to your environment to enable it.</div>';
+            return;
+        }
+        if (propertyMap) { propertyMap.remove(); propertyMap = null; }
+
+        const areaLevel = data.pin_source === "geocoded" && /centre|center/.test(data.pin_note || "");
+        propertyMap = L.map(mapEl).setView([data.latitude, data.longitude], areaLevel ? 16 : 17);
+        L.tileLayer("https://maps.geoapify.com/v1/tile/osm-bright/{z}/{x}/{y}.png?apiKey=" + geoapifyKey, {
+            maxZoom: 20,
+            attribution: 'Powered by <a href="https://www.geoapify.com/" target="_blank" rel="noopener">Geoapify</a> | &copy; OpenStreetMap contributors',
+        }).addTo(propertyMap);
+
+        const feedback = document.getElementById("property-map-feedback");
+        const pin = L.marker([data.latitude, data.longitude], { draggable: true }).addTo(propertyMap);
+        pin.bindPopup("<strong>" + propertyEscape(data.location) + "</strong><br>Drag me, or click the map, to move the pin.").openPopup();
+
+        if (data.nearest_water && typeof data.nearest_water.lat === "number") {
+            const w = data.nearest_water;
+            L.polyline([[data.latitude, data.longitude], [w.lat, w.lon]], { color: "#0284c7", weight: 2, dashArray: "6 6" }).addTo(propertyMap);
+            L.circleMarker([w.lat, w.lon], { radius: 7, color: "#fff", weight: 2, fillColor: "#0284c7", fillOpacity: 1 })
+                .addTo(propertyMap)
+                .bindTooltip("Nearest water" + (w.label ? ": " + w.label : "") + " (~" + w.distance_m + " m)");
+        }
+
+        let busy = false;
+        function movePinTo(lat, lng) {
+            if (busy) return;
+            busy = true;
+            feedback.textContent = "Re-checking flood vulnerability at this exact point...";
+            runPropertyCheck({ location: data.location, lat: lat, lon: lng }).finally(() => { busy = false; });
+        }
+        propertyMap.on("click", (event) => movePinTo(event.latlng.lat, event.latlng.lng));
+        pin.on("dragend", () => { const p = pin.getLatLng(); movePinTo(p.lat, p.lng); });
+
+        const copyButton = document.getElementById("property-copy-coords");
+        if (copyButton) {
+            copyButton.addEventListener("click", () => {
+                const text = document.getElementById("property-coords").textContent;
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).then(() => { copyButton.textContent = "Copied"; setTimeout(() => { copyButton.textContent = "Copy"; }, 1500); });
+                }
+            });
+        }
+    }
+
+    async function runPropertyCheck(body) {
+        const submitBtn = document.getElementById("property-submit");
+        const feedbackEl = document.getElementById("property-feedback");
+        if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Checking..."; }
+        feedbackEl.textContent = "";
+        feedbackEl.className = "route-feedback";
+
+        try {
+            const response = await fetch("/api/property-check", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body)
+            });
+            const data = await response.json();
+            if (data.ok && body.lat !== undefined) {
+                const input = document.getElementById("property-location");
+                if (input) input.value = data.location;
+            }
+            renderPropertyResult(data);
+        } catch (err) {
+            feedbackEl.textContent = "Network error. Please try again.";
+            feedbackEl.className = "route-feedback error";
+        } finally {
+            if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = "Check Location"; }
+        }
     }
 
     const propertyForm = document.getElementById("property-form");
     if (propertyForm) {
-        propertyForm.addEventListener("submit", async function (event) {
+        propertyForm.addEventListener("submit", function (event) {
             event.preventDefault();
             const location = document.getElementById("property-location").value.trim();
-            const submitBtn = document.getElementById("property-submit");
-            const feedbackEl = document.getElementById("property-feedback");
-
             if (!location) return;
-
-            submitBtn.disabled = true;
-            submitBtn.textContent = "Checking...";
-            feedbackEl.textContent = "";
-            feedbackEl.className = "route-feedback";
+            if (propertyMap) { propertyMap.remove(); propertyMap = null; }
             document.getElementById("property-results").innerHTML = "";
-
-            try {
-                const response = await fetch("/api/property-check", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ location: location })
-                });
-                const data = await response.json();
-                renderPropertyResult(data);
-            } catch (err) {
-                feedbackEl.textContent = "Network error. Please try again.";
-                feedbackEl.className = "route-feedback error";
-            } finally {
-                submitBtn.disabled = false;
-                submitBtn.textContent = "Check Location";
-            }
+            runPropertyCheck({ location: location });
         });
     }
 
