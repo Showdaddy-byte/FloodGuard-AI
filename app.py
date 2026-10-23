@@ -2562,6 +2562,82 @@ def fetch_elevation_grid(lat, lon, offset_deg=0.0027):
     return center, round(slope_percent, 1)
 
 
+
+# Which terrain source supplies elevation + slope:
+#   "earth_engine" (default) — NASADEM via Earth Engine, with Open-Meteo as
+#                  an automatic fallback if Earth Engine can't answer
+#   "open_meteo" — the previous behaviour only
+#   "compare"    — fetch both, LOG the differences, and keep using
+#                  Open-Meteo's values; for validating Earth Engine on the
+#                  live site before switching over
+ELEVATION_SOURCE = os.getenv("ELEVATION_SOURCE", "earth_engine").strip().lower()
+
+
+def fetch_elevation_grid_earth_engine(lat, lon, offset_deg=0.0027):
+    """Same 5-point geometry as fetch_elevation_grid (centre + four points
+    ~300 m N/S/E/W) but read from NASADEM in Earth Engine in ONE call, so
+    elevation and slope keep exactly the meaning the scoring already
+    expects. Returns (None, None) on any problem, including a masked pixel
+    (e.g. open water), so the caller can fall back."""
+    if not EARTH_ENGINE_ENABLED or not initialize_earth_engine():
+        return None, None
+    try:
+        lon_offset = offset_deg / max(math.cos(math.radians(lat)), 0.01)
+        points = [
+            (lat, lon),
+            (lat + offset_deg, lon),
+            (lat - offset_deg, lon),
+            (lat, lon + lon_offset),
+            (lat, lon - lon_offset),
+        ]
+        features = [
+            ee.Feature(ee.Geometry.Point([p_lon, p_lat]), {"i": i})
+            for i, (p_lat, p_lon) in enumerate(points)
+        ]
+        dem = ee.Image("NASA/NASADEM_HGT/001").select("elevation")
+        sampled = dem.sampleRegions(
+            collection=ee.FeatureCollection(features), properties=["i"], scale=30
+        ).getInfo()
+        by_index = {
+            int(f["properties"]["i"]): f["properties"].get("elevation")
+            for f in (sampled or {}).get("features", [])
+        }
+        values = [by_index.get(i) for i in range(5)]
+        if any(v is None for v in values):
+            return None, None
+    except Exception as error:  # noqa: BLE001 — Earth Engine raises many error types
+        print(f"Earth Engine elevation lookup failed: {_redact(error)}")
+        return None, None
+
+    center = float(values[0])
+    spread = max(values[1:]) - min(values[1:])
+    slope_percent = (spread / (offset_deg * 111000)) * 100
+    return center, round(slope_percent, 1)
+
+
+def fetch_elevation_best(lat, lon):
+    """Elevation + slope from the configured source (see ELEVATION_SOURCE),
+    falling back to the other source rather than returning nothing."""
+    mode = ELEVATION_SOURCE
+    if mode == "open_meteo":
+        return fetch_elevation_grid(lat, lon)
+
+    ee_result = fetch_elevation_grid_earth_engine(lat, lon)
+
+    if mode == "compare":
+        om_result = fetch_elevation_grid(lat, lon)
+        print(
+            f"ELEVATION_COMPARE lat={lat:.4f} lon={lon:.4f} "
+            f"earth_engine(elev={ee_result[0]}, slope%={ee_result[1]}) "
+            f"open_meteo(elev={om_result[0]}, slope%={om_result[1]})"
+        )
+        return om_result if om_result[0] is not None else ee_result
+
+    if ee_result[0] is not None:
+        return ee_result
+    return fetch_elevation_grid(lat, lon)
+
+
 def fetch_basin_context(lat, lon, offset_deg=0.0135):
     """One batched Open-Meteo call sampling an 8-point compass ring at
     roughly 1.5 km radius (plus the center point) — this is deliberately a
@@ -3381,7 +3457,7 @@ def classify_terrain_behaviour(elevation, slope_percent, nearest_water_m, coasta
     # --- Seasonally wet / periodically inundated land ---
     if historically_wet and not currently_water:
         key = "wetland_seasonal"
-        built_now = land_cover == "built" or (dw_built_prob is not None and dw_built_prob >= 0.4)
+        built_now = land_cover == "built area" or (dw_built_prob is not None and dw_built_prob >= 0.4)
         if built_now:
             detail = (
                 f"Older satellite records (1984-2021) show water here roughly "
@@ -4817,7 +4893,7 @@ def get_geo_context(city_key, lat, lon):
     if _lookup_suppressed("terrain", city_key):
         elevation, slope_percent = None, None
     else:
-        elevation, slope_percent = fetch_elevation_grid(lat, lon)
+        elevation, slope_percent = fetch_elevation_best(lat, lon)
         if elevation is None:
             _suppress_lookup("terrain", city_key, 3)
     if elevation is None and cached and cached["elevation"] is not None:
