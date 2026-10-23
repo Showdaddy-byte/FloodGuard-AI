@@ -2391,6 +2391,7 @@ def geocode_location(query):
         "name": selected_name,
         "state": properties.get("state", ""),
         "country": properties.get("country", ""),
+        "result_type": properties.get("result_type", ""),
     }
 
 
@@ -6834,18 +6835,47 @@ def api_property_check():
     if len(location) > 150:
         return jsonify({"ok": False, "error": "Location is too long."}), 400
 
-    known_place = _known_place_for_curated_location(location)
-    if known_place:
-        place = known_place
+    # Exact coordinates (the visitor clicked/dragged the pin on the result
+    # map) take precedence over the typed text: this is how a buyer or
+    # renter pins the actual plot instead of the neighbourhood centre.
+    pinned = None
+    raw_lat, raw_lon = payload.get("lat"), payload.get("lon")
+    if raw_lat not in (None, "") and raw_lon not in (None, ""):
+        try:
+            pin_lat, pin_lon = float(raw_lat), float(raw_lon)
+            if not math.isfinite(pin_lat) or not math.isfinite(pin_lon) or not -90 <= pin_lat <= 90 or not -180 <= pin_lon <= 180:
+                raise ValueError
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "That map point is invalid."}), 400
+        resolved = reverse_geocode_location(pin_lat, pin_lon)
+        pinned = {
+            "lat": pin_lat,
+            "lon": pin_lon,
+            "name": (resolved or {}).get("label") or "Pinned location",
+            "state": "",
+            "country": "",
+        }
+
+    if pinned:
+        place = pinned
+        pin_source = "pinned"
     else:
-        place = geocode_location(location)
+        known_place = _known_place_for_curated_location(location)
+        if known_place:
+            place = known_place
+            pin_source = "verified"
+        else:
+            place = geocode_location(location)
+            pin_source = "geocoded"
     if not place:
         return jsonify({"ok": False, "error": f"Could not find '{location}'."}), 400
 
     try:
         lat, lon = place["lat"], place["lon"]
         location_label = place["name"] + (f", {place['state']}" if place.get("state") else "")
-        city_key = normalize_city(location_label)
+        # A pinned point gets its own cache key so it never reuses (or
+        # overwrites) the data cached for the named place around it.
+        city_key = f"map:{lat:.5f},{lon:.5f}" if pinned else normalize_city(location_label)
 
         geo = get_geo_context(city_key, lat, lon)
         earth_engine = get_earth_engine_context(city_key, lat, lon)
@@ -6875,9 +6905,37 @@ def api_property_check():
         print(f"Property flood risk assessment failed: {error}")
         return jsonify({"ok": False, "error": "Something went wrong checking this location. Please try again."}), 500
 
+    result_type = (place.get("result_type") or "").lower()
+    if pin_source == "pinned":
+        pin_note = "This is the exact point you chose on the map."
+    elif pin_source == "verified":
+        pin_note = ("This is a hand-checked reference point for the area, not a specific plot. "
+                    "Click the map to move the pin onto your exact plot or building.")
+    elif result_type in ("building", "amenity", "street", "postcode"):
+        pin_note = ("The pin is the best address match found. Check it sits on your plot, and click the map "
+                    "to move it if it doesn't.")
+    else:
+        pin_note = ("The pin marks the centre of the area that matched your search, not a specific plot. "
+                    "Click the map to move the pin onto your exact plot or building.")
+
+    nearest_water_info = None
+    water_point = geo.get("nearest_water_point")
+    if water_point and geo.get("nearest_water_m") is not None:
+        nearest_water_info = {
+            "lat": water_point[0],
+            "lon": water_point[1],
+            "label": geo.get("nearest_water_label"),
+            "distance_m": round(geo["nearest_water_m"]),
+        }
+
     return jsonify({
         "ok": True,
         "location": location_label,
+        "latitude": lat,
+        "longitude": lon,
+        "pin_source": pin_source,
+        "pin_note": pin_note,
+        "nearest_water": nearest_water_info,
         "elevation_m": round(elevation) if elevation is not None else None,
         "coastal": coastal,
         "historical_reports": historical_reports,
