@@ -2638,6 +2638,58 @@ def fetch_elevation_best(lat, lon):
     return fetch_elevation_grid(lat, lon)
 
 
+
+# --- Earth Engine fallback for water/coast proximity ------------------------
+# Used ONLY when the Overpass (OpenStreetMap) lookup has failed and there is
+# no earlier good value to reuse, so the water-proximity input is not simply
+# missing. Gives distance to open water (JRC Global Surface Water, pixels
+# under water >=50% of the time) and to the ocean coast (ETOPO1 sea mask,
+# ~2 km resolution — adequate for the 10 km "coastal region" threshold).
+# It cannot name the feature, count buildings, or see canals/streams.
+EE_WATER_CACHE_HOURS = 24
+_ee_water_cache = {}
+
+
+def fetch_water_context_earth_engine(lat, lon, radius_m=3000, coast_radius_m=10000):
+    """Returns {"open_water_m": float|None, "coast_m": float|None} on a
+    successful lookup (None meaning 'none within the search radius'), or
+    None if Earth Engine couldn't answer at all."""
+    if not EARTH_ENGINE_ENABLED or not initialize_earth_engine():
+        return None
+    try:
+        point = ee.Geometry.Point([lon, lat])
+        occurrence = ee.Image("JRC/GSW1_4/GlobalSurfaceWater").select("occurrence")
+        water = occurrence.gte(50).selfMask()
+        water_dist = water.distance(ee.Kernel.euclidean(radius_m, "meters")).rename("open_water_m")
+        ocean = ee.Image("NOAA/NGDC/ETOPO1").select("bedrock").lt(0).selfMask()
+        coast_dist = (
+            ocean.distance(ee.Kernel.euclidean(coast_radius_m, "meters"))
+            .reproject(ee.Projection("EPSG:4326").atScale(1855))
+            .rename("coast_m")
+        )
+        values = water_dist.addBands(coast_dist).reduceRegion(
+            reducer=ee.Reducer.first(), geometry=point, scale=30, bestEffort=True
+        ).getInfo() or {}
+    except Exception as error:  # noqa: BLE001 — Earth Engine raises many error types
+        print(f"Earth Engine water lookup failed: {_redact(error)}")
+        return None
+
+    def _clean(value):
+        return None if value is None else round(float(value))
+
+    return {"open_water_m": _clean(values.get("open_water_m")), "coast_m": _clean(values.get("coast_m"))}
+
+
+def get_water_context_earth_engine_cached(city_key, lat, lon):
+    cached = _ee_water_cache.get(city_key)
+    if cached and time.time() < cached[0]:
+        return cached[1]
+    result = fetch_water_context_earth_engine(lat, lon)
+    if result is not None:
+        _ee_water_cache[city_key] = (time.time() + EE_WATER_CACHE_HOURS * 3600, result)
+    return result
+
+
 def fetch_basin_context(lat, lon, offset_deg=0.0135):
     """One batched Open-Meteo call sampling an 8-point compass ring at
     roughly 1.5 km radius (plus the center point) — this is deliberately a
@@ -4761,7 +4813,7 @@ def get_geo_context(city_key, lat, lon):
             "nearest_water_label": row["nearest_water_label"],
             "nearest_open_water_m": row["nearest_open_water_m"],
             "building_count": row["building_count"],
-            "water_lookup_available": row["building_count"] is not None,
+            "water_lookup_available": row["building_count"] is not None or city_key in _ee_water_cache,
             "clay_percent": row["clay_percent"],
             "emergency_contacts": cached_contacts,
             "basin_relative_depth_m": row["basin_relative_depth_m"],
@@ -4934,6 +4986,18 @@ def get_geo_context(city_key, lat, lon):
             # treat the nearest water of any kind as open water.
             nearest_open_water_m = nearest_water_m
 
+    water_via_earth_engine = False
+    if building_count is None:
+        ee_water = get_water_context_earth_engine_cached(city_key, lat, lon)
+        if ee_water is not None:
+            water_via_earth_engine = True
+            nearest_open_water_m = ee_water["open_water_m"]
+            nearest_water_m = ee_water["open_water_m"]
+            nearest_coast_m = ee_water["coast_m"]
+            nearest_water_point = None
+            nearest_water_label = "open water (satellite estimate)" if ee_water["open_water_m"] is not None else None
+            print(f"Water proximity for '{city_key}' taken from Earth Engine (Overpass unavailable).")
+
     clay_percent = fetch_soil_clay(lat, lon)
     if clay_percent is None and cached and cached["clay_percent"] is not None:
         clay_percent = cached["clay_percent"]
@@ -5033,7 +5097,8 @@ def get_geo_context(city_key, lat, lon):
         "nearest_water_label": nearest_water_label,
         "nearest_open_water_m": nearest_open_water_m,
         "building_count": building_count,
-        "water_lookup_available": building_count is not None,
+        "water_lookup_available": building_count is not None or water_via_earth_engine,
+        "water_via_earth_engine": water_via_earth_engine,
         "clay_percent": clay_percent,
         "emergency_contacts": emergency_contacts,
         "basin_relative_depth_m": basin_relative_depth_m,
@@ -5771,33 +5836,55 @@ def set_dam_status(dam_key, status, notes=None, source_url=None):
 
 
 
-def compute_geo_data_confidence(geo):
-    """How much of the core terrain/water/soil data actually loaded for
-    this location, versus fell back to unavailable because an external
-    service (Overpass, Open-Meteo) failed or was rate-limited. Returns
-    "high" (nothing missing), "medium" (one gap), or "low" (two or more
-    gaps) — "low" is what forces compute_flood_vulnerability to present
-    an UNKNOWN result instead of a numeric score that could be silently
-    low only because the inputs were missing, not because the location
-    is actually safe."""
-    core_values = [
-        geo.get("elevation"),
-        geo.get("slope_percent"),
-        geo.get("nearest_water_m"),
-        geo.get("clay_percent"),
-    ]
-    missing = sum(1 for value in core_values if value is None)
+# At or above this elevation (metres) water proximity barely matters for
+# long-term flood vulnerability, so a failed water lookup alone doesn't make
+# the whole assessment untrustworthy.
+HIGH_GROUND_WATER_IRRELEVANT_M = 60
+
+
+def geo_data_gaps(geo):
+    """Human-readable list of which core inputs are genuinely missing.
+    nearest_water_m being None is NOT a gap when the water lookup worked —
+    it then means 'no water within the 3 km search radius', a real answer."""
+    gaps = []
+    elevation = geo.get("elevation")
+    if elevation is None:
+        gaps.append("elevation")
+    if geo.get("slope_percent") is None:
+        gaps.append("slope")
     if not geo.get("water_lookup_available", True):
-        missing += 1
+        high_ground = elevation is not None and elevation >= HIGH_GROUND_WATER_IRRELEVANT_M
+        if not high_ground:
+            gaps.append("water proximity")
+    return gaps
 
-    if missing == 0:
-        return "high"
-    if missing == 1:
+
+def compute_geo_data_confidence(geo):
+    """How much of the core terrain/water data actually loaded, versus fell
+    back to unavailable because an external service (Overpass, Earth Engine,
+    Open-Meteo) failed or was rate-limited.
+
+    "high"   — nothing core is missing (soil type alone missing is a minor,
+               7%-weight input and only lowers this to "medium")
+    "medium" — elevation or slope alone missing, or only soil type missing
+    "low"    — water proximity missing on low ground, or two or more core
+               inputs missing: forces
+               compute_flood_vulnerability to present an UNKNOWN result
+               instead of a numeric score that could be silently low only
+               because the inputs were missing, not because the location
+               is actually safe."""
+    gaps = geo_data_gaps(geo)
+    # Water proximity is a major input (and drives the coastal/open-water
+    # logic), so on low ground its absence alone is enough to say
+    # "incomplete" rather than risk a falsely low score.
+    if len(gaps) >= 2 or "water proximity" in gaps:
+        return "low"
+    if len(gaps) == 1 or geo.get("clay_percent") is None:
         return "medium"
-    return "low"
+    return "high"
 
 
-def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engine, historical_reports, water_escape=None, data_confidence="high", nearest_water_m=None, water_lookup_available=False, nearest_open_water_m=None, slope_percent=None, building_count=None):
+def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engine, historical_reports, water_escape=None, data_confidence="high", nearest_water_m=None, water_lookup_available=False, nearest_open_water_m=None, slope_percent=None, building_count=None, data_gaps=None, water_via_earth_engine=False):
     """Flood VULNERABILITY — how flood-prone this location inherently is —
     as a separate metric from the Live Flood Risk score above. This is
     deliberately WEATHER-INDEPENDENT: it does not use rainfall, tide, or
@@ -5877,7 +5964,12 @@ def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engi
     # floods from overflowing drains rather than from open water and gets a
     # modest floor instead. Only applies when the water lookup succeeded: a
     # failed lookup is missing data, not "far from water".
-    far_from_water = water_lookup_available and (nearest_open_water_m is None or nearest_open_water_m > PROXIMITY_SAFE_M)
+    # The satellite fallback can't see drainage canals/streams, so the
+    # "far from open water" shortcut is not applied to it.
+    far_from_water = (
+        water_lookup_available and not water_via_earth_engine
+        and (nearest_open_water_m is None or nearest_open_water_m > PROXIMITY_SAFE_M)
+    )
     drainage_floor = False
     if far_from_water:
         drainage_floor = bool(
@@ -5920,11 +6012,16 @@ def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engi
             factors = ["More than 1 km from mapped open water — scored as low long-term flood vulnerability"] + [
                 f for f in factors if not f.startswith(("Water proximity", "Earth Engine JRC"))
             ]
+    if water_via_earth_engine and not data_incomplete:
+        factors.append(
+            "Water distance is a satellite estimate (the map service was unavailable); drainage canals "
+            "and streams are not visible in it, so local drainage flooding may be understated"
+        )
     if data_incomplete:
+        missing = ", ".join(data_gaps) if data_gaps else "elevation, terrain, and/or water proximity"
         factors = [
-            "Elevation, terrain, and/or water-proximity data could not be retrieved right now "
-            "(a data source may be temporarily rate-limited or unavailable) — this is not a "
-            "confirmation of low risk, the assessment is simply incomplete."
+            f"Could not retrieve: {missing} (a data source may be temporarily rate-limited or "
+            "unavailable) — this is not a confirmation of low risk, the assessment is simply incomplete."
         ] + factors
     elif not factors:
         factors.append("No significant long-term flood indicators found for this location")
@@ -6073,7 +6170,7 @@ def build_prediction(query, known_place=None):
     vulnerability = compute_flood_vulnerability(
         terrain, slope, water, soil, coastal, earth_engine, historical_reports, water_escape, data_confidence,
         nearest_water_m=geo.get("nearest_water_m"), water_lookup_available=geo.get("water_lookup_available", False),
-        nearest_open_water_m=geo.get("nearest_open_water_m"), slope_percent=geo.get("slope_percent"), building_count=geo.get("building_count"),
+        nearest_open_water_m=geo.get("nearest_open_water_m"), slope_percent=geo.get("slope_percent"), building_count=geo.get("building_count"), data_gaps=geo_data_gaps(geo), water_via_earth_engine=geo.get("water_via_earth_engine", False),
     )
     regional_context = get_regional_flood_context(weather.get("country"), weather["city"])
 
@@ -6769,7 +6866,7 @@ def api_property_check():
         vulnerability = compute_flood_vulnerability(
             terrain, slope, water, soil, coastal, earth_engine, historical_reports, water_escape, data_confidence,
             nearest_water_m=geo.get("nearest_water_m"), water_lookup_available=geo.get("water_lookup_available", False),
-        nearest_open_water_m=geo.get("nearest_open_water_m"), slope_percent=geo.get("slope_percent"), building_count=geo.get("building_count"),
+        nearest_open_water_m=geo.get("nearest_open_water_m"), slope_percent=geo.get("slope_percent"), building_count=geo.get("building_count"), data_gaps=geo_data_gaps(geo), water_via_earth_engine=geo.get("water_via_earth_engine", False),
         )
         terrain_behaviour = classify_terrain_behaviour(
             elevation, slope_percent, geo["nearest_water_m"], coastal, geo["building_count"], earth_engine
