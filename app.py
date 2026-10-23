@@ -177,15 +177,6 @@ GROUND_TRUTH_WINDOW_HOURS = 12
 # visitors without anyone needing to search that exact place first.
 WATCHLIST_REFRESH_MINUTES = 15
 
-# Development mode: disable the recurring full-watchlist risk sweep by default.
-# Manual searches still calculate the selected location. Subscriber weather
-# digests remain enabled and can calculate the locations subscribers opted into.
-# Set ENABLE_BACKGROUND_LOCATION_MONITORING=true to restore full watchlist sweeps.
-ENABLE_BACKGROUND_LOCATION_MONITORING = (
-    os.getenv("ENABLE_BACKGROUND_LOCATION_MONITORING", "false").strip().lower()
-    in {"1", "true", "yes", "on"}
-)
-
 # Seconds to wait between each monitored location during a full watchlist
 # sweep. Widened from an earlier 1.5s: on a fresh deploy (no persistent
 # disk => empty cache), a full sweep hits Overpass for every one of
@@ -222,8 +213,6 @@ DIGEST_EVENING_UTC_HOUR = int(os.getenv("DIGEST_EVENING_UTC_HOUR", "17"))
 # a full day cuts external call volume by ~95%+, which is what actually
 # fixes Overpass rate-limiting (406s) rather than just retrying harder.
 GEO_CONTEXT_TTL_HOURS = 24
-GEO_CONTEXT_FAILURE_RETRY_MINUTES = 60
-RIVER_DISCHARGE_CACHE_TTL_HOURS = 6
 EARTH_ENGINE_CONTEXT_TTL_HOURS = 6
 
 # Locations actively monitored for the homepage alert banner, independent of
@@ -386,111 +375,39 @@ def _redact(error):
 
 _service_cooldowns = {}
 SERVICE_COOLDOWN_SECONDS = 120
-OPEN_METEO_RATE_LIMIT_BASE_SECONDS = 15 * 60
-OPEN_METEO_RATE_LIMIT_MAX_SECONDS = 6 * 60 * 60
-
-
-def _read_persisted_service_state(service_name):
-    """Return (cooldown_until, consecutive_rate_limits) from SQLite when available.
-
-    The in-memory breaker still works if the database is temporarily locked or
-    unavailable. Persisting the state prevents another worker from immediately
-    repeating a request that has just been rate-limited.
-    """
-    try:
-        conn = sqlite3.connect(DB_PATH, timeout=2)
-        row = conn.execute(
-            "SELECT cooldown_until, consecutive_rate_limits "
-            "FROM external_service_state WHERE service_name = ?",
-            (service_name,),
-        ).fetchone()
-        conn.close()
-        if row:
-            return float(row[0] or 0), int(row[1] or 0)
-    except (sqlite3.Error, TypeError, ValueError):
-        pass
-    return 0.0, 0
 
 
 def _service_available(service_name):
-    now = time.time()
-    until = _service_cooldowns.get(service_name, 0)
-    if until > now:
-        return False
-    if until:
-        _service_cooldowns.pop(service_name, None)
-
-    persisted_until, _ = _read_persisted_service_state(service_name)
-    if persisted_until > now:
-        _service_cooldowns[service_name] = persisted_until
-        return False
-    return True
+    until = _service_cooldowns.get(service_name)
+    return not (until and time.time() < until)
 
 
-def _mark_service_down(
-    service_name,
-    cooldown_seconds=SERVICE_COOLDOWN_SECONDS,
-    *,
-    rate_limited=False,
-    retry_after_seconds=None,
-    reason=None,
-):
-    now = time.time()
-    _, previous_rate_limits = _read_persisted_service_state(service_name)
-    consecutive_rate_limits = previous_rate_limits
-
-    if rate_limited and service_name.startswith("open-meteo"):
-        consecutive_rate_limits = previous_rate_limits + 1
-        exponent = min(consecutive_rate_limits - 1, 5)
-        backoff = min(
-            OPEN_METEO_RATE_LIMIT_BASE_SECONDS * (2 ** exponent),
-            OPEN_METEO_RATE_LIMIT_MAX_SECONDS,
-        )
-        cooldown_seconds = max(backoff, float(retry_after_seconds or 0))
-
-    until = now + max(1, float(cooldown_seconds))
-    _service_cooldowns[service_name] = until
-
-    try:
-        conn = sqlite3.connect(DB_PATH, timeout=2)
-        conn.execute(
-            """
-            INSERT INTO external_service_state
-                (service_name, cooldown_until, consecutive_rate_limits, last_error, updated_at)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(service_name) DO UPDATE SET
-                cooldown_until = excluded.cooldown_until,
-                consecutive_rate_limits = excluded.consecutive_rate_limits,
-                last_error = excluded.last_error,
-                updated_at = excluded.updated_at
-            """,
-            (
-                service_name,
-                until,
-                consecutive_rate_limits,
-                str(reason or "request_failed")[:200],
-                datetime.now(timezone.utc).isoformat(),
-            ),
-        )
-        conn.commit()
-        conn.close()
-    except sqlite3.Error as error:
-        # Keep the in-memory circuit breaker even if SQLite cannot be written.
-        print(f"Could not persist {service_name} cooldown: {_redact(error)}")
+def _mark_service_down(service_name, cooldown_seconds=SERVICE_COOLDOWN_SECONDS):
+    _service_cooldowns[service_name] = time.time() + cooldown_seconds
 
 
 def _mark_service_up(service_name):
     _service_cooldowns.pop(service_name, None)
-    try:
-        conn = sqlite3.connect(DB_PATH, timeout=2)
-        conn.execute(
-            "DELETE FROM external_service_state WHERE service_name = ?",
-            (service_name,),
-        )
-        conn.commit()
-        conn.close()
-    except sqlite3.Error:
-        pass
+
+
+# Remembers that a specific lookup for a specific place just failed (or came
+# back genuinely empty), so repeat searches don't re-attempt it every time.
+# In-memory on purpose: it only needs to outlive a burst of searches, and
+# it resets on restart. Keys look like ("emergency", city_key).
+_lookup_suppressed_until = {}
+
+
+def _lookup_suppressed(kind, key):
+    until = _lookup_suppressed_until.get((kind, key))
+    return bool(until and time.time() < until)
+
+
+def _suppress_lookup(kind, key, minutes):
+    _lookup_suppressed_until[(kind, key)] = time.time() + minutes * 60
+
+
+def _overpass_available():
+    return any(_service_available(f"overpass-{i}") for i in range(1, len(OVERPASS_URLS) + 1))
 
 
 def request_with_retry(
@@ -503,18 +420,10 @@ def request_with_retry(
     retry_statuses=(429, 500, 502, 503, 504),
     **kwargs,
 ):
-    """Shared request wrapper with per-service cooldowns.
-
-    Open-Meteo endpoint families use persistent breakers. A successful elevation
-    lookup must not clear a separate soil-moisture endpoint's 429 backoff. On
-    HTTP 429, the wrapper stops retrying immediately and persists an expanding
-    cooldown for that endpoint family.
-    """
-    # Do not spend extra calls retrying Open-Meteo after throttling. Each
-    # endpoint family (elevation, soil moisture, GloFAS) has its own breaker.
-    if service_name and service_name.startswith("open-meteo"):
-        max_retries = 0
-
+    """Shared retry wrapper for every external API call. If service_name is
+    given, also checks/updates that service's circuit-breaker cooldown, so
+    a currently rate-limiting or down service is skipped immediately
+    instead of making every subsequent caller wait through a timeout."""
     if service_name and not _service_available(service_name):
         raise requests.exceptions.ConnectionError(
             f"{service_name} is in cooldown after a recent failure; skipping request."
@@ -524,32 +433,12 @@ def request_with_retry(
     for attempt in range(max_retries + 1):
         try:
             response = requests.request(method, url, **kwargs)
-
-            # Stop immediately on Open-Meteo 429 and back off for 15 minutes
-            # or longer. Repeated 429s increase the cooldown up to six hours.
-            if service_name and service_name.startswith("open-meteo") and response.status_code == 429:
-                retry_after = None
-                try:
-                    retry_after = float(response.headers.get("Retry-After", ""))
-                except (TypeError, ValueError):
-                    pass
-                _mark_service_down(
-                    service_name,
-                    rate_limited=True,
-                    retry_after_seconds=retry_after,
-                    reason="HTTP 429 Too Many Requests",
-                )
-                return response
-
             if response.status_code in retry_statuses and attempt < max_retries:
                 time.sleep(backoff_base * (2 ** attempt))
                 continue
             if response.status_code in retry_statuses:
                 if service_name:
-                    _mark_service_down(
-                        service_name,
-                        reason=f"HTTP {response.status_code}",
-                    )
+                    _mark_service_down(service_name)
             elif service_name:
                 _mark_service_up(service_name)
             return response
@@ -559,7 +448,7 @@ def request_with_retry(
                 time.sleep(backoff_base * (2 ** attempt))
                 continue
             if service_name:
-                _mark_service_down(service_name, reason=type(error).__name__)
+                _mark_service_down(service_name)
             raise
     if last_exc:
         raise last_exc
@@ -749,29 +638,6 @@ def init_db():
         CREATE TABLE IF NOT EXISTS refresh_locks (
             lock_name TEXT PRIMARY KEY,
             started_at TEXT NOT NULL
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS external_service_state (
-            service_name TEXT PRIMARY KEY,
-            cooldown_until REAL NOT NULL,
-            consecutive_rate_limits INTEGER NOT NULL DEFAULT 0,
-            last_error TEXT,
-            updated_at TEXT NOT NULL
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS river_discharge_cache (
-            point_key TEXT PRIMARY KEY,
-            latitude REAL NOT NULL,
-            longitude REAL NOT NULL,
-            discharge REAL,
-            mean_discharge REAL,
-            updated_at TEXT NOT NULL
         )
         """
     )
@@ -1283,11 +1149,9 @@ def refresh_watchlist_cache():
 
 
 def maybe_refresh_watchlist_async():
-    """Kick off a background refresh if enabled and the cache is stale."""
+    """Kick off a background refresh if the cache is stale. Non-blocking, so
+    a visitor's page load is never delayed by the monitoring sweep."""
     global _watchlist_refreshing
-
-    if not ENABLE_BACKGROUND_LOCATION_MONITORING:
-        return
 
     conn = sqlite3.connect(DB_PATH)
     row = conn.execute("SELECT MIN(updated_at) FROM watchlist_cache").fetchone()
@@ -2587,11 +2451,8 @@ def fetch_elevation(lat, lon):
     a single city-wide score can't capture that Lekki sits near sea level
     while Maryland/Gbagada Phase 1&2 sit meaningfully higher."""
     try:
-        response = request_with_retry(
-            "GET",
+        response = requests.get(
             ELEVATION_URL,
-            service_name="open-meteo-elevation",
-            max_retries=0,
             params={"latitude": lat, "longitude": lon},
             timeout=8,
         )
@@ -2620,7 +2481,7 @@ EMERGENCY_LABELS = {
 }
 
 
-def fetch_emergency_contacts(lat, lon, radius_m=8000):
+def fetch_emergency_contacts(lat, lon, radius_m=8000, with_status=False):
     """Real, live nearest hospital/police/fire station from OpenStreetMap —
     not a fabricated directory. Phone numbers only appear when OSM actually
     has one tagged; this app never invents contact details."""
@@ -2636,7 +2497,7 @@ def fetch_emergency_contacts(lat, lon, radius_m=8000):
     data = query_overpass(query)
     if data is None:
         print("Emergency contacts request failed on every Overpass endpoint.")
-        return []
+        return ([], False) if with_status else []
 
     nearest_by_type = {}
     for el in data.get("elements", []):
@@ -2660,7 +2521,8 @@ def fetch_emergency_contacts(lat, lon, radius_m=8000):
                 "distance_m": round(distance),
             }
 
-    return sorted(nearest_by_type.values(), key=lambda c: c["distance_m"])
+    result = sorted(nearest_by_type.values(), key=lambda c: c["distance_m"])
+    return (result, True) if with_status else result
 
 
 def fetch_elevation_grid(lat, lon, offset_deg=0.0027):
@@ -2683,7 +2545,6 @@ def fetch_elevation_grid(lat, lon, offset_deg=0.0027):
             "GET",
             ELEVATION_URL,
             service_name="open-meteo-elevation",
-            max_retries=0,
             params={"latitude": lats, "longitude": lons},
             timeout=8,
         )
@@ -2737,7 +2598,6 @@ def fetch_basin_context(lat, lon, offset_deg=0.0135):
             "GET",
             ELEVATION_URL,
             service_name="open-meteo-elevation",
-            max_retries=0,
             params={"latitude": lats, "longitude": lons},
             timeout=8,
         )
@@ -3097,41 +2957,18 @@ def classify_soil(clay_percent):
 
 
 def fetch_river_discharge(lat, lon):
-    """Return cached GloFAS discharge where available, refreshing at most
-    every six hours per rounded coordinate. River-discharge forecasts are
-    daily, so requesting them on every manual search adds load without
-    materially improving the current estimate. If refresh fails, reuse the
-    last known-good value; the endpoint cooldown prevents repeated requests.
-    """
-    point_key = f"{float(lat):.4f},{float(lon):.4f}"
-    cached = None
+    """Real hydrological model output — GloFAS (Global Flood Awareness
+    System), the Copernicus/ECMWF model professional flood forecasters use,
+    exposed free via Open-Meteo's Flood API. Returns today's forecasted
+    discharge (m3/s) for the nearest modeled river cell, plus its 30-year
+    historical average for the same day of year, so we can tell a river
+    running at several times its normal flow from one at a normal level —
+    genuine upstream catchment-routing hydrology, not a rainfall proxy.
+    Not every coordinate sits on a modeled river reach, so a clean 'no data'
+    (None, None) is an expected, normal outcome, not a failure."""
     try:
-        conn = sqlite3.connect(DB_PATH, timeout=2)
-        row = conn.execute(
-            "SELECT discharge, mean_discharge, updated_at "
-            "FROM river_discharge_cache WHERE point_key = ?",
-            (point_key,),
-        ).fetchone()
-        conn.close()
-        if row:
-            cached = (row[0], row[1])
-            try:
-                age_hours = (
-                    datetime.utcnow() - _parse_stored_datetime(row[2])
-                ).total_seconds() / 3600
-            except (TypeError, ValueError):
-                age_hours = float("inf")
-            if age_hours < RIVER_DISCHARGE_CACHE_TTL_HOURS:
-                return cached
-    except sqlite3.Error as error:
-        print(f"River-discharge cache read failed: {_redact(error)}")
-
-    try:
-        response = request_with_retry(
-            "GET",
+        response = requests.get(
             FLOOD_API_URL,
-            service_name="open-meteo-flood",
-            max_retries=0,
             params={
                 "latitude": lat,
                 "longitude": lon,
@@ -3145,46 +2982,16 @@ def fetch_river_discharge(lat, lon):
         daily = data.get("daily", {}) or {}
         discharge_values = daily.get("river_discharge") or []
         mean_values = daily.get("river_discharge_mean") or []
-        current = discharge_values[0] if discharge_values else None
-        mean = mean_values[0] if mean_values else None
-        if current is not None and mean is not None:
-            result = (float(current), float(mean))
-        else:
-            # A successful response without a river value is also cached, so
-            # locations outside a modelled reach do not trigger repeated calls.
-            result = (None, None)
-
-        try:
-            conn = sqlite3.connect(DB_PATH, timeout=2)
-            conn.execute(
-                """
-                INSERT INTO river_discharge_cache
-                    (point_key, latitude, longitude, discharge, mean_discharge, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(point_key) DO UPDATE SET
-                    latitude=excluded.latitude,
-                    longitude=excluded.longitude,
-                    discharge=excluded.discharge,
-                    mean_discharge=excluded.mean_discharge,
-                    updated_at=excluded.updated_at
-                """,
-                (
-                    point_key,
-                    float(lat),
-                    float(lon),
-                    result[0],
-                    result[1],
-                    datetime.utcnow().isoformat(),
-                ),
-            )
-            conn.commit()
-            conn.close()
-        except sqlite3.Error as error:
-            print(f"River-discharge cache write failed: {_redact(error)}")
-        return result
+        if not discharge_values or not mean_values:
+            return None, None
+        current = discharge_values[0]
+        mean = mean_values[0]
+        if current is None or mean is None:
+            return None, None
+        return float(current), float(mean)
     except (requests.RequestException, ValueError, KeyError, IndexError, TypeError) as error:
         print(f"GloFAS river discharge request failed: {_redact(error)}")
-        return cached if cached is not None else (None, None)
+        return None, None
 
 
 def classify_river_discharge(current, mean):
@@ -3216,11 +3023,8 @@ def fetch_soil_moisture(lat, lon):
     of its clay content, which a static soil-type lookup alone can't tell
     you."""
     try:
-        response = request_with_retry(
-            "GET",
+        response = requests.get(
             SOIL_MOISTURE_URL,
-            service_name="open-meteo-soil-moisture",
-            max_retries=0,
             params={
                 "latitude": lat,
                 "longitude": lon,
@@ -3231,45 +3035,11 @@ def fetch_soil_moisture(lat, lon):
         )
         response.raise_for_status()
         data = response.json()
-        hourly = data.get("hourly", {})
-        times = hourly.get("time") or []
-        values = hourly.get("soil_moisture_0_to_1cm") or []
-
-        # Open-Meteo can return hourly values for both past and future hours.
-        # Select the most recent non-null value whose timestamp is not later
-        # than the current UTC time, rather than returning the first value
-        # (which is usually midnight).
-        now_utc = datetime.now(timezone.utc)
-        latest_timestamp = None
-        latest_value = None
-
-        for timestamp, value in zip(times, values):
-            if value is None or not timestamp:
-                continue
-            try:
-                parsed_timestamp = datetime.fromisoformat(
-                    str(timestamp).replace("Z", "+00:00")
-                )
-                # The API response may contain timezone-naive timestamps
-                # (e.g. "2026-10-22T19:00") with timezone given separately.
-                # This request defaults to GMT/UTC, so interpret these as UTC.
-                if parsed_timestamp.tzinfo is None:
-                    parsed_timestamp = parsed_timestamp.replace(tzinfo=timezone.utc)
-                else:
-                    parsed_timestamp = parsed_timestamp.astimezone(timezone.utc)
-            except (TypeError, ValueError):
-                continue
-
-            if parsed_timestamp <= now_utc and (
-                latest_timestamp is None or parsed_timestamp > latest_timestamp
-            ):
-                try:
-                    latest_value = float(value)
-                    latest_timestamp = parsed_timestamp
-                except (TypeError, ValueError):
-                    continue
-
-        return latest_value
+        values = data.get("hourly", {}).get("soil_moisture_0_to_1cm") or []
+        for value in values:
+            if value is not None:
+                return float(value)
+        return None
     except (requests.RequestException, ValueError, KeyError, TypeError) as error:
         print(f"Soil moisture request failed: {_redact(error)}")
         return None
@@ -3501,7 +3271,7 @@ def classify_terrain(elevation):
 TERRAIN_BEHAVIOUR_TYPES = {
     "water_body": {
         "code": "T-WATER",
-        "label": "Highly flood-prone location",
+        "label": "Likely open water",
         "icon": "🌊",
     },
     "wetland_seasonal": {
@@ -3588,12 +3358,15 @@ def classify_terrain_behaviour(elevation, slope_percent, nearest_water_m, coasta
                            and (nearest_water_m is None or nearest_water_m <= 150)):
         key = "water_body"
         detail = (
-            "This location is highly prone to flooding when rainfall reaches "
-            "30 mm or more. Historical satellite observations indicate "
-            "recurring water presence, suggesting an elevated risk of "
-            "flooding during heavy rainfall. Nearby roads, streets, and "
-            "properties may be affected, particularly in areas with poor "
-            "drainage or restricted water flow."
+            "This exact point shows a high rate of historical water presence"
+            + (f" (~{water_occurrence_pct:.0f}% of satellite observations)" if water_occurrence_pct is not None else "")
+            + (f", and current land cover here is classified as {land_cover}" if land_cover else "")
+            + ". This most likely means the coordinate is sitting on or very "
+            "close to open water (a lagoon, river, or sea) rather than "
+            "occupied land — not that the surrounding neighbourhood floods "
+            "all the time. For a meaningful assessment of a specific "
+            "street or building, try pinning a point slightly further from "
+            "the water's edge."
         )
         meta = TERRAIN_BEHAVIOUR_TYPES[key]
         return {
@@ -4942,17 +4715,10 @@ def get_geo_context(city_key, lat, lon):
             or cached["clay_percent"] is None
         )
 
-        cache_has_recent_failed_fields = (
-            critical_fields_missing
-            and age_hours * 60 < GEO_CONTEXT_FAILURE_RETRY_MINUTES
-        )
-
-        if age_hours < GEO_CONTEXT_TTL_HOURS and (
-            not critical_fields_missing or cache_has_recent_failed_fields
-        ):
-            # Reuse the cached bundle even if a provider failed recently. A
-            # missing field can be retried after the failure-retry interval;
-            # it must not force all geo lookups to run on every search.
+        if age_hours < GEO_CONTEXT_TTL_HOURS and not critical_fields_missing:
+                        # Soil moisture changes more slowly than weather but faster than
+            # static terrain. Reuse it for up to 60 minutes to avoid hitting
+            # Open-Meteo on every watchlist prediction.
             soil_moisture_value = cached.get("soil_moisture")
             soil_moisture_updated_at = cached.get("soil_moisture_updated_at")
 
@@ -4964,18 +4730,10 @@ def get_geo_context(city_key, lat, lon):
                     ).total_seconds() / 60
                 except (TypeError, ValueError):
                     soil_moisture_age_minutes = float("inf")
-                soil_moisture_refresh_due = (
-                    soil_moisture_age_minutes >= GEO_CONTEXT_FAILURE_RETRY_MINUTES
-                )
             else:
-                # There is no successful moisture timestamp. Use the shared
-                # geo-cache update time as a failed-attempt cooldown so a 429
-                # cannot cause another request on every page/search request.
-                soil_moisture_refresh_due = (
-                    age_hours * 60 >= GEO_CONTEXT_FAILURE_RETRY_MINUTES
-                )
+                soil_moisture_age_minutes = float("inf")
 
-            if soil_moisture_refresh_due:
+            if soil_moisture_age_minutes >= 60:
                 fresh_moisture = fetch_soil_moisture(lat, lon)
 
                 if fresh_moisture is not None:
@@ -5020,18 +4778,30 @@ def get_geo_context(city_key, lat, lon):
             # row stays exactly as cached, so this doesn't reintroduce the
             # original Overpass rate-limiting problem the 24h TTL exists to
             # prevent.
-            print(f"Emergency contacts cache empty for '{city_key}' — re-checking Overpass")
-            fresh_contacts = fetch_emergency_contacts(lat, lon)
-            if fresh_contacts:
-                conn.execute(
-                    "UPDATE geo_context_cache SET emergency_contacts_json = ? WHERE city_key = ?",
-                    (json.dumps(fresh_contacts), city_key),
-                )
-                conn.commit()
-                cached["emergency_contacts"] = fresh_contacts
-                print(f"Emergency contacts re-check for '{city_key}' found {len(fresh_contacts)} facilities — cache updated")
+            if _lookup_suppressed("emergency", city_key):
+                pass  # failed or came back genuinely empty very recently — don't ask again yet
+            elif not _overpass_available():
+                # Every Overpass mirror is in cooldown: asking would only
+                # fail instantly. Remember that and try again a little later.
+                _suppress_lookup("emergency", city_key, 10)
             else:
-                print(f"Emergency contacts re-check for '{city_key}' still empty — will re-check again on next search")
+                print(f"Emergency contacts cache empty for '{city_key}' — re-checking Overpass")
+                fresh_contacts, lookup_ok = fetch_emergency_contacts(lat, lon, with_status=True)
+                if fresh_contacts:
+                    conn.execute(
+                        "UPDATE geo_context_cache SET emergency_contacts_json = ? WHERE city_key = ?",
+                        (json.dumps(fresh_contacts), city_key),
+                    )
+                    conn.commit()
+                    cached["emergency_contacts"] = fresh_contacts
+                    print(f"Emergency contacts re-check for '{city_key}' found {len(fresh_contacts)} facilities — cache updated")
+                elif lookup_ok:
+                    # The lookup worked and there is genuinely nothing tagged in range.
+                    _suppress_lookup("emergency", city_key, 24 * 60)
+                    print(f"Emergency contacts for '{city_key}': none tagged in range — not re-checking for 24h")
+                else:
+                    _suppress_lookup("emergency", city_key, 30)
+                    print(f"Emergency contacts re-check for '{city_key}' failed — not retrying for 30 min")
 
             conn.close()
             cached["building_count"] = cached["building_count"] or 0
@@ -5039,18 +4809,40 @@ def get_geo_context(city_key, lat, lon):
 
     # Cache miss or stale — fetch live, falling back field-by-field to the
     # stale cached value if a specific service failed outright on this attempt.
-    elevation, slope_percent = fetch_elevation_grid(lat, lon)
+    # A lookup that just failed for this place is not retried on every
+    # search: it is remembered for a few minutes (the per-service cooldown
+    # already blocks the network call, this also stops the repeated
+    # attempts and log noise). Anything with a previous good value still
+    # falls back to it below; with none, the assessment stays incomplete.
+    if _lookup_suppressed("terrain", city_key):
+        elevation, slope_percent = None, None
+    else:
+        elevation, slope_percent = fetch_elevation_grid(lat, lon)
+        if elevation is None:
+            _suppress_lookup("terrain", city_key, 3)
     if elevation is None and cached and cached["elevation"] is not None:
         elevation, slope_percent = cached["elevation"], cached["slope_percent"]
 
-    basin_relative_depth_m, basin_enclosure_ratio = fetch_basin_context(lat, lon)
+    if _lookup_suppressed("basin", city_key):
+        basin_relative_depth_m, basin_enclosure_ratio = None, None
+    else:
+        basin_relative_depth_m, basin_enclosure_ratio = fetch_basin_context(lat, lon)
+        if basin_relative_depth_m is None:
+            _suppress_lookup("basin", city_key, 3)
     if basin_relative_depth_m is None and cached and cached.get("basin_relative_depth_m") is not None:
         basin_relative_depth_m = cached["basin_relative_depth_m"]
         basin_enclosure_ratio = cached["basin_enclosure_ratio"]
 
-    nearest_water_m, nearest_coast_m, building_count, nearest_water_point, nearest_water_label, nearest_open_water_m = (
-        fetch_water_and_urban_context(lat, lon)
-    )
+    if _lookup_suppressed("water", city_key) or not _overpass_available():
+        nearest_water_m, nearest_coast_m, building_count, nearest_water_point, nearest_water_label, nearest_open_water_m = (
+            None, None, None, None, None, None
+        )
+    else:
+        nearest_water_m, nearest_coast_m, building_count, nearest_water_point, nearest_water_label, nearest_open_water_m = (
+            fetch_water_and_urban_context(lat, lon)
+        )
+        if building_count is None:
+            _suppress_lookup("water", city_key, 3)
     # building_count is None only when the Overpass call failed outright
     # (a successful call always returns an int, even 0) — that's the
     # reliable signal to fall back to the whole stale bundle from that call.
@@ -5070,7 +4862,12 @@ def get_geo_context(city_key, lat, lon):
     if clay_percent is None and cached and cached["clay_percent"] is not None:
         clay_percent = cached["clay_percent"]
 
-    emergency_contacts = fetch_emergency_contacts(lat, lon)
+    if _lookup_suppressed("emergency", city_key) or not _overpass_available():
+        emergency_contacts = []
+    else:
+        emergency_contacts, _contacts_ok = fetch_emergency_contacts(lat, lon, with_status=True)
+        if not emergency_contacts:
+            _suppress_lookup("emergency", city_key, 24 * 60 if _contacts_ok else 30)
     if not emergency_contacts and cached and cached["emergency_contacts"]:
         emergency_contacts = cached["emergency_contacts"]
 
@@ -6724,14 +6521,10 @@ def api_watchlist_status():
 
 @app.route("/api/refresh-watchlist", methods=["GET", "POST"])
 def api_refresh_watchlist():
-    """Trigger a synchronous refresh only when background monitoring is enabled."""
-    if not ENABLE_BACKGROUND_LOCATION_MONITORING:
-        return jsonify({
-            "ok": True,
-            "disabled": True,
-            "note": "Background location monitoring is disabled; locations are analysed on search.",
-        })
-
+    """Trigger a synchronous refresh of all monitored locations. Intended to
+    be called by an external scheduler (e.g. a free GitHub Actions cron job
+    or cron-job.org) every 10-15 minutes so the homepage alert banner stays
+    current even with zero visitor traffic in between."""
     if not API_KEY:
         return jsonify({"ok": False, "error": "OPENWEATHER_API_KEY is not configured."}), 400
 
