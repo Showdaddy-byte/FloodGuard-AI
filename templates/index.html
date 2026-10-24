@@ -12,7 +12,12 @@
 </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% if prediction %}{{ prediction.city }} flood risk | FloodGuard AI{% else %}FloodGuard AI{% endif %}</title>
+    <title>{% if prediction %}{{ prediction.city }} flood risk | FloodGuard AI{% else %}FloodGuard AI | Check Flood Risk Before Buying Land{% endif %}</title>
+    {% if not prediction %}
+    <meta name="description" content="Check flood risk before buying land, renting a home, or investing in property. Explore location-based flood-risk information with FloodGuard AI.">
+    {% else %}
+    <meta name="description" content="Flood risk for {{ prediction.city }}: {{ prediction.risk }} (score {{ prediction.score }}/100). Check conditions with FloodGuard AI before you travel, rent or buy.">
+    {% endif %}
     {% if prediction %}
     <meta property="og:type" content="website">
     <meta property="og:title" content="{{ prediction.city }}: {{ prediction.risk }} flood risk">
@@ -342,7 +347,7 @@
             <article class="global-situation-card">
                 <span>Places monitored</span>
                 <strong id="global-monitored-count">{{ watchlist.entries | length }}</strong>
-                <small>FloodGuard location checks</small>
+                <small>FloodGuard location checks &middot; <a href="#monitored-places" style="color:#7dd3fc;">view all</a></small>
             </article>
             <article class="global-situation-card">
                 <span>Elevated place signals</span>
@@ -495,6 +500,34 @@
         </div>
     </section>
 
+
+    <section id="monitored-places" class="watchlist-panel">
+        <style>
+            .places-toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:12px 0; }
+            .places-toolbar input { flex:1 1 220px; min-width:0; padding:10px 12px; border-radius:8px; border:1px solid rgba(125,211,252,.35); background:#0f1f3a; color:#fff; }
+            .places-chip { border:1px solid rgba(125,211,252,.4); background:#172a46; color:#bae6fd; border-radius:999px; padding:7px 12px; font-size:12px; font-weight:700; cursor:pointer; width:auto !important; }
+            .places-chip.active { background:#0284c7; color:#fff; border-color:#38bdf8; }
+            .places-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:12px; }
+            .place-card { border:1px solid rgba(125,211,252,.25); border-left-width:4px; border-radius:12px; padding:12px; background:rgba(15,31,58,.7); }
+            .place-card-top { display:flex; justify-content:space-between; gap:8px; align-items:flex-start; }
+            .place-card h3 { margin:0; font-size:15px; }
+            .place-group { font-size:11px; opacity:.7; margin:2px 0 6px; }
+            .place-situation { font-size:13px; margin:6px 0; }
+            .place-action { font-size:12px; margin:4px 0; font-weight:700; }
+            .place-meta { font-size:11px; opacity:.7; margin:6px 0; }
+            .places-empty { opacity:.8; padding:12px 0; }
+        </style>
+        <div class="watchlist-header">
+            <h2>🗺️ All Monitored Places</h2>
+        </div>
+        <p class="watchlist-subtitle">Every place FloodGuard AI checks automatically, with its latest situation. Tap a place for the full analysis. Results come from FloodGuard's model and live weather &mdash; they are estimates, not official warnings.</p>
+        <div class="places-toolbar">
+            <input type="search" id="places-search" placeholder="Search monitored places…" aria-label="Search monitored places">
+        </div>
+        <div class="places-toolbar" id="places-filters" role="group" aria-label="Filter monitored places"></div>
+        <div id="places-grid" class="places-grid" aria-live="polite"></div>
+    </section>
+
     <section id="route-safety" class="route-safety-panel">
         <div class="route-safety-header">
             <h2>🚗 Can I Travel There Safely?</h2>
@@ -521,6 +554,10 @@
             <input type="text" id="property-location" placeholder="Address or neighborhood, e.g. Lekki Phase 1, Lagos" required>
             <button type="submit" id="property-submit">Check Location</button>
         </form>
+        <div class="use-location-row">
+            <button type="button" id="property-use-location" class="map-pin-btn">📍 Use my location</button>
+            <span class="map-search-feedback">Standing on the land or building? No street address needed &mdash; we'll check the exact spot you're at.</span>
+        </div>
         <div id="property-feedback" class="route-feedback"></div>
         <div id="property-results"></div>
     </section>
@@ -1154,12 +1191,90 @@
         attachWatchlistButtons();
     }
 
+
+    // --- Directory of every monitored place ---------------------------------
+    const PLACES_GROUP_ORDER = ["coastal", "river_basin", "dam_watch", "urban", "international", "visitor"];
+    const PLACES_GROUP_LABELS = {
+        coastal: "Lagos & coastal", river_basin: "River basins", dam_watch: "Dam downstream",
+        urban: "Major cities", international: "International", visitor: "Searched by visitors"
+    };
+    let placesData = {{ watchlist.places | tojson }};
+    let placesFilter = "all";
+
+    function placesEscape(value) {
+        return String(value == null ? "" : value).replace(/[&<>'"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[c]);
+    }
+
+    function renderPlacesDirectory() {
+        const grid = document.getElementById("places-grid");
+        const filters = document.getElementById("places-filters");
+        if (!grid || !filters) return;
+
+        const query = (document.getElementById("places-search").value || "").trim().toLowerCase();
+        const alertLevels = ["HIGH", "SEVERE", "CRITICAL"];
+        const counts = { all: placesData.length, alerts: placesData.filter((p) => alertLevels.includes(p.risk_level)).length };
+        PLACES_GROUP_ORDER.forEach((g) => { counts[g] = placesData.filter((p) => p.category === g).length; });
+
+        const chips = [["all", "All"], ["alerts", "Alerts only"]].concat(
+            PLACES_GROUP_ORDER.filter((g) => counts[g]).map((g) => [g, PLACES_GROUP_LABELS[g]])
+        );
+        filters.innerHTML = chips.map((c) =>
+            '<button type="button" class="places-chip' + (placesFilter === c[0] ? " active" : "") + '" data-filter="' + c[0] + '">' +
+            placesEscape(c[1]) + " (" + counts[c[0]] + ")</button>"
+        ).join("");
+        filters.querySelectorAll(".places-chip").forEach((btn) => {
+            btn.addEventListener("click", () => { placesFilter = btn.dataset.filter; renderPlacesDirectory(); });
+        });
+
+        const visible = placesData.filter((p) => {
+            if (placesFilter === "alerts" && !alertLevels.includes(p.risk_level)) return false;
+            if (placesFilter !== "all" && placesFilter !== "alerts" && p.category !== placesFilter) return false;
+            return !query || p.name.toLowerCase().includes(query);
+        }).sort((a, b) => (b.score == null ? -1 : b.score) - (a.score == null ? -1 : a.score));
+
+        if (!visible.length) {
+            grid.innerHTML = '<p class="places-empty">No monitored places match that.</p>';
+            return;
+        }
+
+        grid.innerHTML = visible.map((p) => {
+            const color = p.risk_color || "watch";
+            const pill = p.pending ? "WAITING" : placesEscape(p.risk_level);
+            const score = p.score == null ? "" : " &middot; score " + placesEscape(p.score) + "/100";
+            const updated = p.updated_at ? '<span data-last-updated="' + placesEscape(p.updated_at) + '"></span>' : "Not checked yet";
+            return '<div class="place-card risk-border-' + color + '">' +
+                '<div class="place-card-top"><div><h3>' + placesEscape(p.name) + (p.coastal ? ' <span class="coastal-badge">🌊 Coastal</span>' : "") + "</h3>" +
+                '<div class="place-group">' + placesEscape(p.group) + score + "</div></div>" +
+                '<span class="risk-pill risk-' + color + '">' + pill + "</span></div>" +
+                '<p class="place-situation">' + placesEscape(p.situation) + "</p>" +
+                (p.action ? '<p class="place-action">⚠ ' + placesEscape(p.action) + "</p>" : "") +
+                '<p class="place-meta">' + updated + "</p>" +
+                '<button type="button" class="watchlist-check-btn" data-city="' + placesEscape(p.name) + '">View full analysis</button>' +
+                "</div>";
+        }).join("");
+        tickRelativeTimestamps();
+    }
+
+    // One delegated handler, so re-rendering the cards never stacks duplicate listeners.
+    const placesGridEl = document.getElementById("places-grid");
+    if (placesGridEl) {
+        placesGridEl.addEventListener("click", (event) => {
+            const btn = event.target.closest(".watchlist-check-btn");
+            if (btn) searchLocation(btn.dataset.city);
+        });
+    }
+
+    const placesSearchInput = document.getElementById("places-search");
+    if (placesSearchInput) placesSearchInput.addEventListener("input", renderPlacesDirectory);
+    renderPlacesDirectory();
+
     async function pollWatchlist() {
         try {
             const response = await fetch("/api/watchlist-status");
             const data = await response.json();
             if (data.ok) {
                 renderWatchlist(data);
+                if (data.places) { placesData = data.places; renderPlacesDirectory(); }
             }
         } catch (err) {
             // Keep showing the last known state on failure
@@ -1623,6 +1738,40 @@
             feedbackEl.className = "route-feedback error";
         } finally {
             if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = "Check Location"; }
+        }
+    }
+
+    const propertyLocationButton = document.getElementById("property-use-location");
+    if (propertyLocationButton) {
+        if (!("geolocation" in navigator)) {
+            propertyLocationButton.style.display = "none";
+        } else {
+            propertyLocationButton.addEventListener("click", function () {
+                const feedbackEl = document.getElementById("property-feedback");
+                feedbackEl.className = "route-feedback";
+                feedbackEl.textContent = "Waiting for your browser to share your location...";
+                propertyLocationButton.disabled = true;
+                navigator.geolocation.getCurrentPosition(function (position) {
+                    feedbackEl.textContent = "";
+                    if (propertyMap) { propertyMap.remove(); propertyMap = null; }
+                    document.getElementById("property-results").innerHTML = "";
+                    runPropertyCheck({
+                        location: "My current location",
+                        lat: position.coords.latitude,
+                        lon: position.coords.longitude,
+                        accuracy_m: position.coords.accuracy
+                    }).finally(function () { propertyLocationButton.disabled = false; });
+                }, function (error) {
+                    const messages = {
+                        1: "Location permission was denied. You can still type a place name, or search and then click the map to place the pin.",
+                        2: "Your device could not work out its location. Try typing a place name instead.",
+                        3: "Finding your location took too long. Please try again."
+                    };
+                    feedbackEl.textContent = messages[error.code] || "Could not get your location.";
+                    feedbackEl.className = "route-feedback error";
+                    propertyLocationButton.disabled = false;
+                }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+            });
         }
     }
 

@@ -1219,6 +1219,62 @@ def maybe_refresh_watchlist_async():
     threading.Thread(target=_run, daemon=True).start()
 
 
+PLACE_GROUP_LABELS = {
+    "coastal": "Lagos & coastal",
+    "river_basin": "River basins (Niger & Benue)",
+    "dam_watch": "Lagdo Dam downstream",
+    "urban": "Major Nigerian cities",
+    "international": "International",
+    "visitor": "Searched by visitors",
+}
+
+
+def _build_places_directory(entries):
+    """Every monitored place as one plain record the page can list: the
+    latest saved result for places that have been checked, plus a
+    'waiting for first check' record for curated places that haven't been
+    swept yet, so the full list is visible even right after a restart.
+    The 'situation' line only repeats what the model already produced
+    (ground alert message or top factor) — nothing is invented here."""
+    places = []
+    seen = set()
+    for e in entries:
+        key = normalize_city(e["city_label"])
+        seen.add(key)
+        curated = CURATED_LOCATION_LOOKUP.get(key)
+        category = curated["category"] if curated else "visitor"
+        places.append({
+            "name": e["city_label"],
+            "category": category,
+            "group": PLACE_GROUP_LABELS.get(category, "Other"),
+            "risk_level": e["risk_level"],
+            "risk_color": e["risk_color"],
+            "score": e["score"],
+            "situation": e.get("ground_alert_message") or e.get("top_factor") or "No significant flood indicators right now.",
+            "action": e.get("priority_action"),
+            "coastal": bool(e.get("coastal")),
+            "updated_at": e.get("updated_at"),
+            "pending": False,
+        })
+    for loc in CURATED_LOCATIONS:
+        if normalize_city(loc["label"]) in seen:
+            continue
+        places.append({
+            "name": loc["label"],
+            "category": loc["category"],
+            "group": PLACE_GROUP_LABELS.get(loc["category"], "Other"),
+            "risk_level": None,
+            "risk_color": "watch",
+            "score": None,
+            "situation": "Waiting for the first check — the next monitoring sweep will fill this in.",
+            "action": None,
+            "coastal": loc["category"] == "coastal",
+            "updated_at": None,
+            "pending": True,
+        })
+    return places
+
+
 def get_watchlist_status():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -1246,6 +1302,7 @@ def get_watchlist_status():
 
     return {
         "entries": entries,
+        "places": _build_places_directory(entries),
         "active_alerts": active_alerts,
         "initialized": len(entries) > 0,
         "last_updated": oldest_update,
@@ -6906,7 +6963,22 @@ def api_property_check():
         return jsonify({"ok": False, "error": "Something went wrong checking this location. Please try again."}), 500
 
     result_type = (place.get("result_type") or "").lower()
-    if pin_source == "pinned":
+    accuracy_m = None
+    try:
+        accuracy_m = float(payload.get("accuracy_m")) if payload.get("accuracy_m") not in (None, "") else None
+        if accuracy_m is not None and (not math.isfinite(accuracy_m) or accuracy_m < 0):
+            accuracy_m = None
+    except (TypeError, ValueError):
+        accuracy_m = None
+
+    if pin_source == "pinned" and accuracy_m is not None:
+        pin_note = f"This is your device's current position, accurate to about {round(accuracy_m)} m."
+        if accuracy_m > 100:
+            pin_note += (" That is not precise enough to identify a single plot (phones are often less accurate "
+                         "indoors or without a clear sky) — click the map to move the pin onto the exact spot.")
+        else:
+            pin_note += " If you are standing at the plot's edge, click the map to move the pin to its centre."
+    elif pin_source == "pinned":
         pin_note = "This is the exact point you chose on the map."
     elif pin_source == "verified":
         pin_note = ("This is a hand-checked reference point for the area, not a specific plot. "
