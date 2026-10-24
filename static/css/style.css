@@ -3024,3 +3024,28 @@ input:focus{
     gap: 10px;
     margin: 10px 0 4px;
 }
+
+.property-map-wrap {
+    margin: 14px 0;
+}
+
+.property-map-wrap h3 {
+    margin: 0 0 8px;
+}
+
+.property-map {
+    border-radius: 12px;
+    height: 360px;
+    overflow: hidden;
+    width: 100%;
+}
+
+.property-map-note,
+.property-map-coords {
+    font-size: 13px;
+    margin: 8px 0 0;
+}
+
+.property-map-coords a {
+    margin-left: 6px;
+}
