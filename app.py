@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 import urllib3.util.connection as urllib3_cn
-from flask import Flask, g, jsonify, redirect, render_template, request, send_file, session, url_for
+from flask import Flask, Response, g, jsonify, redirect, render_template, request, send_file, session, url_for
 from PIL import Image, ImageDraw, ImageFont
 from itsdangerous import BadSignature, URLSafeSerializer
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -7204,6 +7204,18 @@ def widget():
 @app.route("/terms")
 def terms_of_service():
     return render_template("terms.html")
+
+
+@app.route("/sitemap.xml")
+def sitemap():
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+        <loc>https://myfloodguard.online/</loc>
+    </url>
+</urlset>
+"""
+    return Response(xml, mimetype="application/xml")
 
 
 if __name__ == "__main__":
