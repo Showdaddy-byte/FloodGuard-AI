@@ -24,6 +24,9 @@ from rainfall_engine import (
     calculate_forecast_rainfall_windows,
     build_rainfall_state,
 )
+import official_sources
+import street_risk
+import telegram_alerts as tg
 try:
     import ee
 except ImportError:
@@ -1050,6 +1053,11 @@ def get_all_monitored_locations():
     conn.close()
 
     searched = [row[0] for row in rows] + [row[0] for row in alert_rows]
+    if tg.enabled():
+        try:
+            searched += tg.extra_monitored_labels()
+        except Exception as error:  # noqa: BLE001 - never break the sweep over an optional feature
+            print(f"Telegram monitored-area lookup failed: {_redact(error)}")
     combined = list(MONITORED_LOCATIONS)
     seen = {normalize_city(loc) for loc in combined}
     for label in searched:
@@ -1113,6 +1121,9 @@ def cache_watchlist_entry_now(prediction):
     # immediately rather than waiting for the next periodic sweep to reach
     # this same location.
     check_and_send_location_alerts(prediction)
+    # Same for Telegram followers (sent from a thread so the visitor's page
+    # load is never held up by Telegram network calls).
+    threading.Thread(target=_telegram_dispatch_safe, args=(prediction,), daemon=True).start()
 
 
 def refresh_watchlist_cache():
@@ -1127,6 +1138,8 @@ def refresh_watchlist_cache():
     for index, location in enumerate(locations):
         try:
             known_place = _known_place_for_curated_location(location)
+            if not known_place and tg.enabled():
+                known_place = tg.known_place_for_label(location)
             with app.app_context():
                 prediction, _ = build_prediction(location, known_place=known_place)
         except Exception as error:  # noqa: BLE001 — one bad location must not break the rest
@@ -1138,6 +1151,10 @@ def refresh_watchlist_cache():
 
         _upsert_watchlist_row(conn, prediction, now)
         check_and_send_location_alerts(prediction)
+        # Street-level assessment first (so the Telegram message can name the
+        # streets), then Telegram dispatch. Both are fault-isolated.
+        _sweep_street_assessment(prediction, known_place)
+        _telegram_dispatch_safe(prediction)
 
         # Stagger requests so a cold-cache sweep across many locations
         # doesn't burst-hit Overpass/SoilGrids all at once (that burst is
@@ -2448,6 +2465,11 @@ def geocode_location(query):
         "name": selected_name,
         "state": properties.get("state", ""),
         "country": properties.get("country", ""),
+        "country_code": (properties.get("country_code") or "").upper(),
+        "city": properties.get("city") or properties.get("town") or properties.get("village") or "",
+        "neighbourhood": properties.get("suburb") or properties.get("district") or properties.get("quarter") or None,
+        "timezone": (properties.get("timezone") or {}).get("name"),
+        "tz_offset": (properties.get("timezone") or {}).get("offset_STD_seconds"),
         "result_type": properties.get("result_type", ""),
     }
 
@@ -6381,6 +6403,14 @@ def build_prediction(query, known_place=None):
         **weather,
         **flood_model,
 
+        # When this prediction was computed (UTC). Telegram alerts refuse to
+        # fire on data without a recent timestamp, and the street-risk panel
+        # shows it as "latest assessment".
+        "assessed_at": datetime.utcnow().isoformat(),
+        # Structured identity of the place (country, region, city, neighbourhood,
+        # time zone) - used to target Telegram subscribers and thresholds.
+        "area": _area_meta(dict(place, lat=lat, lon=lon), weather.get("country")),
+
         "environment": environment,
         "community": community,
         "ground_alert": ground_alert,
@@ -7276,6 +7306,853 @@ def widget():
 @app.route("/terms")
 def terms_of_service():
     return render_template("terms.html")
+
+
+# ===========================================================================
+# WORLDWIDE STREET-LEVEL FLOOD RISK + TELEGRAM ALERTS
+# Logic lives in street_risk.py, official_sources.py and telegram_alerts.py;
+# this block wires them to the app's existing data sources, database and routes.
+# ===========================================================================
+FLOOD_ALERT_THRESHOLD = street_risk.ALERT_THRESHOLD  # default 0-100 FloodGuard score; NOT a probability
+
+street_risk.ensure_tables(DB_PATH)
+tg.ensure_tables(DB_PATH)
+
+
+# --- place metadata -----------------------------------------------------------
+_US_CURATED_REGIONS = {"florida", "louisiana", "texas"}
+_CURATED_TZ = {
+    "nigeria": "Africa/Lagos", "egypt": "Africa/Cairo", "mozambique": "Africa/Maputo", "south africa": "Africa/Johannesburg",
+    "indonesia": "Asia/Jakarta", "bangladesh": "Asia/Dhaka", "india": "Asia/Kolkata", "philippines": "Asia/Manila",
+    "thailand": "Asia/Bangkok", "vietnam": "Asia/Ho_Chi_Minh", "china": "Asia/Shanghai", "italy": "Europe/Rome",
+    "netherlands": "Europe/Amsterdam", "germany": "Europe/Berlin", "florida": "America/New_York",
+    "louisiana": "America/Chicago", "texas": "America/Chicago", "brazil": "America/Sao_Paulo",
+    "argentina": "America/Argentina/Buenos_Aires", "australia": "Australia/Brisbane",
+}
+_NIGERIA_BOX = (3.8, 14.0, 2.5, 14.9)  # min_lat, max_lat, min_lon, max_lon (curated-entry classification only)
+
+
+def _curated_area_meta(entry):
+    """Structured place data for a curated watchlist entry. Curated labels are
+    'Name, Region' (Nigeria / US), 'Name, Country' (elsewhere) or 'Name, LGA, State'."""
+    label = entry["label"]
+    name, _, tail = label.partition(",")
+    name, tail = name.strip(), tail.strip()
+    last = tail.rpartition(",")[2].strip() or tail
+    in_ng = _NIGERIA_BOX[0] <= entry["lat"] <= _NIGERIA_BOX[1] and _NIGERIA_BOX[2] <= entry["lon"] <= _NIGERIA_BOX[3]
+    if in_ng:
+        cc, country, region = "NG", "Nigeria", ("Federal Capital Territory" if last == "FCT" else last)
+        city = "Lagos" if normalize_city(last) == "lagos" else name
+        tz = _CURATED_TZ["nigeria"]
+    elif normalize_city(last) in _US_CURATED_REGIONS:
+        cc, country, region, city = "US", "United States", last, name
+        tz = _CURATED_TZ[normalize_city(last)]
+    else:
+        cc = tg.country_code_for(last) or ""
+        country, region, city = (tg.country_name(cc) if cc else last), "", name
+        tz = _CURATED_TZ.get(normalize_city(last))
+    return {"name": name, "country": country, "country_code": cc, "region": region, "city": city,
+            "neighbourhood": name, "timezone": tz, "tz_offset": None, "lat": entry["lat"], "lon": entry["lon"]}
+
+
+_CURATED_META = {}
+for _entry in CURATED_LOCATIONS:
+    _n, _, _t = _entry["label"].partition(",")
+    _CURATED_META[(normalize_city(_n), normalize_city(_t))] = _curated_area_meta(_entry)
+del _entry, _n, _t
+
+
+def _area_meta(place, weather_country=None):
+    """Structured identity of the place a prediction is about (country, region,
+    city, neighbourhood, time zone). Stored in prediction["area"] and used for
+    subscriber targeting, alert thresholds and local-time display."""
+    curated = _CURATED_META.get((normalize_city(place.get("name", "")), normalize_city(place.get("state", ""))))
+    if curated:
+        return dict(curated)
+    cc = (place.get("country_code") or weather_country or "").upper()
+    name = place.get("name") or ""
+    return {
+        "name": name,
+        "country": place.get("country") or tg.country_name(cc),
+        "country_code": cc,
+        "region": place.get("state") or "",
+        "city": place.get("city") or name,
+        "neighbourhood": place.get("neighbourhood") or place.get("suburb") or name,
+        "timezone": place.get("timezone"), "tz_offset": place.get("tz_offset"),
+        "lat": place.get("lat"), "lon": place.get("lon"),
+    }
+
+
+def _safety_text(area):
+    info = get_official_emergency_numbers((area or {}).get("country_code"), (area or {}).get("region"))
+    if not info:
+        return None
+    number = (info.get("state") or {}).get("general") or (info.get("national") or {}).get("general")
+    return f"Emergency number for {area.get('country') or 'this country'}: {number}" if number else None
+
+
+# --- global place search -------------------------------------------------------
+_SUBURB_TYPES = {"suburb", "district", "neighbourhood", "locality", "quarter"}
+
+
+def geocode_global(query, country_code=None, limit=5):
+    """Worldwide Geoapify search with NO default country or city bias. Returns
+    (places, error). Each place carries country, region, city, neighbourhood and
+    the local time zone, so nothing downstream has to guess."""
+    if not GEOAPIFY_API_KEY:
+        return [], "Place search is not configured (GEOAPIFY_API_KEY is missing)."
+    params = {"text": query, "limit": limit, "apiKey": GEOAPIFY_API_KEY}
+    if country_code:
+        params["filter"] = f"countrycode:{country_code.lower()}"
+    try:
+        response = requests.get(GEOAPIFY_GEOCODE_URL, params=params, timeout=10)
+        response.raise_for_status()
+        features = response.json().get("features", [])
+    except (requests.RequestException, ValueError) as error:
+        print(f"Global geocoding failed: {_redact(error)}")
+        return [], "Place search is temporarily unavailable. Please try again shortly."
+    places = []
+    for feature in features:
+        props = feature.get("properties", {}) or {}
+        coords = (feature.get("geometry") or {}).get("coordinates") or []
+        if len(coords) < 2 or not props.get("country_code"):
+            continue
+        rtype = props.get("result_type", "")
+        city = props.get("city") or props.get("town") or props.get("village") or props.get("municipality") or props.get("county") or ""
+        neighbourhood = props.get("suburb") or props.get("district") or props.get("quarter") or props.get("neighbourhood") \
+            or (props.get("name") if rtype in _SUBURB_TYPES else None)
+        zone = props.get("timezone") or {}
+        places.append({
+            "lat": coords[1], "lon": coords[0],
+            "name": props.get("name") or neighbourhood or city or props.get("formatted"),
+            "formatted": props.get("formatted") or "",
+            "country": props.get("country") or "", "country_code": props["country_code"].upper(),
+            "state": props.get("state") or props.get("state_district") or props.get("region") or "",
+            "city": city, "neighbourhood": neighbourhood, "result_type": rtype,
+            "timezone": zone.get("name"), "tz_offset": zone.get("offset_STD_seconds"),
+            "confidence": (props.get("rank") or {}).get("confidence", 0) or 0,
+        })
+    return places, None
+
+
+def place_label(place):
+    """'Lekki, Lagos, Nigeria' - area-level label for a geocoded place, de-duplicated."""
+    parts = []
+    for part in (place.get("neighbourhood") or place.get("name"), place.get("city"), place.get("state"), place.get("country")):
+        if part and normalize_city(part) not in [normalize_city(p) for p in parts]:
+            parts.append(part)
+    return ", ".join(parts)
+
+
+def pick_place(places):
+    """(place, choices). choices is non-empty when the query is ambiguous across
+    countries - the caller must ask the user rather than guess."""
+    if not places:
+        return None, []
+    best = places[0]
+    other = [p for p in places if p["country_code"] != best["country_code"]]
+    if other:
+        best_other = max(p["confidence"] for p in other)
+        if best_other >= best["confidence"] - 0.15:
+            seen, choices = set(), []
+            for p in places:
+                key = (p["country_code"], normalize_city(place_label(p)))
+                if key not in seen:
+                    seen.add(key)
+                    choices.append(p)
+            return None, choices[:5]
+    return best, []
+
+
+def area_from_place(place):
+    """Assessment area dict from a geocoded place. Streets-in-a-place searches
+    centre the assessment on the point the geocoder returned."""
+    label = place_label(place)
+    precise = place.get("result_type") in ("street", "building", "amenity")
+    key = normalize_city(label) + (f"@{place['lat']:.3f},{place['lon']:.3f}" if precise else "")
+    return {
+        "key": key, "label": label, "name": place.get("neighbourhood") or place.get("name"),
+        "country": place["country"], "country_code": place["country_code"], "region": place.get("state") or "",
+        "city": place.get("city") or place.get("name"), "neighbourhood": place.get("neighbourhood") or place.get("name"),
+        "lat": place["lat"], "lon": place["lon"], "timezone": place.get("timezone"), "tz_offset": place.get("tz_offset"),
+    }
+
+
+def _area_from_prediction(prediction, known_place=None):
+    meta = dict(prediction.get("area") or {})
+    label = prediction["city"]
+    return {
+        "key": normalize_city(label), "label": label, "name": meta.get("name") or label.split(",")[0],
+        "country": meta.get("country"), "country_code": meta.get("country_code"), "region": meta.get("region"),
+        "city": meta.get("city"), "neighbourhood": meta.get("neighbourhood"),
+        "lat": float((known_place or {}).get("lat") or meta.get("lat") or prediction.get("latitude")),
+        "lon": float((known_place or {}).get("lon") or meta.get("lon") or prediction.get("longitude")),
+        "timezone": meta.get("timezone"), "tz_offset": meta.get("tz_offset"),
+    }
+
+
+# --- Telegram registration ------------------------------------------------------
+def resolve_area(country=None, region=None, city=None, community=None):
+    """Validate a country / region / city / community choice with the geocoder.
+    Returns (area, error). Never substitutes a different place."""
+    cc = tg.country_code_for(country or "")
+    if not cc:
+        return None, "Please choose a country from the list."
+    city = (city or "").strip()
+    community = (community or "").strip() or None
+    region = (region or "").strip() or None
+    if not city and community:
+        city = community
+    if not city:
+        return None, "Please enter your city or town."
+    if max(len(city), len(community or ""), len(region or "")) > 80:
+        return None, "That place name is too long."
+
+    query = ", ".join(x for x in (community, city, region) if x)
+    places, error = geocode_global(query, country_code=cc, limit=5)
+    if error:
+        return None, error
+    chosen = None
+    for p in places:
+        if p["country_code"] != cc:
+            continue
+        if region and tg.norm_region(region) not in (tg.norm_region(p["state"]), tg.norm_region(p["city"])) \
+                and tg.norm(region) not in tg.norm(p["formatted"]):
+            continue
+        chosen = p
+        break
+    if not chosen:
+        where = ", ".join(x for x in (region, tg.country_name(cc)) if x)
+        return None, f"I could not find '{community or city}' in {where}. Check the spelling, or try the nearest larger town."
+
+    region_name = chosen["state"] or region or ""
+    name = community or city
+    label = f"{name}, {region_name}" if region_name and tg.norm(region_name) != tg.norm(name) else name
+    return {
+        "label": label, "country": tg.country_name(cc), "country_code": cc, "region": region_name,
+        "city": city, "community": community, "lat": chosen["lat"], "lon": chosen["lon"],
+        "timezone": chosen["timezone"], "tz_offset": chosen["tz_offset"],
+    }, None
+
+
+def resolve_area_from_text(text):
+    """For the bot's /add: 'Lekki, Lagos, Nigeria', 'Paris, France', 'Houston'.
+    Without a country the place must be unambiguous worldwide."""
+    parts = [p.strip() for p in (text or "").split(",") if p.strip()]
+    if not parts:
+        return None, "Tell me the place and country, e.g. /add Yaba, Lagos, Nigeria"
+    cc = tg.country_code_for(parts[-1]) if len(parts) > 1 or tg.country_code_for(parts[0]) else None
+    if cc:
+        parts = parts[:-1]
+        if not parts:
+            return None, "Add a city or town before the country."
+        if len(parts) == 1:
+            return resolve_area(country=cc, city=parts[0])
+        return resolve_area(country=cc, city=parts[1], community=parts[0], region=parts[2] if len(parts) > 2 else None)
+    places, error = geocode_global(text, limit=5)
+    if error:
+        return None, error
+    place, choices = pick_place(places)
+    if choices:
+        options = "; ".join(place_label(c) for c in choices[:3])
+        return None, f"'{text}' matches several places ({options}). Add the country, e.g. /add {parts[0]}, <country>."
+    if not place:
+        return None, f"I could not find '{text}'. Try 'Place, Region, Country'."
+    suburb = place.get("result_type") in _SUBURB_TYPES
+    return resolve_area(country=place["country_code"], region=place.get("state"),
+                        city=place.get("city") or place.get("name"), community=(place.get("neighbourhood") or place.get("name")) if suburb else None)
+
+
+def _telegram_street_summary(prediction):
+    return street_risk.summary_for_alert(DB_PATH, normalize_city(prediction["city"]), limit=3)
+
+
+tg.init(
+    db_path=DB_PATH, normalize_city=normalize_city, resolve_area=resolve_area_from_text,
+    site_url=SITE_BASE_URL, street_summary=_telegram_street_summary, safety_info=_safety_text,
+)
+
+
+# --- official alerts + coverage ---------------------------------------------------
+def _official_http_get(url, headers=None):
+    host = url.split("/")[2] if "//" in url else url
+    response = request_with_retry("GET", url, service_name=f"official-{host}", max_retries=1, headers=headers, timeout=8)
+    response.raise_for_status()
+    return response
+
+
+def _gdacs_rows():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        rows = [dict(r) for r in conn.execute("SELECT * FROM global_alerts_cache").fetchall()]
+        conn.close()
+        return rows
+    except sqlite3.Error:
+        return None
+
+
+def _official_for(area):
+    try:
+        return official_sources.fetch_official_alerts(
+            float(area["lat"]), float(area["lon"]), area.get("country_code"), _official_http_get, _gdacs_rows())
+    except Exception as error:  # noqa: BLE001 - official data must never break a sweep
+        print(f"Official alert lookup failed: {_redact(error)}")
+        return {"alerts": [], "checked": [{"source": "Official alert lookup", "status": "unavailable"}], "checked_at": None}
+
+
+def _attach_official_alerts(prediction):
+    """Puts official alerts on the prediction so Telegram messages and the
+    street panel quote the same data."""
+    area = prediction.get("area") or {}
+    if area.get("lat") is None or area.get("lon") is None:
+        return {}
+    official = _official_for(area)
+    prediction["official_alerts"] = official["alerts"]
+    return official
+
+
+def _coverage_for(prediction, area, official):
+    """What data this specific location actually has (it differs by country)."""
+    rainfall = prediction.get("rainfall_state") or {}
+    sat = (rainfall.get("satellite") or {}).get("quality")
+    river = prediction.get("river_status") or {}
+    tide = prediction.get("tide_status") or {}
+    lat = float(area["lat"])
+    cov = [
+        {"factor": "Rainfall: current + forecast", "status": "used", "source": "OpenWeather (WeatherAPI fallback)"},
+        {"factor": "Satellite rainfall", "source": "NASA GPM IMERG via Earth Engine (about 60N-60S)",
+         "status": "used" if sat not in (None, "unavailable") else "unavailable here"},
+        {"factor": "River discharge", "source": "GloFAS via Open-Meteo (modelled, not gauge data)",
+         "status": "unavailable here" if "unavailable" in (river.get("label") or "").lower() else "used"},
+        {"factor": "Tide", "source": "WorldTides",
+         "status": "used" if tide.get("current_height") is not None else "not available here / not configured"},
+        {"factor": "Terrain", "status": "used",
+         "source": "NASADEM (Earth Engine)" if -56 <= lat <= 60 else "Copernicus DEM via Open-Meteo (outside NASADEM coverage)"},
+    ]
+    for item in (official or {}).get("checked", []):
+        cov.append({"factor": "Official alerts", "source": item["source"], "status": item["status"]})
+    return cov
+
+
+# --- elevation for street sampling -------------------------------------------------
+def _elevation_batch(points):
+    """Elevations (m) for many points: NASADEM in Earth Engine (60N-56S) in one
+    call, otherwise / for gaps Open-Meteo's Copernicus DEM (global, 90 m)."""
+    values = [None] * len(points)
+    used = []
+    lat0 = points[0][0] if points else 0
+    if (EARTH_ENGINE_ENABLED and ELEVATION_SOURCE != "open_meteo" and ee is not None
+            and -56 <= lat0 <= 60 and initialize_earth_engine()):
+        try:
+            features = [ee.Feature(ee.Geometry.Point([lon, lat]), {"i": i}) for i, (lat, lon) in enumerate(points)]
+            sampled = (
+                ee.Image("NASA/NASADEM_HGT/001").select("elevation")
+                .sampleRegions(collection=ee.FeatureCollection(features), properties=["i"], scale=30)
+                .getInfo()
+            )
+            for feature in (sampled or {}).get("features", []):
+                values[int(feature["properties"]["i"])] = feature["properties"].get("elevation")
+            if any(v is not None for v in values):
+                used.append("NASADEM (Earth Engine)")
+        except Exception as error:  # noqa: BLE001
+            print(f"Street elevation (Earth Engine) failed: {_redact(error)}")
+    missing = [i for i, v in enumerate(values) if v is None]
+    for start in range(0, len(missing), 100):
+        chunk = missing[start:start + 100]
+        try:
+            response = request_with_retry(
+                "GET", ELEVATION_URL, service_name="open-meteo-elevation",
+                params={"latitude": ",".join(f"{points[i][0]:.6f}" for i in chunk),
+                        "longitude": ",".join(f"{points[i][1]:.6f}" for i in chunk)},
+                timeout=10,
+            )
+            response.raise_for_status()
+            for i, value in zip(chunk, response.json().get("elevation", [])):
+                values[i] = value
+            used.append("Copernicus DEM via Open-Meteo")
+        except (requests.RequestException, ValueError) as error:
+            print(f"Street elevation (Open-Meteo) failed: {_redact(error)}")
+            break
+    return values, " + ".join(dict.fromkeys(used)) or "unavailable"
+
+
+def _street_reports(area_label, days=7):
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute(
+        "SELECT roads_affected, created_at FROM contributions WHERE city_key = ? AND category = 'flooding' "
+        "AND rating >= 3 AND roads_affected IS NOT NULL AND created_at >= ?",
+        (normalize_city(area_label), cutoff),
+    ).fetchall()
+    conn.close()
+    return [{"roads": r[0], "created_at": r[1]} for r in rows]
+
+
+def assess_area_streets(prediction, area=None, known_place=None):
+    """Compute (and, if street-level data exists, store) the street assessment
+    for one area. Returns the assessment dict, whatever its status; callers
+    check assessment["status"]. Only status 'ok' is cached/searchable."""
+    area = area or _area_from_prediction(prediction, known_place)
+    official = prediction.get("official_alerts") is not None and {"alerts": prediction["official_alerts"], "checked": [], "checked_at": None} \
+        or _official_for(area)
+    if not prediction.get("official_alerts") and official.get("alerts") is not None:
+        prediction["official_alerts"] = official["alerts"]
+    source = {"label": "terrain model"}
+
+    def elevation_fn(points):
+        values, source["label"] = _elevation_batch(points)
+        return values
+
+    assessment = street_risk.assess_area(
+        area, float(prediction["score"]),
+        run_overpass=query_overpass, elevation_fn=elevation_fn,
+        reports=_street_reports(prediction["city"]), official=official,
+        coverage=_coverage_for(prediction, area, official), elevation_source=source["label"],
+        emergency_text=(_safety_text(prediction.get("area")) or "").split(": ")[-1] or None,
+    )
+    meta = assessment["meta"]
+    meta["sources"] = [s.replace("Terrain: terrain model", f"Terrain: {source['label']}") for s in meta["sources"]]
+    meta["coverage"] = meta.get("coverage", []) + [
+        {"factor": "Road network", "source": "OpenStreetMap", "status": f"{meta.get('roads_mapped', 0)} named streets mapped"},
+        {"factor": "Drainage / water", "source": "OpenStreetMap", "status": f"{meta.get('water_segments', 0)} segments mapped"},
+    ]
+    street_risk.save_assessment(DB_PATH, assessment)
+    return street_risk.load_assessment(DB_PATH, area["key"]) if assessment["status"] == "ok" else assessment
+
+
+# Sweeps assess at most this many areas per hour (only areas already at/over the
+# threshold), so Overpass is never hammered.
+STREET_SWEEP_MAX_PER_RUN = int(os.getenv("STREET_SWEEP_MAX_PER_RUN", "6"))
+_street_sweep_done = {"run_started": 0.0, "count": 0}
+
+
+def _sweep_street_assessment(prediction, known_place=None):
+    try:
+        threshold = street_risk.threshold_for((prediction.get("area") or {}).get("country_code"))
+        if float(prediction.get("score") or 0) < threshold or not prediction.get("area"):
+            return
+        now = time.time()
+        if now - _street_sweep_done["run_started"] > 3600:
+            _street_sweep_done.update(run_started=now, count=0)
+        if _street_sweep_done["count"] >= STREET_SWEEP_MAX_PER_RUN:
+            return
+        key = normalize_city(prediction["city"])
+        if street_risk.load_assessment(DB_PATH, key, max_age_minutes=street_risk.STREET_CACHE_MINUTES):
+            return
+        if not _overpass_available():
+            return
+        _street_sweep_done["count"] += 1
+        assess_area_streets(prediction, known_place=known_place)
+    except Exception as error:  # noqa: BLE001
+        print(f"Street assessment failed for {prediction.get('city')}: {_redact(error)}")
+
+
+def _telegram_dispatch_safe(prediction):
+    """Telegram must never be able to break the weather sweep."""
+    if not tg.enabled():
+        return
+    try:
+        _attach_official_alerts(prediction)
+        tg.dispatch_alerts_for_prediction(prediction)
+    except Exception as error:  # noqa: BLE001
+        print(f"Telegram dispatch failed for {prediction.get('city')}: {_redact(error)}")
+
+
+# --- on-demand assessment (search box) ------------------------------------------
+_street_jobs = {}
+_job_areas = {}               # job key -> area being assessed
+_street_unavailable = {}       # area key -> (timestamp, payload) for insufficient-data results
+_candidates = {}               # pick token -> (expires, [areas])
+_street_jobs_lock = threading.Lock()
+_street_rate = {}
+STREET_MAX_CONCURRENT_JOBS = 2
+INSUFFICIENT_MEMORY_SECONDS = 7200
+
+
+def _street_rate_ok(ip, limit=6, window=600):
+    now = time.time()
+    hits = [t for t in _street_rate.get(ip, []) if now - t < window]
+    if len(hits) >= limit:
+        _street_rate[ip] = hits
+        return False
+    hits.append(now)
+    _street_rate[ip] = hits
+    return True
+
+
+def _client_ip():
+    return request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
+
+
+def _place_summary(area):
+    return {"label": area["label"], "lat": area["lat"], "lon": area["lon"], "country": area.get("country"),
+            "country_code": area.get("country_code"), "region": area.get("region"), "city": area.get("city"),
+            "timezone": area.get("timezone"), "tz_offset": area.get("tz_offset")}
+
+
+def _run_street_job(area):
+    key = area["key"]
+    try:
+        known = {"lat": area["lat"], "lon": area["lon"], "name": area.get("name") or area["label"].split(",")[0],
+                 "state": area.get("region") or "", "country": area.get("country"), "country_code": area.get("country_code"),
+                 "city": area.get("city"), "neighbourhood": area.get("neighbourhood"),
+                 "timezone": area.get("timezone"), "tz_offset": area.get("tz_offset")}
+        with app.app_context():
+            prediction, _ = build_prediction(area["label"], known_place=known)
+        if not prediction:
+            raise RuntimeError("Weather data for this area is unavailable right now.")
+        _attach_official_alerts(prediction)
+        result = assess_area_streets(prediction, area=area, known_place=known)
+        with _street_jobs_lock:
+            if result.get("status") == "ok":
+                _street_jobs[key] = {"state": "done", "finished": time.time()}
+            else:
+                payload = {"status": result["status"], "reason": result["reason"], "area_score": result["area"]["score"],
+                           "official": result.get("official"), "coverage": result["meta"].get("coverage", []),
+                           "threshold": result["threshold"], "assessed_at": result["assessed_at"]}
+                if result["status"] == "insufficient_data":
+                    _street_unavailable[key] = (time.time(), payload)
+                _street_jobs[key] = {"state": "unavailable", "finished": time.time(), "payload": payload}
+    except Exception as error:  # noqa: BLE001
+        with _street_jobs_lock:
+            _street_jobs[key] = {"state": "error", "error": str(_redact(error))[:200], "finished": time.time()}
+
+
+def _street_item_public(item):
+    return {k: v for k, v in item.items() if k not in ("sources",)}
+
+
+def _street_payload(items, *, mode, query=None, extra=None):
+    sources, official, coverage, gaps = [], [], [], []
+    for item in items:
+        for s in item.get("sources", []):
+            if s not in sources:
+                sources.append(s)
+    first = items[0] if items else None
+    body = {
+        "ok": True, "mode": mode, "query": query, "status": "ok",
+        "count": len(items), "items": [_street_item_public(i) for i in items],
+        "sources": sources or street_risk.SOURCES_BASE,
+        "limitations": street_risk.LIMITATIONS,
+        "default_threshold": FLOOD_ALERT_THRESHOLD,
+        "score_kind": "model_score", "calibrated_probability": False,
+        "basis": "Modelled risk on FloodGuard's 0-100 scale. Not confirmed flooding and not a statistically calibrated probability.",
+    }
+    if first:
+        body["place"] = {"label": first["area_label"], "lat": first["lat"], "lon": first["lon"]}
+    body.update(extra or {})
+    return body
+
+
+def _unavailable_payload(area, payload, query):
+    return {"ok": True, "mode": "search", "query": query, "status": payload["status"], "count": 0, "items": [],
+            "message": payload["reason"], "place": _place_summary(area), "area_score": payload.get("area_score"),
+            "threshold": payload.get("threshold"), "official": payload.get("official"),
+            "coverage": payload.get("coverage"), "limitations": street_risk.LIMITATIONS,
+            "default_threshold": FLOOD_ALERT_THRESHOLD, "score_kind": "model_score", "calibrated_probability": False}
+
+
+def _start_job(area, query):
+    """Returns a Flask response: pending, or a cached/unavailable answer."""
+    key = area["key"]
+    with _street_jobs_lock:
+        remembered = _street_unavailable.get(key)
+        if remembered and time.time() - remembered[0] < INSUFFICIENT_MEMORY_SECONDS:
+            return jsonify(_unavailable_payload(area, remembered[1], query))
+        job = _street_jobs.get(key)
+        if job and job["state"] == "running" and time.time() - job["started"] < 180:
+            return jsonify({"ok": True, "status": "pending", "job": key, "place": _place_summary(area),
+                            "message": f"Assessing streets around {area['label']}..."}), 202
+        running = sum(1 for j in _street_jobs.values() if j["state"] == "running")
+        if running >= STREET_MAX_CONCURRENT_JOBS or not _street_rate_ok(_client_ip()):
+            return jsonify({"ok": False, "error": "Street assessments are busy right now. Please try again in a minute."}), 429
+        if not API_KEY:
+            return jsonify({"ok": False, "error": "OPENWEATHER_API_KEY is not configured."}), 400
+        _street_jobs[key] = {"state": "running", "started": time.time()}
+        _job_areas[key] = area
+    threading.Thread(target=_run_street_job, args=(area,), daemon=True).start()
+    return jsonify({"ok": True, "status": "pending", "job": key, "place": _place_summary(area),
+                    "message": f"Assessing streets around {area['label']}..."}), 202
+
+
+@app.route("/api/street-risk")
+def api_street_risk():
+    """Critical Roads and Streets at Risk, worldwide.
+    (no params)       flagged streets across all assessed areas (?country=NG to filter)
+    ?q=<text>         search street / neighbourhood / city / region / country
+    ?area=<key>       one assessed area
+    ?pick=<token>:<i> choose one of the places returned by an ambiguous search
+    ?job=<key>        poll a running assessment
+    &refresh=1        re-assess the place behind q even if cached data exists"""
+    q = (request.args.get("q") or "").strip()[:120]
+    refresh = request.args.get("refresh") == "1"
+
+    job_key = request.args.get("job")
+    if job_key:
+        with _street_jobs_lock:
+            job = _street_jobs.get(job_key)
+            area = _job_areas.get(job_key)
+        if not job:
+            return jsonify({"ok": False, "error": "That assessment is no longer available. Please search again."}), 404
+        if job["state"] == "running":
+            return jsonify({"ok": True, "status": "pending", "job": job_key, "message": "Still assessing..."}), 202
+        if job["state"] == "error":
+            return jsonify({"ok": True, "status": "error", "items": [], "count": 0, "message": job["error"],
+                            "place": _place_summary(area) if area else None, "limitations": street_risk.LIMITATIONS})
+        if job["state"] == "unavailable":
+            return jsonify(_unavailable_payload(area, job["payload"], q))
+        items, assessment = street_risk.area_items(DB_PATH, job_key)
+        return jsonify(_street_payload(items, mode="area", query=q, extra={"place": _place_summary(area)} if area else None))
+
+    pick = request.args.get("pick")
+    if pick:
+        token, _, idx = pick.partition(":")
+        entry = _candidates.get(token)
+        if not entry or entry[0] < time.time() or not idx.isdigit() or int(idx) >= len(entry[1]):
+            return jsonify({"ok": False, "error": "That choice has expired. Please search again."}), 410
+        chosen = entry[1][int(idx)]
+        if chosen.get("cached"):
+            items, assessment = street_risk.area_items(DB_PATH, chosen["key"])
+            return jsonify(_street_payload(items, mode="area", query=q))
+        cached = None if refresh else street_risk.load_assessment(DB_PATH, chosen["key"], max_age_minutes=street_risk.STREET_CACHE_MINUTES)
+        if cached:
+            items, _ = street_risk.area_items(DB_PATH, chosen["key"])
+            return jsonify(_street_payload(items, mode="area", query=q, extra={"place": _place_summary(chosen)}))
+        return _start_job(chosen, q)
+
+    area_key = request.args.get("area")
+    if area_key:
+        items, assessment = street_risk.area_items(DB_PATH, area_key)
+        return jsonify(_street_payload(items, mode="area", query=q))
+
+    if not q:
+        items = street_risk.top_flagged(DB_PATH, limit=40, country_code=request.args.get("country") or None)
+        return jsonify(_street_payload(items, mode="flagged"))
+
+    if not refresh:
+        items, areas = street_risk.search_cached(DB_PATH, q)
+        if items:
+            countries = {a["country_code"] for a in areas if a.get("country_code")}
+            if len(countries) > 1:
+                token = secrets.token_urlsafe(8)
+                _candidates[token] = (time.time() + 600, [dict(a, cached=True) for a in areas[:6]])
+                return jsonify({"ok": True, "status": "ambiguous", "query": q, "pick": token, "count": 0, "items": [],
+                                "message": f"'{q}' matches places in several countries. Which one do you mean?",
+                                "choices": [{"index": i, "label": a["label"], "country": a.get("country")} for i, a in enumerate(areas[:6])]})
+            # A cached hit must not hide a same-named place elsewhere ("Paris"
+            # in France is cached, "Paris" in Texas is not): if the geocoder says
+            # the name is ambiguous worldwide, ask rather than guess.
+            places, geo_error = geocode_global(q)
+            _, choices = pick_place(places) if not geo_error else (None, [])
+            if choices:
+                token = secrets.token_urlsafe(8)
+                _candidates[token] = (time.time() + 600, [area_from_place(c) for c in choices])
+                return jsonify({"ok": True, "status": "ambiguous", "query": q, "pick": token, "count": 0, "items": [],
+                                "message": f"'{q}' could be several places. Which one do you mean?",
+                                "choices": [{"index": i, "label": place_label(c), "country": c["country"]} for i, c in enumerate(choices)]})
+            return jsonify(_street_payload(items, mode="search", query=q,
+                                           extra={"areas": [a["label"] for a in areas]}))
+
+    # Not assessed yet: resolve the text to ONE real place, or ask.
+    curated = CURATED_LOCATION_LOOKUP.get(normalize_city(q))
+    if curated:
+        meta = _curated_area_meta(curated)
+        area = {"key": normalize_city(curated["label"]), "label": curated["label"], **{k: meta[k] for k in (
+            "name", "country", "country_code", "region", "city", "neighbourhood", "lat", "lon", "timezone", "tz_offset")}}
+        return _start_job(area, q)
+    places, error = geocode_global(q)
+    if error:
+        return jsonify({"ok": False, "error": error}), 503
+    place, choices = pick_place(places)
+    if choices:
+        token = secrets.token_urlsafe(8)
+        _candidates[token] = (time.time() + 600, [area_from_place(c) for c in choices])
+        return jsonify({"ok": True, "status": "ambiguous", "query": q, "pick": token, "count": 0, "items": [],
+                        "message": f"'{q}' could be several places. Which one do you mean?",
+                        "choices": [{"index": i, "label": place_label(c), "country": c["country"]} for i, c in enumerate(choices)]})
+    if not place:
+        return jsonify({"ok": True, "status": "not_found", "query": q, "count": 0, "items": [],
+                        "message": f"I could not find a place called '{q}'. Try adding the city and country, e.g. 'Admiralty Way, Lekki, Nigeria'."})
+    return _start_job(area_from_place(place), q)
+
+
+@app.route("/api/refresh-street-risk", methods=["GET", "POST"])
+def api_refresh_street_risk():
+    """Scheduler hook (same CRON_SECRET as the other scheduler endpoints):
+    assess flagged areas from the latest watchlist cache."""
+    if not CRON_SECRET:
+        return jsonify({"ok": False, "error": "CRON_SECRET is not configured, so this endpoint is disabled."}), 503
+    if not _cron_token_ok():
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute("SELECT city_label FROM watchlist_cache WHERE score >= ? ORDER BY score DESC LIMIT ?",
+                        (FLOOD_ALERT_THRESHOLD, STREET_SWEEP_MAX_PER_RUN)).fetchall()
+    conn.close()
+
+    def work(labels):
+        for label in labels:
+            try:
+                known = _known_place_for_curated_location(label) or tg.known_place_for_label(label)
+                with app.app_context():
+                    prediction, _ = build_prediction(label, known_place=known)
+                if prediction and prediction.get("area"):
+                    _attach_official_alerts(prediction)
+                    assess_area_streets(prediction, known_place=known)
+            except Exception as error:  # noqa: BLE001
+                print(f"Street refresh failed for {label}: {_redact(error)}")
+
+    labels = [r[0] for r in rows]
+    threading.Thread(target=work, args=(labels,), daemon=True).start()
+    return jsonify({"ok": True, "started": labels})
+
+
+# --- Telegram: public ---------------------------------------------------------------
+@app.route("/api/telegram/config")
+def api_telegram_config():
+    return jsonify({
+        "ok": True, "enabled": tg.enabled(), "live": tg.live(), "mode": tg.MODE,
+        "bot_username": tg.bot_username() if tg.enabled() else "",
+        "threshold": FLOOD_ALERT_THRESHOLD, "country_thresholds": street_risk.COUNTRY_THRESHOLDS,
+        "cooldown_hours": tg.COOLDOWN_HOURS, "escalation_delta": tg.ESCALATION_DELTA,
+        "countries": sorted(tg.COUNTRIES.values()),
+    })
+
+
+@app.route("/api/telegram/areas")
+def api_telegram_areas():
+    """Curated monitored places grouped country -> region, used for form hints."""
+    directory = {}
+    for meta in _CURATED_META.values():
+        region = meta["region"] or "-"
+        directory.setdefault(meta["country"], {}).setdefault(region, [])
+        if meta["name"] not in directory[meta["country"]][region]:
+            directory[meta["country"]][region].append(meta["name"])
+    return jsonify({"ok": True, "areas": directory})
+
+
+@app.route("/api/telegram/prepare", methods=["POST"])
+def api_telegram_prepare():
+    if not tg.enabled():
+        return jsonify({"ok": False, "error": "Telegram alerts are not switched on yet."}), 503
+    payload = request.get_json(silent=True) or request.form
+    if not _street_rate_ok("tg:" + _client_ip(), limit=10, window=600):
+        return jsonify({"ok": False, "error": "Too many attempts. Please wait a few minutes."}), 429
+    area, error = resolve_area(payload.get("country"), payload.get("region"), payload.get("city"), payload.get("community"))
+    if not area:
+        return jsonify({"ok": False, "error": error}), 400
+    link = tg.deep_link(tg.create_pending(area))
+    if not link:
+        return jsonify({"ok": False, "error": "The Telegram bot is not fully configured (bot username unavailable)."}), 503
+    return jsonify({
+        "ok": True, "link": link, "area": area["label"], "country": area["country"], "whole_city": not area["community"],
+        "timezone": area.get("timezone"), "mode": tg.MODE, "expires_hours": tg.PENDING_TOKEN_HOURS,
+        "note": (None if tg.live() else "Telegram alerts are in test mode: you will be registered now and real alerts start when live notifications are switched on."),
+    })
+
+
+@app.route("/api/telegram/webhook", methods=["POST"])
+def api_telegram_webhook():
+    """Telegram -> us. Protected by the secret token Telegram echoes back in
+    the X-Telegram-Bot-Api-Secret-Token header (set with setWebhook)."""
+    if not tg.enabled() or not tg.WEBHOOK_SECRET:
+        return jsonify({"ok": False}), 503
+    supplied = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not secrets.compare_digest(supplied, tg.WEBHOOK_SECRET):
+        return jsonify({"ok": False}), 403
+    tg.handle_update(request.get_json(silent=True) or {})
+    return jsonify({"ok": True})  # always 200 so Telegram does not retry-storm
+
+
+# --- Telegram: admin -------------------------------------------------------------------
+def admin_json_required(view_func):
+    @wraps(view_func)
+    def wrapped(*args, **kwargs):
+        if not session.get("is_admin"):
+            return jsonify({"ok": False, "error": "Admin login required."}), 401
+        return view_func(*args, **kwargs)
+    return wrapped
+
+
+@app.route("/admin/telegram")
+@login_required
+def admin_telegram():
+    return render_template("admin_telegram.html", overview=tg.admin_overview(), site_url=SITE_BASE_URL)
+
+
+@app.route("/api/admin/telegram/overview")
+@admin_json_required
+def api_admin_telegram_overview():
+    return jsonify({"ok": True, **tg.admin_overview()})
+
+
+@app.route("/api/admin/telegram/test", methods=["POST"])
+@admin_json_required
+def api_admin_telegram_test():
+    """Administrator-only test alert. Sends one clearly-labelled TEST message to
+    ONE chat (default: first TELEGRAM_ADMIN_CHAT_IDS entry). With simulate=true
+    nothing is sent: it reports which subscriber locations an alert for that
+    place/score would reach and what the rules would do. Accepts area (label),
+    country, region, score, chat_id."""
+    if not tg.enabled():
+        return jsonify({"ok": False, "error": "TELEGRAM_BOT_TOKEN is not configured."}), 503
+    data = request.get_json(silent=True) or {}
+    area_label = (data.get("area") or "Lekki, Lagos").strip()[:120]
+    cc = tg.country_code_for(data.get("country") or "Nigeria")
+    if not cc:
+        return jsonify({"ok": False, "error": "Unknown country."}), 400
+    try:
+        score = max(0.0, min(100.0, float(data.get("score", 42))))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "score must be a number from 0 to 100."}), 400
+    name = area_label.split(",")[0].strip()
+    region = (data.get("region") or (area_label.split(",")[1].strip() if "," in area_label else "")).strip()
+    area = _CURATED_META.get((normalize_city(name), normalize_city(region))) or {
+        "name": name, "country": tg.country_name(cc), "country_code": cc, "region": region, "city": region or name,
+        "neighbourhood": name, "timezone": None, "tz_offset": None}
+
+    if data.get("simulate"):
+        rows = tg.matching_locations(area)
+        out = [{"subscriber_status": r["sub_status"], "location": r["label"], "country": r["country"],
+                "decision": tg.decide(r, score, threshold=street_risk.threshold_for(cc)) if r["sub_status"] == "active" else "inactive"}
+               for r in rows]
+        return jsonify({"ok": True, "simulated": True, "mode": tg.MODE, "threshold": street_risk.threshold_for(cc),
+                        "matched": len(rows), "decisions": out})
+
+    chat_id = str(data.get("chat_id") or (tg.ADMIN_CHAT_IDS[0] if tg.ADMIN_CHAT_IDS else "")).strip()
+    if not chat_id:
+        return jsonify({"ok": False, "error": "Provide chat_id, or set TELEGRAM_ADMIN_CHAT_IDS."}), 400
+    streets, _ = street_risk.summary_for_alert(DB_PATH, normalize_city(area_label), limit=3)
+    prediction = {"city": area_label, "area": area}
+    ok = tg.send_admin_test(chat_id, area_label, score, prediction=prediction, streets=streets,
+                            tz_name=area.get("timezone"), tz_offset=area.get("tz_offset"))
+    return jsonify({"ok": ok, "sent_to": chat_id, "error": None if ok else "Telegram refused the message - see the delivery log."})
+
+
+@app.route("/api/admin/telegram/webhook", methods=["POST"])
+@admin_json_required
+def api_admin_telegram_webhook():
+    """action = set | delete | info. 'set' registers {SITE_BASE_URL}/api/telegram/webhook
+    with the secret token, so Telegram only ever calls us with the header we check."""
+    if not tg.enabled():
+        return jsonify({"ok": False, "error": "TELEGRAM_BOT_TOKEN is not configured."}), 503
+    action = (request.get_json(silent=True) or {}).get("action", "info")
+    try:
+        if action == "set":
+            if not tg.WEBHOOK_SECRET:
+                return jsonify({"ok": False, "error": "Set TELEGRAM_WEBHOOK_SECRET first (any long random string)."}), 400
+            url = SITE_BASE_URL.rstrip("/") + "/api/telegram/webhook"
+            tg.api("setWebhook", {"url": url, "secret_token": tg.WEBHOOK_SECRET,
+                                  "allowed_updates": ["message", "my_chat_member"], "drop_pending_updates": False})
+            return jsonify({"ok": True, "webhook": url})
+        if action == "delete":
+            tg.api("deleteWebhook", {})
+            return jsonify({"ok": True})
+        info = tg.api("getWebhookInfo", {}) or {}
+        return jsonify({"ok": True, "url": info.get("url"), "pending": info.get("pending_update_count"),
+                        "last_error": info.get("last_error_message")})
+    except tg.TelegramError as error:
+        return jsonify({"ok": False, "error": str(error)}), 502
 
 
 @app.route("/sitemap.xml")

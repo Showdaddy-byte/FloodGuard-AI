@@ -562,6 +562,66 @@
         <div id="property-results"></div>
     </section>
 
+    <section id="critical-roads" class="route-safety-panel">
+        <style>
+            .cr-banner{border:1px solid rgba(245,158,11,.55);background:rgba(245,158,11,.10);border-radius:10px;padding:10px 12px;margin:0 0 14px;font-size:.92rem;line-height:1.45}
+            .cr-form{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px}
+            .cr-form input[type=text]{flex:1 1 260px;min-width:0;background:#0f1a2e;border:1px solid rgba(148,163,184,.3);color:#f8fafc;font:inherit;font-size:15px;padding:12px 14px}
+            .cr-form button{width:auto;flex:0 0 auto;padding:12px 20px;background:#0ea5e9}
+            .cr-form button.map-pin-btn{background:#13233f}
+            .cr-status{min-height:1.4em;margin:6px 0 10px;font-size:.92rem}
+            .cr-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+            @media (max-width:860px){.cr-layout{grid-template-columns:minmax(0,1fr)}}
+            #cr-map{height:440px;border-radius:12px;border:1px solid rgba(127,127,127,.35);position:sticky;top:12px;z-index:0}
+            @media (max-width:860px){ #cr-map{position:relative;height:340px;order:-1}}
+            .cr-list{display:flex;flex-direction:column;gap:10px;max-height:640px;overflow:auto;padding-right:2px}
+            .cr-card{border:1px solid rgba(127,127,127,.35);background:rgba(127,127,127,.07);border-radius:12px;padding:12px 13px;cursor:pointer}
+            .cr-card.active{outline:2px solid #38bdf8}
+            .cr-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+            .cr-name{font-weight:700;font-size:1.02rem;margin:0}
+            .cr-meta{font-size:.82rem;opacity:.8;margin:2px 0 0}
+            .cr-badge{white-space:nowrap;font-weight:700;font-size:.82rem;padding:3px 10px;border-radius:999px;color:#fff}
+            .cr-sev-low{background:#15803d}.cr-sev-moderate{background:#b45309}.cr-sev-high{background:#dc2626}.cr-sev-severe{background:#7f1d1d}
+            .cr-score{font-size:1.25rem;font-weight:800;margin:6px 0 2px}
+            .cr-card ul{margin:6px 0 6px 18px;padding:0;font-size:.88rem}
+            .cr-action{font-size:.88rem;margin:6px 0}
+            .cr-foot{font-size:.76rem;opacity:.75;margin-top:6px;line-height:1.4}
+            .cr-fresh{display:inline-block;padding:0 8px;border-radius:999px;border:1px solid currentColor;font-weight:600;background:#fff}
+            .cr-fresh.fresh{color:#16a34a}.cr-fresh.aging{color:#d97706}.cr-fresh.stale,.cr-fresh.unknown{color:#dc2626}
+            .cr-kind{font-size:.74rem;text-transform:uppercase;letter-spacing:.04em;opacity:.7}
+            .cr-official{border-left:3px solid #2563eb;padding:4px 8px;margin:6px 0;font-size:.85rem;background:rgba(37,99,235,.08)}
+            .cr-official ul{margin:2px 0 2px 16px}
+            .cr-notes{font-size:.8rem;opacity:.85;margin-top:12px;line-height:1.5}
+            .cr-notes summary{cursor:pointer;font-weight:600}
+        </style>
+        <div class="route-safety-header">
+            <h2>Critical Roads and Streets at Risk</h2>
+            <p>Which named streets and junctions are most exposed to flooding right now, built from OpenStreetMap roads and drains, terrain height and FloodGuard's live flood model. Search any street, neighbourhood, city, region or country in the world. Official agency alerts are shown where a national feed is connected; where street data is too thin, we say so instead of guessing.</p>
+        </div>
+
+        <div class="cr-banner" role="note">
+            <strong>Predicted risk, not confirmed flooding.</strong>
+            Every score below is a FloodGuard model prediction on a 0&ndash;100 scale. It is <em>not</em> a measured flood and <em>not</em> a probability. A street is flagged once its score reaches <strong id="cr-threshold">30</strong>. Visitor reports are shown separately and are unverified.
+        </div>
+
+        <form id="cr-form" class="cr-form">
+            <input type="text" id="cr-q" placeholder="Street, neighbourhood, city or country, e.g. Admiralty Way, Lekki  |  Rua Augusta, Lisbon  |  Jakarta" maxlength="120" autocomplete="off">
+            <button type="submit" id="cr-go">Search</button>
+            <button type="button" id="cr-top" class="map-pin-btn">Show flagged streets</button>
+        </form>
+        <div id="cr-status" class="cr-status" aria-live="polite"></div>
+
+        <div class="cr-layout">
+            <div id="cr-list" class="cr-list"></div>
+            <div id="cr-map" role="img" aria-label="Map of streets at risk"></div>
+        </div>
+
+        <details class="cr-notes">
+            <summary>Data sources and limits</summary>
+            <div id="cr-sources"></div>
+        </details>
+    </section>
+
     <section id="get-alerts" class="route-safety-panel">
         <div class="route-safety-header">
             <h2>Get Alerted Before It Floods</h2>
@@ -578,6 +638,37 @@
         </form>
         <p class="search-hint">Phone/WhatsApp numbers are saved for when SMS and WhatsApp alerts launch — only email alerts are active right now. You can unsubscribe from any alert email at any time.</p>
         <div id="alert-feedback" class="route-feedback"></div>
+
+        <div id="telegram-panel" style="margin-top:22px;border-top:1px solid rgba(127,127,127,.35);padding-top:16px;">
+            <style>
+                .tg-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin:8px 0}
+                .tg-row select,.tg-row input{box-sizing:border-box;width:100%;min-width:0;background:#0f1a2e;border:1px solid rgba(148,163,184,.3);border-radius:8px;color:#f8fafc;font:inherit;font-size:15px;padding:12px 14px}
+                .tg-link a{display:inline-block;margin-top:8px;padding:10px 18px;border-radius:10px;background:#229ED9;color:#fff;font-weight:700;text-decoration:none}
+                .tg-steps{font-size:.9rem;margin:8px 0 0 18px;padding:0}
+            </style>
+            <h3 style="margin:0 0 4px;">Telegram alerts</h3>
+            <p id="tg-intro" class="search-hint" style="margin-top:0">Get a Telegram message when the predicted flood-risk score for your community reaches the alert level, plus an urgent update if it rises sharply. Free, and you can stop any time.</p>
+            <form id="tg-form" class="route-form" hidden>
+                <div class="tg-row">
+                    <input type="text" id="tg-country" list="tg-country-list" placeholder="Country, e.g. Nigeria" maxlength="60" autocomplete="off" required>
+                    <input type="text" id="tg-region" list="tg-region-list" placeholder="State / province (optional)" maxlength="80">
+                    <input type="text" id="tg-city" list="tg-city-list" placeholder="City or town, e.g. Lagos" maxlength="80" required>
+                    <input type="text" id="tg-community" placeholder="Neighbourhood (optional), e.g. Lekki" maxlength="80">
+                </div>
+                <datalist id="tg-country-list"></datalist>
+                <datalist id="tg-region-list"></datalist>
+                <datalist id="tg-city-list"></datalist>
+                <button type="submit" id="tg-submit">Connect on Telegram</button>
+            </form>
+            <div id="tg-feedback" class="route-feedback"></div>
+            <div id="tg-link" class="tg-link"></div>
+            <ol class="tg-steps" id="tg-steps" hidden>
+                <li>Tap <strong>Connect on Telegram</strong> and press <strong>Start</strong> in the chat that opens.</li>
+                <li>Leave the neighbourhood blank to get alerts for the whole city; fill it in for just that neighbourhood. Add as many places as you like, in any country.</li>
+                <li>In Telegram: <code>/add Place, Country</code>, <code>/list</code>, <code>/pause</code>, <code>/stop</code> to unsubscribe.</li>
+            </ol>
+            <p class="search-hint">Alerts are predictions from FloodGuard's model, not confirmed floods. In an emergency, call your local emergency number.</p>
+        </div>
     </section>
 
     <section id="dashboard" class="dashboard">
@@ -1828,6 +1919,247 @@
         });
     }
     </script>
+
+    <script>
+    (function () {
+        "use strict";
+        var geoKey = {{ (geoapify_api_key or "") | tojson }};
+        var COLORS = { low: "#15803d", moderate: "#d97706", high: "#dc2626", severe: "#7f1d1d" };
+        var BASIS = { modelled: "Modelled risk", official_area_alert: "Official area alert + model", unverified_report: "Model + unverified report", confirmed: "Confirmed flooding" };
+
+        function esc(v) {
+            return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) {
+                return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+            });
+        }
+
+        /* --------------------- Critical Roads (worldwide) --------------------- */
+        var form = document.getElementById("cr-form");
+        if (form) {
+            var qEl = document.getElementById("cr-q"), statusEl = document.getElementById("cr-status");
+            var listEl = document.getElementById("cr-list"), mapEl = document.getElementById("cr-map");
+            var map = null, layer = null, layers = {}, cards = {}, pollTimer = null, token = 0, placeMarker = null;
+
+            function ensureMap() {
+                if (map || typeof L === "undefined") return;
+                map = L.map(mapEl, { minZoom: 2, worldCopyJump: true }).setView([20, 0], 2);
+                var url = geoKey
+                    ? "https://maps.geoapify.com/v1/tile/osm-bright/{z}/{x}/{y}.png?apiKey=" + geoKey
+                    : "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+                L.tileLayer(url, { maxZoom: 19, attribution: (geoKey ? 'Powered by <a href="https://www.geoapify.com/" target="_blank" rel="noopener">Geoapify</a> | ' : "") + "&copy; OpenStreetMap contributors" }).addTo(map);
+                layer = L.layerGroup().addTo(map);
+            }
+
+            /* Times are shown in the AREA's own time zone (not the viewer's). */
+            function fmtTime(iso, tz) {
+                if (!iso) return "unknown";
+                var d = new Date(iso + (/[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? "" : "Z"));
+                if (isNaN(d)) return "unknown";
+                var opts = { dateStyle: "medium", timeStyle: "short" };
+                if (tz) { try { return d.toLocaleString([], { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: tz, timeZoneName: "short" }); } catch (e) { /* unknown zone: fall through */ } }
+                return d.toLocaleString([], opts) + " (your local time)";
+            }
+            function ageText(m) {
+                if (m == null) return "age unknown";
+                if (m < 2) return "just now";
+                if (m < 90) return m + " min old";
+                return (m / 60).toFixed(1) + " h old";
+            }
+            function placeLine(it) {
+                return [it.neighbourhood, it.city, it.region, it.country].filter(Boolean).filter(function (v, i, a) { return a.indexOf(v) === i; }).join(", ");
+            }
+            function officialHtml(list) {
+                if (!list || !list.length) return "";
+                return '<div class="cr-official"><strong>Official alert(s) for this area:</strong><ul>' + list.slice(0, 3).map(function (a) {
+                    return "<li>" + esc(a.source) + ": " + esc(a.event) + " (" + esc(a.severity) + ")" + (a.area ? " &ndash; " + esc(a.area) : "") + "</li>";
+                }).join("") + "</ul><span class=\"cr-meta\">Official alerts cover a warning area, not this individual street.</span></div>";
+            }
+            function coverageHtml(list, gaps) {
+                var rows = (list || []).map(function (c) { return "<li>" + esc(c.factor) + ": <em>" + esc(c.status) + "</em> (" + esc(c.source) + ")</li>"; }).join("");
+                var g = (gaps || []).map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("");
+                if (!rows && !g) return "";
+                return '<details class="cr-notes"><summary>Data used for this area</summary><ul>' + rows + g + "</ul></details>";
+            }
+            function cardHtml(it) {
+                var factors = (it.factors || []).map(function (f) { return "<li>" + esc(f) + "</li>"; }).join("");
+                var reports = it.visitor_reports_7d ? '<div class="cr-meta">' + esc(it.visitor_reports_7d) + " unverified visitor report(s) in the last 7 days</div>" : "";
+                var basis = BASIS[it.evidence] || "Modelled risk";
+                return '<div class="cr-top"><div><div class="cr-kind">' + esc(it.kind === "junction" ? "Junction" : it.road_class) + '</div>' +
+                    '<p class="cr-name">' + esc(it.name) + (it.name_en && it.name_en !== it.name ? ' <span class="cr-meta">(' + esc(it.name_en) + ")</span>" : "") + '</p><p class="cr-meta">' + esc(placeLine(it)) + '</p></div>' +
+                    '<span class="cr-badge cr-sev-' + esc(it.severity) + '">' + esc(it.severity_label) + '</span></div>' +
+                    '<div class="cr-score">' + esc(it.risk_score) + '/100 <span class="cr-meta" style="font-weight:400">' + (it.above_threshold ? "at or above" : "below") + " the alert level of " + esc(it.threshold) + '</span></div>' +
+                    '<div class="cr-meta"><strong>' + esc(String(it.status_label).indexOf(basis) === 0 ? "" : basis + ": ") + "</strong>" + esc(it.status_label) + '</div>' + reports + officialHtml(it.official_alerts) +
+                    '<ul>' + factors + '</ul>' +
+                    '<div class="cr-action"><strong>What to do:</strong> ' + esc(it.recommended_action) + '</div>' +
+                    '<div class="cr-foot">Assessed: ' + esc(fmtTime(it.assessed_at, it.timezone)) + ' &middot; ' + esc(ageText(it.data_age_minutes)) +
+                    ' <span class="cr-fresh ' + esc(it.freshness) + '">' + esc(it.freshness) + '</span><br>Area: ' + esc(it.area_label) + ' (area score ' + esc(it.area_score) + '/100)<br>' +
+                    'Source: ' + esc((it.sources || ["OpenStreetMap; FloodGuard model"]).join("; ")) + '</div>' + coverageHtml(it.coverage, it.data_gaps);
+            }
+
+            function clearAll() {
+                listEl.innerHTML = ""; cards = {}; layers = {};
+                if (layer) layer.clearLayers();
+                if (placeMarker && map) { map.removeLayer(placeMarker); placeMarker = null; }
+            }
+            function showPlace(place) {
+                if (!place || !map || place.lat == null) return;
+                placeMarker = L.marker([place.lat, place.lon]).addTo(map).bindPopup("<strong>" + esc(place.label) + "</strong>");
+                map.setView([place.lat, place.lon], 13);
+            }
+            function setSources(data) {
+                var src = document.getElementById("cr-sources");
+                if (!src) return;
+                src.innerHTML = "<p><strong>Sources:</strong> " + (data.sources || []).map(esc).join("; ") + "</p><ul>" + (data.limitations || []).map(function (l) { return "<li>" + esc(l) + "</li>"; }).join("") + "</ul>";
+            }
+
+            function render(data) {
+                ensureMap(); clearAll();
+                var items = data.items || [], bounds = [];
+                if (document.getElementById("cr-threshold") && data.default_threshold != null) document.getElementById("cr-threshold").textContent = data.default_threshold;
+                setSources(data);
+                items.forEach(function (it, idx) {
+                    var id = "cr" + idx, card = document.createElement("div");
+                    card.className = "cr-card"; card.id = id; card.innerHTML = cardHtml(it);
+                    listEl.appendChild(card); cards[id] = card;
+                    card.addEventListener("click", function () { activate(id, true); });
+                    if (!map) return;
+                    var color = COLORS[it.severity] || "#6b7280", shape;
+                    var popup = "<strong>" + esc(it.name) + "</strong><br>" + esc(placeLine(it)) + "<br>" + esc(it.risk_score) + "/100 &middot; " + esc(it.severity_label) + "<br><em>Predicted, not confirmed</em>";
+                    if (it.kind === "junction") {
+                        shape = L.circleMarker([it.lat, it.lon], { radius: 9, color: "#fff", weight: 2, fillColor: color, fillOpacity: 0.95 });
+                        bounds.push([it.lat, it.lon]);
+                    } else {
+                        var ways = (it.geometry_all && it.geometry_all.length) ? it.geometry_all : [it.geometry];
+                        shape = L.featureGroup(ways.filter(function (w) { return w && w.length > 1; }).map(function (w) {
+                            w.forEach(function (p) { bounds.push(p); });
+                            return L.polyline(w, { color: color, weight: it.above_threshold ? 6 : 4, opacity: 0.9 });
+                        }));
+                    }
+                    shape.bindPopup(popup).addTo(layer);
+                    shape.on("click", function () { activate(id, false); });
+                    layers[id] = { shape: shape, it: it };
+                });
+                if (map && bounds.length) map.fitBounds(bounds, { padding: [24, 24], maxZoom: 16 });
+                else if (map && data.place) showPlace(data.place);
+                else if (map && !items.length) map.setView([20, 0], 2);
+                if (map) setTimeout(function () { map.invalidateSize(); }, 50);
+            }
+            function renderUnavailable(d) {
+                render(d);
+                var box = document.createElement("div");
+                box.className = "cr-card";
+                var score = d.area_score != null ? '<div class="cr-score">Area-level score ' + esc(d.area_score) + '/100 <span class="cr-meta" style="font-weight:400">(modelled; alert level ' + esc(d.threshold) + ")</span></div>" : "";
+                box.innerHTML = '<p class="cr-name">No street-level prediction for ' + esc(d.place ? d.place.label : "this place") + '</p>' +
+                    '<p class="cr-meta">' + esc(d.message) + '</p>' + score + officialHtml(d.official && d.official.alerts) +
+                    '<div class="cr-action">FloodGuard does not guess which streets are affected when the underlying street data is not good enough. Follow local authorities and official forecasts.</div>' + coverageHtml(d.coverage);
+                listEl.appendChild(box);
+            }
+            function renderChoices(d, q) {
+                render({ items: [], limitations: [] });
+                var box = document.createElement("div"); box.className = "cr-card";
+                box.innerHTML = '<p class="cr-name">' + esc(d.message) + '</p>';
+                var ul = document.createElement("div"); ul.style.cssText = "display:flex;flex-direction:column;gap:6px;margin-top:8px";
+                (d.choices || []).forEach(function (c) {
+                    var b = document.createElement("button"); b.type = "button"; b.className = "map-pin-btn";
+                    b.style.cssText = "width:auto;text-align:left;padding:10px 14px"; b.textContent = c.label;
+                    b.addEventListener("click", function () { load(q, false, 0, d.pick + ":" + c.index); });
+                    ul.appendChild(b);
+                });
+                box.appendChild(ul); listEl.appendChild(box);
+            }
+            function activate(id, pan) {
+                Object.keys(cards).forEach(function (k) { cards[k].classList.toggle("active", k === id); });
+                cards[id].scrollIntoView({ block: "nearest", behavior: "smooth" });
+                if (pan && layers[id] && map) {
+                    var s = layers[id].shape;
+                    if (s.getBounds) { map.fitBounds(s.getBounds(), { padding: [40, 40], maxZoom: 17 }); } else { map.setView(s.getLatLng(), 17); }
+                    s.openPopup();
+                }
+            }
+            function say(msg, kind) { statusEl.textContent = msg || ""; statusEl.style.color = kind === "error" ? "#dc2626" : ""; }
+
+            /* One request path: first call is q= or pick=; a pending answer returns a job id that is polled. */
+            function load(q, refresh, attempt, pick, job) {
+                var my = ++token; attempt = attempt || 0;
+                clearTimeout(pollTimer);
+                var url = "/api/street-risk";
+                if (job) url += "?job=" + encodeURIComponent(job);
+                else if (pick) url += "?pick=" + encodeURIComponent(pick) + "&q=" + encodeURIComponent(q || "");
+                else if (q) url += "?q=" + encodeURIComponent(q) + (refresh ? "&refresh=1" : "");
+                if (!attempt) { say(q ? "Searching..." : "Loading flagged streets..."); if (!job) clearAll(); }
+                fetch(url).then(function (r) { return r.json().then(function (d) { return { status: r.status, d: d }; }); }).then(function (res) {
+                    if (my !== token) return;
+                    var d = res.d;
+                    if (!d.ok) { say(d.error || "Something went wrong. Please try again.", "error"); return; }
+                    if (d.status === "pending") {
+                        if (attempt > 22) { say("This is taking longer than usual. Please try again in a minute.", "error"); return; }
+                        if (attempt === 0 && d.place) { ensureMap(); clearAll(); showPlace(d.place); }
+                        say((d.message || "Assessing streets") + " This can take up to a minute for a new area.");
+                        pollTimer = setTimeout(function () { load(q, false, attempt + 1, null, d.job); }, 4000);
+                        return;
+                    }
+                    if (d.status === "ambiguous") { renderChoices(d, q); say(d.message); return; }
+                    if (d.status === "not_found") { render(d); say(d.message); return; }
+                    if (d.status === "insufficient_data" || d.status === "unavailable" || d.status === "error") {
+                        renderUnavailable(d); say(d.message || "No street-level result for this place.");
+                        return;
+                    }
+                    render(d);
+                    if (!d.items.length) {
+                        say(d.message || (q ? "No streets match that search yet." : "No streets are at or above the alert level right now. Search any place in the world to assess it."));
+                    } else if (q || pick) {
+                        say(d.count + " result(s)" + (d.place ? " for " + d.place.label : "") + ". Scores are model predictions, not confirmed flooding.");
+                    } else {
+                        say(d.count + " street(s) currently at or above the alert level worldwide. Model predictions, not confirmed flooding.");
+                    }
+                }).catch(function () { if (my === token) say("Network error. Please try again.", "error"); });
+            }
+
+            form.addEventListener("submit", function (e) { e.preventDefault(); load(qEl.value.trim(), false); });
+            document.getElementById("cr-top").addEventListener("click", function () { qEl.value = ""; load("", false); });
+            load("", false);
+        }
+
+        /* ---------------------------- Telegram ---------------------------- */
+        var tgForm = document.getElementById("tg-form");
+        if (tgForm) {
+            var countryEl = document.getElementById("tg-country"), regionEl = document.getElementById("tg-region");
+            var cityEl = document.getElementById("tg-city"), comEl = document.getElementById("tg-community");
+            var fb = document.getElementById("tg-feedback"), linkEl = document.getElementById("tg-link"), steps = document.getElementById("tg-steps");
+            var areas = {};
+            fetch("/api/telegram/config").then(function (r) { return r.json(); }).then(function (c) {
+                if (!c.ok || !c.enabled) { document.getElementById("tg-intro").textContent = "Telegram alerts are coming soon. Email alerts above are active now."; return; }
+                document.getElementById("tg-country-list").innerHTML = (c.countries || []).map(function (n) { return '<option value="' + esc(n) + '">'; }).join("");
+                tgForm.hidden = false; steps.hidden = false;
+                if (!c.live) { fb.textContent = "Telegram alerts are in test mode: you can register now, and real alerts start once live notifications are switched on."; fb.className = "route-feedback"; }
+                return fetch("/api/telegram/areas").then(function (r) { return r.json(); }).then(function (a) { areas = a.areas || {}; });
+            }).catch(function () {});
+            function fillHints() {
+                var regions = areas[countryEl.value] || {}, names = [], rlist = Object.keys(regions).filter(function (r) { return r !== "-"; });
+                Object.keys(regions).forEach(function (r) { names = names.concat(regions[r]); });
+                document.getElementById("tg-region-list").innerHTML = rlist.map(function (n) { return '<option value="' + esc(n) + '">'; }).join("");
+                document.getElementById("tg-city-list").innerHTML = names.map(function (n) { return '<option value="' + esc(n) + '">'; }).join("");
+            }
+            countryEl.addEventListener("input", fillHints);
+            tgForm.addEventListener("submit", function (e) {
+                e.preventDefault();
+                var btn = document.getElementById("tg-submit");
+                btn.disabled = true; btn.textContent = "Checking place...";
+                linkEl.innerHTML = ""; fb.textContent = ""; fb.className = "route-feedback";
+                fetch("/api/telegram/prepare", { method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ country: countryEl.value.trim(), region: regionEl.value.trim(), city: cityEl.value.trim(), community: comEl.value.trim() }) })
+                .then(function (r) { return r.json(); }).then(function (d) {
+                    if (!d.ok) { fb.textContent = d.error || "Something went wrong."; fb.className = "route-feedback error"; return; }
+                    fb.textContent = "Ready: alerts for " + d.area + ", " + d.country + (d.whole_city ? " (every monitored area in the city)" : "") + (d.timezone ? ". Times will show in " + d.timezone : "") + ". " + (d.note || "");
+                    fb.className = "route-feedback success";
+                    linkEl.innerHTML = '<a href="' + esc(d.link) + '" target="_blank" rel="noopener">Open Telegram and press Start</a><div class="search-hint">This link works once and expires in ' + esc(d.expires_hours) + ' hours.</div>';
+                }).catch(function () { fb.textContent = "Network error. Please try again."; fb.className = "route-feedback error"; })
+                .then(function () { btn.disabled = false; btn.textContent = "Connect on Telegram"; });
+            });
+        }
+    })();
+    </script>
+
 
     {% if geoapify_api_key %}
     <script>

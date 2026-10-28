@@ -257,7 +257,7 @@ Use this start command:
 gunicorn app:app
 ```
 
-Do not commit your real API keys to GitHub. Keep them only in your hosting platform environment variables.
+Do not commit your real API keys to GitHub - this includes `.env.example`, which is committed: keep only placeholders in it. Keep real keys only in `.env` (gitignored) locally and in your hosting platform's environment variables.
 
 For true always-fresh monitoring with zero visitor traffic, set up a free external scheduler (GitHub Actions cron, cron-job.org, etc.) to call both:
 
@@ -265,6 +265,25 @@ For true always-fresh monitoring with zero visitor traffic, set up a free extern
 POST https://your-app.onrender.com/api/refresh-global-alerts   # every 10 min, no key needed
 POST https://your-app.onrender.com/api/refresh-watchlist        # every 10-15 min, needs OPENWEATHER_API_KEY set
 ```
+
+## Worldwide street-level flood risk and Telegram alerts
+
+**Critical Roads and Streets at Risk** (homepage section) lists named streets and junctions most exposed to flooding anywhere in the world, with a searchable list and an interactive map. Search any street, neighbourhood, city, region or country. `GET /api/street-risk` serves the same data.
+
+How a street is scored: the area's FloodGuard score (0-100), adjusted by that street's terrain height relative to the other mapped streets, proximity to mapped drains/water, underpass/bridge tags, and unverified visitor reports. Roads and drains come from OpenStreetMap, terrain from NASADEM (60N-56S) or Copernicus DEM elsewhere.
+
+Honesty rules built into the code:
+- The score is a **model score, not a calibrated probability**. The alert level is configurable (`FLOOD_ALERT_THRESHOLD`, default 30; per country with `FLOOD_ALERT_THRESHOLD_BY_COUNTRY`).
+- Results are **predicted risk**, never "confirmed flooding" - no data source connected here can confirm a street is flooded. Visitor reports are labelled unverified.
+- Official alerts (GDACS worldwide, US National Weather Service, England Environment Agency) are area-level and shown beside the score; they never change it. Other countries show "no national feed connected" - add one function to `official_sources.ADAPTERS` per agency.
+- If OpenStreetMap has too few named streets around a place, or terrain/drain data cannot separate streets, the site says so and shows only the area-level score instead of inventing road-specific results.
+- An ambiguous place name (e.g. Paris) asks which country is meant; results never carry over from a previous search.
+
+**Telegram alerts** (`telegram_alerts.py`): visitors register a country, region, city and optional neighbourhood from the homepage form or with `/add Place, Country` in the bot. Alerts go only to matching subscribers, use the same stored assessments the website shows, and show times in the place's own time zone. Duplicate prevention (database claim), 6-hour cooldown, urgent update on a rise of 15+ points, stale-data skipping (default 90 min), delivery log and blocked-user handling are built in. Admin page: `/admin/telegram` (webhook set/info, simulate, test alert to one admin chat, delivery log). The bot token is read only from `TELEGRAM_BOT_TOKEN`. Start with `TELEGRAM_MODE=test`; switch to `live` after checking the admin page.
+
+Extra scheduler call (same CRON token as the others): `POST /api/refresh-street-risk`.
+
+Limits: OpenStreetMap coverage differs by country; terrain is 30-90 m; messages are English only; free-tier quotas (Geoapify, OpenWeather, Overpass) bound how many places can be swept.
 
 ## Roadmap
 

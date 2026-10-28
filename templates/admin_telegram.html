@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Telegram alerts admin | FloodGuard AI</title>
+<style>
+  :root { color-scheme: light dark; --bg:#0b1220; --card:#121c33; --line:#22304f; --text:#e6edf7; --muted:#93a4c3; --ok:#34d399; --bad:#f87171; --warn:#fbbf24; --accent:#38bdf8; }
+  @media (prefers-color-scheme: light) { :root { --bg:#f4f7fb; --card:#fff; --line:#d8e0ee; --text:#0f1b33; --muted:#51607f; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  main { max-width:1000px; margin:0 auto; padding:20px 16px 60px; }
+  h1 { font-size:1.4rem; margin:0 0 4px; } h2 { font-size:1.05rem; margin:0 0 10px; }
+  .sub { color:var(--muted); margin:0 0 18px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+  .stat { border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+  .stat b { display:block; font-size:1.3rem; } .stat span { color:var(--muted); font-size:.82rem; }
+  .pill { display:inline-block; padding:2px 10px; border-radius:999px; font-size:.8rem; font-weight:600; border:1px solid currentColor; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+  label { display:block; font-size:.85rem; color:var(--muted); margin:8px 0 3px; }
+  input[type=text], input[type=number] { width:100%; padding:9px 10px; border-radius:8px; border:1px solid var(--line); background:transparent; color:var(--text); font:inherit; }
+  button { cursor:pointer; padding:9px 16px; border-radius:8px; border:0; background:var(--accent); color:#04202e; font:inherit; font-weight:600; margin:10px 8px 0 0; }
+  button.secondary { background:transparent; color:var(--text); border:1px solid var(--line); }
+  table { width:100%; border-collapse:collapse; font-size:.82rem; } th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; } .scroll { overflow-x:auto; }
+  pre { white-space:pre-wrap; word-break:break-word; background:rgba(127,127,127,.12); padding:10px; border-radius:8px; margin:10px 0 0; font-size:.82rem; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Telegram alerts — admin</h1>
+  <p class="sub"><a href="/admin/dams">Dam status</a> · <a href="/admin/logout">Log out</a></p>
+
+  <section class="card">
+    <h2>Status</h2>
+    <p>
+      Bot token:
+      {% if overview.configured %}<span class="pill ok">configured</span>{% else %}<span class="pill bad">TELEGRAM_BOT_TOKEN missing</span>{% endif %}
+      &nbsp; Mode:
+      {% if overview.live %}<span class="pill bad">LIVE — residents are being messaged</span>{% else %}<span class="pill warn">TEST — nothing is sent to residents</span>{% endif %}
+      &nbsp; Webhook secret:
+      {% if overview.webhook_secret_set %}<span class="pill ok">set</span>{% else %}<span class="pill bad">TELEGRAM_WEBHOOK_SECRET missing</span>{% endif %}
+    </p>
+    <div class="grid">
+      <div class="stat"><b>{{ overview.subscribers.get('active', 0) }}</b><span>active subscribers</span></div>
+      <div class="stat"><b>{{ overview.subscribers.get('paused', 0) }}</b><span>paused</span></div>
+      <div class="stat"><b>{{ overview.subscribers.get('blocked', 0) }}</b><span>blocked the bot</span></div>
+      <div class="stat"><b>{{ overview.locations }}</b><span>followed places</span></div>
+      <div class="stat"><b>{{ overview.delivery_7d.get('sent', 0) }}</b><span>sent (7 days)</span></div>
+      <div class="stat"><b>{{ overview.delivery_7d.get('failed', 0) }}</b><span>failed (7 days)</span></div>
+    </div>
+    <p class="sub" style="margin-top:12px">
+      Alert threshold <b>{{ overview.threshold|int }}</b> / 100 (a FloodGuard score, not a probability) ·
+      cooldown <b>{{ overview.cooldown_hours }}</b> h · urgent update at +<b>{{ overview.escalation_delta|int }}</b> ·
+      data older than <b>{{ overview.max_data_age_minutes|int }}</b> min is never alerted on ·
+      bot: <b>{% if overview.bot_username %}@{{ overview.bot_username }}{% else %}unknown{% endif %}</b> ·
+      admin chats: <b>{{ overview.admin_chats }}</b>
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>Webhook</h2>
+    <p class="sub">Registers <code>{{ site_url }}/api/telegram/webhook</code> with Telegram. Run "Register" once after deploying (and again if the site address changes).</p>
+    <button type="button" data-hook="set">Register webhook</button>
+    <button type="button" class="secondary" data-hook="info">Check status</button>
+    <button type="button" class="secondary" data-hook="delete">Remove webhook</button>
+    <pre id="hook-out" hidden></pre>
+  </section>
+
+  <section class="card">
+    <h2>Send a test alert</h2>
+    <p class="sub">Sends one message labelled <b>TEST</b> to one chat, built with the same code as real alerts. "Simulate" sends nothing and shows which subscribers an alert would reach.</p>
+    <label for="t-area">Area (exactly as monitored, e.g. "Lekki, Lagos")</label>
+    <input id="t-area" type="text" value="Lekki, Lagos">
+    <label for="t-score">Score (0–100)</label>
+    <input id="t-score" type="number" min="0" max="100" value="42">
+    <label for="t-chat">Chat ID (blank = first TELEGRAM_ADMIN_CHAT_IDS entry)</label>
+    <input id="t-chat" type="text" placeholder="e.g. 123456789">
+    <button type="button" id="t-send">Send test message</button>
+    <button type="button" class="secondary" id="t-sim">Simulate only</button>
+    <pre id="test-out" hidden></pre>
+  </section>
+
+  <section class="card">
+    <h2>Delivery log (latest {{ overview.log|length }})</h2>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>Time (UTC)</th><th>Kind</th><th>Status</th><th>Area</th><th>Score</th><th>Data age</th><th>Mode</th><th>Chat</th><th>Error / note</th></tr></thead>
+      <tbody>
+      {% for r in overview.log %}
+        <tr>
+          <td>{{ r.created_at[:19].replace('T',' ') }}</td><td>{{ r.kind }}</td>
+          <td class="{{ 'ok' if r.status=='sent' else ('bad' if r.status=='failed' else 'warn') }}">{{ r.status }}</td>
+          <td>{{ r.area_label or '' }}</td><td>{{ r.score|int if r.score is not none else '' }}</td>
+          <td>{{ (r.data_age_minutes|int ~ ' min') if r.data_age_minutes is not none else '' }}</td>
+          <td>{{ r.mode }}</td><td>{{ r.chat_id or '' }}</td><td>{{ r.error or r.note or '' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="9">No alerts logged yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </section>
+</main>
+<script>
+  async function post(url, body) {
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    let data; try { data = await r.json(); } catch (e) { data = { ok: false, error: "HTTP " + r.status }; }
+    return data;
+  }
+  function show(id, data) { const el = document.getElementById(id); el.hidden = false; el.textContent = JSON.stringify(data, null, 2); }
+  document.querySelectorAll("[data-hook]").forEach(b => b.addEventListener("click", async () => {
+    show("hook-out", await post("/api/admin/telegram/webhook", { action: b.dataset.hook }));
+  }));
+  function testBody(sim) {
+    return { area: document.getElementById("t-area").value, score: document.getElementById("t-score").value,
+             chat_id: document.getElementById("t-chat").value.trim() || undefined, simulate: sim };
+  }
+  document.getElementById("t-send").addEventListener("click", async () => show("test-out", await post("/api/admin/telegram/test", testBody(false))));
+  document.getElementById("t-sim").addEventListener("click", async () => show("test-out", await post("/api/admin/telegram/test", testBody(true))));
+</script>
+</body>
+</html>
