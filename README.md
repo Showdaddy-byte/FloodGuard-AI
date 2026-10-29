@@ -281,6 +281,8 @@ Honesty rules built into the code:
 
 **Telegram alerts** (`telegram_alerts.py`): visitors register a country, region, city and optional neighbourhood from the homepage form or with `/add Place, Country` in the bot. Alerts go only to matching subscribers, use the same stored assessments the website shows, and show times in the place's own time zone. Duplicate prevention (database claim), 6-hour cooldown, urgent update on a rise of 15+ points, stale-data skipping (default 90 min), delivery log and blocked-user handling are built in. Admin page: `/admin/telegram` (webhook set/info, simulate, test alert to one admin chat, delivery log). The bot token is read only from `TELEGRAM_BOT_TOKEN`. Start with `TELEGRAM_MODE=test`; switch to `live` after checking the admin page.
 
+**Pin a location**: the Critical Roads section has a "Pin a location" button. Press it, click the map, and FloodGuard names the spot (Geoapify reverse geocoding) and assesses the streets around it (`GET /api/street-risk?lat=..&lon=..`). If the point cannot be named (open water, unmapped land) nothing is assessed and the site says so; it never substitutes another place.
+
 Extra scheduler call (same CRON token as the others): `POST /api/refresh-street-risk`.
 
 Limits: OpenStreetMap coverage differs by country; terrain is 30-90 m; messages are English only; free-tier quotas (Geoapify, OpenWeather, Overpass) bound how many places can be swept.

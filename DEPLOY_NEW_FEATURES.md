@@ -54,6 +54,7 @@ Existing tables are untouched. Use a Render persistent disk for community.db or 
 ## Testing checklist
 - [ ] Home page loads; existing sections (dashboard, routes, email alerts, map) still work.
 - [ ] Search "Lisbon", then "Lekki": the map and list change to each place; no results from the earlier search remain.
+- [ ] Press "Pin a location" in Critical Roads, click a street area on the map: a pin appears, the status says "Checking the pinned spot...", then streets for that spot load. Pin open sea: you get "could not identify a place", no streets.
 - [ ] Search "Paris": you are asked which country; each choice loads only that place.
 - [ ] Search a remote place with few mapped roads: you see "No street-level prediction" plus the area-level score, map centred on the place.
 - [ ] Cards show country/region/city/neighbourhood, score + severity, factors, source, assessed time in the area's time zone, evidence label and "What to do".

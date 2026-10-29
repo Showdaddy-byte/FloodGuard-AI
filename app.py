@@ -7876,10 +7876,68 @@ def _start_job(area, query):
                     "message": f"Assessing streets around {area['label']}..."}), 202
 
 
+def reverse_place_global(lat, lon):
+    """Worldwide reverse geocode of a map pin. Returns (place, error) where place
+    has the same shape as geocode_global() results. Never falls back to a default
+    place: if Geoapify cannot name the point, the caller says so."""
+    if not GEOAPIFY_API_KEY:
+        return None, "Place search is not configured (GEOAPIFY_API_KEY is missing)."
+    try:
+        response = requests.get(GEOAPIFY_REVERSE_GEOCODE_URL,
+                                params={"lat": lat, "lon": lon, "apiKey": GEOAPIFY_API_KEY}, timeout=10)
+        response.raise_for_status()
+        features = response.json().get("features", [])
+    except (requests.RequestException, ValueError) as error:
+        print(f"Pin reverse geocoding failed: {_redact(error)}")
+        return None, "Place lookup is temporarily unavailable. Please try again shortly."
+    if not features:
+        return None, None
+    props = features[0].get("properties", {}) or {}
+    if not props.get("country_code"):
+        return None, None
+    city = props.get("city") or props.get("town") or props.get("village") or props.get("municipality") or props.get("county") or ""
+    neighbourhood = props.get("suburb") or props.get("district") or props.get("quarter") or props.get("neighbourhood")
+    zone = props.get("timezone") or {}
+    return {
+        "lat": float(lat), "lon": float(lon),
+        "name": neighbourhood or props.get("name") or city or props.get("formatted"),
+        "formatted": props.get("formatted") or "",
+        "country": props.get("country") or "", "country_code": props["country_code"].upper(),
+        "state": props.get("state") or props.get("state_district") or props.get("region") or "",
+        "city": city, "neighbourhood": neighbourhood, "result_type": "pin",
+        "timezone": zone.get("name"), "tz_offset": zone.get("offset_STD_seconds"), "confidence": 1,
+    }, None
+
+
+def _street_risk_for_pin(raw_lat, raw_lon, q, refresh):
+    """/api/street-risk?lat=..&lon=.. : assess the streets around a point the visitor pinned on the map."""
+    try:
+        lat, lon = float(raw_lat), float(raw_lon)
+        if not (math.isfinite(lat) and math.isfinite(lon) and -90 <= lat <= 90 and -180 <= lon <= 180):
+            raise ValueError
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "That map point is invalid."}), 400
+    if not _street_rate_ok("pin:" + _client_ip(), limit=20, window=600):
+        return jsonify({"ok": False, "error": "Too many pins in a short time. Please wait a few minutes."}), 429
+    place, error = reverse_place_global(lat, lon)
+    if error:
+        return jsonify({"ok": False, "error": error}), 503
+    if not place:
+        return jsonify({"ok": True, "status": "not_found", "count": 0, "items": [],
+                        "message": "FloodGuard could not identify a place at that point (open water or unmapped land), so nothing was assessed. Pin a point on land near a town or road."})
+    area = area_from_place(dict(place, result_type="street"))  # point-specific key: one assessment per pinned spot
+    cached = None if refresh else street_risk.load_assessment(DB_PATH, area["key"], max_age_minutes=street_risk.STREET_CACHE_MINUTES)
+    if cached:
+        items, _ = street_risk.area_items(DB_PATH, area["key"])
+        return jsonify(_street_payload(items, mode="area", query=q, extra={"place": _place_summary(area)}))
+    return _start_job(area, q)
+
+
 @app.route("/api/street-risk")
 def api_street_risk():
     """Critical Roads and Streets at Risk, worldwide.
     (no params)       flagged streets across all assessed areas (?country=NG to filter)
+    ?lat=&lon=        streets around a point pinned on the map
     ?q=<text>         search street / neighbourhood / city / region / country
     ?area=<key>       one assessed area
     ?pick=<token>:<i> choose one of the places returned by an ambiguous search
@@ -7904,6 +7962,9 @@ def api_street_risk():
             return jsonify(_unavailable_payload(area, job["payload"], q))
         items, assessment = street_risk.area_items(DB_PATH, job_key)
         return jsonify(_street_payload(items, mode="area", query=q, extra={"place": _place_summary(area)} if area else None))
+
+    if request.args.get("lat") is not None or request.args.get("lon") is not None:
+        return _street_risk_for_pin(request.args.get("lat"), request.args.get("lon"), q, refresh)
 
     pick = request.args.get("pick")
     if pick:

@@ -593,6 +593,8 @@
             .cr-official ul{margin:2px 0 2px 16px}
             .cr-notes{font-size:.8rem;opacity:.85;margin-top:12px;line-height:1.5}
             .cr-notes summary{cursor:pointer;font-weight:600}
+            #cr-pin[aria-pressed="true"]{background:#2563eb;color:#fff;border-color:#2563eb}
+            #cr-map.cr-pinning,#cr-map.cr-pinning .leaflet-grab{cursor:crosshair}
         </style>
         <div class="route-safety-header">
             <h2>Critical Roads and Streets at Risk</h2>
@@ -608,7 +610,9 @@
             <input type="text" id="cr-q" placeholder="Street, neighbourhood, city or country, e.g. Admiralty Way, Lekki  |  Rua Augusta, Lisbon  |  Jakarta" maxlength="120" autocomplete="off">
             <button type="submit" id="cr-go">Search</button>
             <button type="button" id="cr-top" class="map-pin-btn">Show flagged streets</button>
+            <button type="button" id="cr-pin" class="map-pin-btn" aria-pressed="false" title="Drop a pin on the map to assess the streets around that exact spot"><span aria-hidden="true">&#128205;</span> Pin a location</button>
         </form>
+        <p id="cr-pin-hint" class="cr-meta" hidden>Click anywhere on the map below to assess the streets around that spot. Press Esc to cancel.</p>
         <div id="cr-status" class="cr-status" aria-live="polite"></div>
 
         <div class="cr-layout">
@@ -1938,7 +1942,7 @@
         if (form) {
             var qEl = document.getElementById("cr-q"), statusEl = document.getElementById("cr-status");
             var listEl = document.getElementById("cr-list"), mapEl = document.getElementById("cr-map");
-            var map = null, layer = null, layers = {}, cards = {}, pollTimer = null, token = 0, placeMarker = null;
+            var map = null, layer = null, layers = {}, cards = {}, pollTimer = null, token = 0, placeMarker = null, pinMarker = null;
 
             function ensureMap() {
                 if (map || typeof L === "undefined") return;
@@ -2079,14 +2083,16 @@
             function say(msg, kind) { statusEl.textContent = msg || ""; statusEl.style.color = kind === "error" ? "#dc2626" : ""; }
 
             /* One request path: first call is q= or pick=; a pending answer returns a job id that is polled. */
-            function load(q, refresh, attempt, pick, job) {
+            function load(q, refresh, attempt, pick, job, pin) {
                 var my = ++token; attempt = attempt || 0;
                 clearTimeout(pollTimer);
                 var url = "/api/street-risk";
                 if (job) url += "?job=" + encodeURIComponent(job);
+                else if (pin) url += "?lat=" + pin.lat.toFixed(6) + "&lon=" + pin.lon.toFixed(6) + (refresh ? "&refresh=1" : "");
                 else if (pick) url += "?pick=" + encodeURIComponent(pick) + "&q=" + encodeURIComponent(q || "");
                 else if (q) url += "?q=" + encodeURIComponent(q) + (refresh ? "&refresh=1" : "");
-                if (!attempt) { say(q ? "Searching..." : "Loading flagged streets..."); if (!job) clearAll(); }
+                if (!attempt && !pin && !job && pinMarker && map) { map.removeLayer(pinMarker); pinMarker = null; }
+                if (!attempt) { say(pin ? "Checking the pinned spot..." : q ? "Searching..." : "Loading flagged streets..."); if (!job) clearAll(); }
                 fetch(url).then(function (r) { return r.json().then(function (d) { return { status: r.status, d: d }; }); }).then(function (res) {
                     if (my !== token) return;
                     var d = res.d;
@@ -2095,7 +2101,7 @@
                         if (attempt > 22) { say("This is taking longer than usual. Please try again in a minute.", "error"); return; }
                         if (attempt === 0 && d.place) { ensureMap(); clearAll(); showPlace(d.place); }
                         say((d.message || "Assessing streets") + " This can take up to a minute for a new area.");
-                        pollTimer = setTimeout(function () { load(q, false, attempt + 1, null, d.job); }, 4000);
+                        pollTimer = setTimeout(function () { load(q, false, attempt + 1, null, d.job, pin); }, 4000);
                         return;
                     }
                     if (d.status === "ambiguous") { renderChoices(d, q); say(d.message); return; }
@@ -2107,13 +2113,37 @@
                     render(d);
                     if (!d.items.length) {
                         say(d.message || (q ? "No streets match that search yet." : "No streets are at or above the alert level right now. Search any place in the world to assess it."));
-                    } else if (q || pick) {
+                    } else if (q || pick || pin) {
                         say(d.count + " result(s)" + (d.place ? " for " + d.place.label : "") + ". Scores are model predictions, not confirmed flooding.");
                     } else {
                         say(d.count + " street(s) currently at or above the alert level worldwide. Model predictions, not confirmed flooding.");
                     }
                 }).catch(function () { if (my === token) say("Network error. Please try again.", "error"); });
             }
+
+            /* Pin a location: click the map, FloodGuard names the spot and assesses the streets around it. */
+            var pinBtn = document.getElementById("cr-pin"), pinHint = document.getElementById("cr-pin-hint"), pinning = false;
+            function setPinning(on) {
+                pinning = on; ensureMap();
+                pinBtn.setAttribute("aria-pressed", on ? "true" : "false");
+                pinBtn.innerHTML = on ? "Click the map to pin" : '<span aria-hidden="true">&#128205;</span> Pin a location';
+                pinHint.hidden = !on; mapEl.classList.toggle("cr-pinning", on);
+                if (on) mapEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+            }
+            ensureMap();
+            if (map) {
+                map.on("click", function (e) {
+                    if (!pinning) return;
+                    setPinning(false);
+                    var pt = { lat: e.latlng.lat, lon: ((e.latlng.lng + 540) % 360) - 180 };
+                    qEl.value = "";
+                    load("", false, 0, null, null, pt);
+                    if (pinMarker) map.removeLayer(pinMarker);
+                    pinMarker = L.marker([e.latlng.lat, e.latlng.lng]).addTo(map).bindPopup("Pinned spot").openPopup();
+                });
+            }
+            pinBtn.addEventListener("click", function () { setPinning(!pinning); });
+            document.addEventListener("keydown", function (e) { if (e.key === "Escape" && pinning) setPinning(false); });
 
             form.addEventListener("submit", function (e) { e.preventDefault(); load(qEl.value.trim(), false); });
             document.getElementById("cr-top").addEventListener("click", function () { qEl.value = ""; load("", false); });
