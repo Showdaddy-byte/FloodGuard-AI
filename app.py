@@ -482,6 +482,45 @@ def query_overpass(query):
     return None
 
 
+def query_overpass_streets(query):
+    """Overpass access for street-level assessments. These queries return the
+    geometry of every named road around a place, so they are much heavier than
+    the water-proximity lookups query_overpass() serves: they need a longer
+    client timeout, a pause-and-retry on 429/504, and they must not be blocked
+    by the short circuit-breaker cooldown that lighter lookups set on a mirror.
+    Returns parsed JSON or None (only when every mirror failed); the reason for
+    each failure is printed to the server log."""
+    last_note = "no endpoint tried"
+    for round_number in range(2):
+        for index, url in enumerate(OVERPASS_URLS, start=1):
+            try:
+                response = requests.post(
+                    url, data={"data": query}, timeout=50,
+                    headers={"User-Agent": "FloodGuardAI/1.0 (https://myfloodguard.online; flood risk web app)",
+                             "Accept": "application/json"},
+                )
+                if response.status_code in (429, 502, 503, 504):
+                    last_note = f"mirror {index} HTTP {response.status_code}"
+                    print(f"Overpass street query: {last_note}")
+                    continue
+                response.raise_for_status()
+                data = response.json()
+                # Overpass answers HTTP 200 with a "remark" and no elements when it runs out of time/memory.
+                if not data.get("elements") and data.get("remark"):
+                    last_note = f"mirror {index} remark: {str(data['remark'])[:120]}"
+                    print(f"Overpass street query: {last_note}")
+                    continue
+                _mark_service_up(f"overpass-{index}")
+                return data
+            except (requests.RequestException, ValueError) as error:
+                last_note = f"mirror {index} {type(error).__name__}"
+                print(f"Overpass street query failed ({last_note}): {_redact(error)}")
+        if round_number == 0:
+            time.sleep(4)  # every mirror busy: wait briefly, then one more pass
+    print(f"Overpass street query gave up: {last_note}")
+    return None
+
+
 def _parse_stored_datetime(value):
     """Parse an ISO-format timestamp string pulled from the database into a
     naive UTC datetime. datetime.utcnow() (used everywhere in this app to
@@ -7706,7 +7745,7 @@ def assess_area_streets(prediction, area=None, known_place=None):
 
     assessment = street_risk.assess_area(
         area, float(prediction["score"]),
-        run_overpass=query_overpass, elevation_fn=elevation_fn,
+        run_overpass=query_overpass_streets, elevation_fn=elevation_fn,
         reports=_street_reports(prediction["city"]), official=official,
         coverage=_coverage_for(prediction, area, official), elevation_source=source["label"],
         emergency_text=(_safety_text(prediction.get("area")) or "").split(": ")[-1] or None,
