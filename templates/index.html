@@ -564,7 +564,7 @@
             {% elif watchlist.active_alerts %}
             <div class="watchlist-state watchlist-active" id="watchlist-alert-list">
                 {% if watchlist.is_stale %}
-                <p class="watchlist-stale-note">⚠ This data is last updated {{ watchlist.age_text }} and refreshing now — conditions may have changed since.</p>
+                <p class="watchlist-stale-note">Last updated {{ watchlist.age_text }}. Refreshing now.</p>
                 {% endif %}
                 {% for alert in watchlist.active_alerts %}
                 <div class="watchlist-alert-card risk-border-{{ alert.risk_color }}">
@@ -573,7 +573,7 @@
                         <span class="risk-pill risk-{{ alert.risk_color }}">{{ alert.risk_level }}</span>
                     </div>
                     {% if alert.priority_action %}
-                    <p class="watchlist-action">⚠ {{ alert.priority_action }}</p>
+                    <p class="watchlist-action">{{ alert.priority_action }}</p>
                     {% endif %}
                     <p>{{ alert.ground_alert_message or alert.top_factor }}</p>
                     <button type="button" class="watchlist-check-btn" data-city="{{ alert.city_label }}">View full analysis</button>
@@ -613,7 +613,7 @@
         <div class="watchlist-header">
             <h2>🗺️ All Monitored Places</h2>
         </div>
-        <p class="watchlist-subtitle">Every place FloodGuard AI checks automatically, with its latest situation. Tap a place for the full analysis. Results come from FloodGuard's model and live weather &mdash; they are estimates, not official warnings.</p>
+        <p class="watchlist-subtitle">Every place FloodGuard AI checks automatically, with its latest situation. Tap a place for the full analysis. Results come from FloodGuard's model and live weather, and update through the day.</p>
         <div class="places-toolbar">
             <input type="search" id="places-search" placeholder="Search monitored places…" aria-label="Search monitored places">
         </div>
@@ -695,8 +695,8 @@
         </div>
 
         <div class="cr-banner" role="note">
-            <strong>Predicted risk, not confirmed flooding.</strong>
-            Every score below is a FloodGuard model prediction on a 0&ndash;100 scale. It is <em>not</em> a measured flood and <em>not</em> a probability. A street is flagged once its score reaches <strong id="cr-threshold">30</strong>. Visitor reports are shown separately and are unverified.
+            <strong>Predicted risk.</strong>
+            Every score below is FloodGuard&rsquo;s estimate of flood likelihood on a 0&ndash;100 scale, based on rainfall, terrain and water nearby. A street is highlighted once its score reaches <strong id="cr-threshold">30</strong>. Visitor reports appear separately while they await confirmation.
         </div>
 
         <form id="cr-form" class="cr-form">
@@ -819,7 +819,7 @@
                 <li>Leave the neighbourhood blank to get alerts for the whole city; fill it in for just that neighbourhood. Add as many places as you like, in any country.</li>
                 <li>In Telegram: <code>/add Place, Country</code>, <code>/list</code>, <code>/pause</code>, <code>/stop</code> to unsubscribe.</li>
             </ol>
-            <p class="search-hint">Alerts are predictions from FloodGuard's model, not confirmed floods. In an emergency, call your local emergency number.</p>
+            <p class="search-hint">Alerts show predicted flood risk from FloodGuard's model. For urgent help, contact your local emergency number.</p>
         </div>
     </section>
 
@@ -846,7 +846,7 @@
                 {% if prediction %}
                 {% if prediction.ground_alert %}
                 <div class="ground-alert">
-                    <strong><span class="live-dot" aria-hidden="true"></span>⚠ Live ground reports</strong>
+                    <strong><span class="live-dot" aria-hidden="true"></span>Live ground reports</strong>
                     <p>{{ prediction.ground_alert.message }} This has raised the risk level below to reflect what people are seeing on the ground right now.</p>
                 </div>
                 {% endif %}
@@ -942,7 +942,7 @@
 
                 {% if prediction.priority_action %}
                 <div class="safety-action-box risk-border-{{ prediction.risk_color }}">
-                    <strong>⚠ Safety action:</strong> {{ prediction.priority_action }}
+                    <strong>Suggested action:</strong> {{ prediction.priority_action }}
                 </div>
                 {% endif %}
                 <div class="advice-box">{{ prediction.advice }}</div>
@@ -1238,7 +1238,7 @@
                         <p>{{ item.wind }} m/s wind</p>
                         <div class="forecast-risk risk-{{ item.risk_color }}">{{ item.risk }}</div>
                         {% if item.priority_action %}
-                        <p class="forecast-action">⚠ {{ item.priority_action }}</p>
+                        <p class="forecast-action">{{ item.priority_action }}</p>
                         {% endif %}
                     </div>
                     {% endfor %}
@@ -1281,7 +1281,7 @@
             </div>
         </div>
         <p>Weather data by <a href="https://openweathermap.org" target="_blank" rel="noopener" style="color:#9ca3af;">OpenWeather</a></p>
-        <p><a href="/terms" style="color:#9ca3af;">Terms of Service &amp; Legal Disclaimer</a></p>
+        <p><a href="/terms" style="color:#9ca3af;">Terms of Service</a></p>
         <p>Copyright 2026 FloodGuard AI. All Rights Reserved.</p>
     </footer>
 
@@ -1387,7 +1387,7 @@
                 const color = riskColorClass(alert.risk_level);
                 const message = alert.ground_alert_message || alert.top_factor || "";
                 const actionLine = alert.priority_action
-                    ? '<p class="watchlist-action">⚠ ' + alert.priority_action + "</p>"
+                    ? '<p class="watchlist-action">' + alert.priority_action + "</p>"
                     : "";
                 const coastalBadge = alert.coastal
                     ? '<span class="coastal-badge">🌊 Coastal</span>'
@@ -1491,7 +1491,7 @@
                 '<div class="place-group">' + placesEscape(p.group) + score + "</div></div>" +
                 '<span class="risk-pill risk-' + color + '">' + pill + "</span></div>" +
                 '<p class="place-situation">' + placesEscape(p.situation) + "</p>" +
-                (p.action ? '<p class="place-action">⚠ ' + placesEscape(p.action) + "</p>" : "") +
+                (p.action ? '<p class="place-action">' + placesEscape(p.action) + "</p>" : "") +
                 '<p class="place-meta">' + updated + "</p>" +
                 '<button type="button" class="watchlist-check-btn" data-city="' + placesEscape(p.name) + '">View full analysis</button>' +
                 "</div>";
@@ -1548,7 +1548,7 @@
 
         if (data.entries && data.entries.length) {
             const staleNote = data.is_stale
-                ? '<p class="watchlist-stale-note">⚠ This data was last updated ' + data.age_text + " and is refreshing now.</p>"
+                ? '<p class="watchlist-stale-note">Last updated ' + data.age_text + ". Refreshing now.</p>"
                 : "";
             const cards = data.entries.map((alert) => {
                 const color = riskColorClassFromColor(alert.risk_color);
@@ -1771,7 +1771,7 @@
 
         let riskyHtml = "";
         if (route.risky_segments.length) {
-            riskyHtml = '<div class="route-risky-list"><strong>⚠ Risky sections along this route:</strong><ul>' +
+            riskyHtml = '<div class="route-risky-list"><strong>Areas to watch on this route:</strong><ul>' +
                 route.risky_segments.map((s) => {
                     const label = s.note ? " — " + s.note : (s.water_label ? " — near " + s.water_label : "");
                     return "<li>~" + s.position_pct + "% of the way (" + s.risk + label + ")</li>";
@@ -1793,7 +1793,7 @@
                 '<div class="travel-verdict risk-' + verdictColor + '">' + data.verdict + "</div>" +
                 "<p>" + data.origin + " → " + data.destination + "</p>" +
                 "<p>" + route.distance_km + " km, ~" + route.duration_min + " min drive, " + route.confidence_pct + "% of the route has real terrain data</p>" +
-                (data.priority_action ? '<p class="route-action">⚠ ' + data.priority_action + "</p>" : "") +
+                (data.priority_action ? '<p class="route-action">' + data.priority_action + "</p>" : "") +
             "</div>" +
             '<div class="route-segment-bar">' + segmentBar + "</div>" +
             riskyHtml +
@@ -2177,7 +2177,7 @@
                     card.addEventListener("click", function () { activate(id, true); });
                     if (!map) return;
                     var color = COLORS[it.severity] || "#6b7280", shape;
-                    var popup = "<strong>" + esc(it.name) + "</strong><br>" + esc(placeLine(it)) + "<br>" + esc(it.risk_score) + "/100 &middot; " + esc(it.severity_label) + "<br><em>Predicted, not confirmed</em>";
+                    var popup = "<strong>" + esc(it.name) + "</strong><br>" + esc(placeLine(it)) + "<br>" + esc(it.risk_score) + "/100 &middot; " + esc(it.severity_label) + "<br><em>Predicted risk</em>";
                     if (it.kind === "junction") {
                         shape = L.circleMarker([it.lat, it.lon], { radius: 9, color: "#fff", weight: 2, fillColor: color, fillOpacity: 0.95 });
                         bounds.push([it.lat, it.lon]);
@@ -2263,9 +2263,9 @@
                     if (!d.items.length) {
                         say(d.message || (q ? "No streets match that search yet." : "No streets are at or above the alert level right now. Search any place in the world to assess it."));
                     } else if (q || pick || pin) {
-                        say(d.count + " result(s)" + (d.place ? " for " + d.place.label : "") + ". Scores are model predictions, not confirmed flooding.");
+                        say(d.count + " result(s)" + (d.place ? " for " + d.place.label : "") + ". Scores show predicted risk.");
                     } else {
-                        say(d.count + " street(s) currently at or above the alert level worldwide. Model predictions, not confirmed flooding.");
+                        say(d.count + " street(s) currently at or above the alert level worldwide. Showing predicted risk.");
                     }
                 }).catch(function () { if (my === token) say("Network error. Please try again.", "error"); });
             }
@@ -2835,7 +2835,7 @@
 
             let riskyHtml = "";
             if (route.risky_segments.length) {
-                riskyHtml = '<div class="route-risky-list"><strong>⚠ Risky sections along this route:</strong><ul>' +
+                riskyHtml = '<div class="route-risky-list"><strong>Areas to watch on this route:</strong><ul>' +
                     route.risky_segments.map((s) => {
                         const label = s.note ? " — " + s.note : (s.water_label ? " — near " + s.water_label : "");
                         return "<li>~" + s.position_pct + "% of the way (" + s.risk + label + ")</li>";
@@ -2857,7 +2857,7 @@
                     '<div class="travel-verdict risk-' + verdictColor + '">' + data.verdict + "</div>" +
                     "<p>" + data.origin + " → " + data.destination + "</p>" +
                     "<p>" + route.distance_km + " km, ~" + route.duration_min + " min drive, " + route.confidence_pct + "% of the route has real terrain data</p>" +
-                    (data.priority_action ? '<p class="route-action">⚠ ' + data.priority_action + "</p>" : "") +
+                    (data.priority_action ? '<p class="route-action">' + data.priority_action + "</p>" : "") +
                 "</div>" +
                 riskyHtml + altHtml;
 

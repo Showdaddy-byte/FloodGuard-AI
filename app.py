@@ -3743,8 +3743,20 @@ def classify_terrain_behaviour(elevation, slope_percent, nearest_water_m, coasta
     return {"key": key, "code": meta["code"], "label": label, "icon": meta["icon"], "detail": detail, "is_likely_water_pixel": False}
 
 
-def weather_scene(weather_id, description):
+def weather_scene(weather_id, description, rainfall=0, all_ids=None):
+    """Pick the sky scene for the weather panel.
+
+    `rainfall` (mm, if the provider reports any) and `all_ids` (every
+    condition code the provider returned, not just the first) let a
+    low-visibility or cloudy reading still say so when rain is also
+    falling, instead of showing only one of the two facts."""
     description = (description or "").lower()
+    try:
+        rain_mm = float(rainfall or 0)
+    except (TypeError, ValueError):
+        rain_mm = 0.0
+    ids = [i for i in (all_ids or []) if isinstance(i, int)]
+    rain_reported = rain_mm >= 0.1 or any(300 <= i < 600 for i in ids)
 
     if 200 <= weather_id < 300 or "thunder" in description:
         return {
@@ -3764,7 +3776,13 @@ def weather_scene(weather_id, description):
             "label": "Cold precipitation",
             "summary": "Cold precipitation can reduce visibility and increase travel risk.",
         }
-    if 700 <= weather_id < 800 or "mist" in description or "fog" in description or "haze" in description:
+    if 700 <= weather_id < 800 or "mist" in description or "fog" in description or "haze" in description or "smoke" in description:
+        if rain_reported:
+            return {
+                "code": "rain",
+                "label": "Low visibility with rainfall",
+                "summary": "Reduced visibility (smoke, haze or mist) and rain are both reported. Watch drainage channels and low-lying roads.",
+            }
         return {
             "code": "mist",
             "label": "Low visibility",
@@ -3775,6 +3793,12 @@ def weather_scene(weather_id, description):
             "code": "clear",
             "label": "Clear conditions",
             "summary": "Current sky condition is clear. FloodGuard continues monitoring forecast changes.",
+        }
+    if rain_reported:
+        return {
+            "code": "rain",
+            "label": "Cloudy with rainfall",
+            "summary": "Cloud cover and some rain are reported. Watch drainage channels and low-lying roads.",
         }
     return {
         "code": "clouds",
@@ -4392,7 +4416,10 @@ def get_weather(lat, lon, display_name=None):
         description = data["weather"][0]["description"].title()
         weather_id = data["weather"][0]["id"]
         rainfall = data.get("rain", {}).get("1h", data.get("rain", {}).get("3h", 0))
-        scene = weather_scene(weather_id, description)
+        scene = weather_scene(
+            weather_id, description, rainfall,
+            [w.get("id") for w in data.get("weather", []) if isinstance(w, dict)],
+        )
 
         return {
             "city": display_name or data["name"],
@@ -4432,7 +4459,7 @@ def get_weather(lat, lon, display_name=None):
     wind_ms = (current.get("wind_kph", 0) or 0) / 3.6
     # id -1: no OpenWeather-style numeric condition code from this provider,
     # so weather_scene() falls back to its description-keyword checks.
-    scene = weather_scene(-1, condition_text)
+    scene = weather_scene(-1, condition_text, current.get("precip_mm", 0) or 0)
 
     return {
         "city": display_name or location.get("name") or "Unknown",
@@ -5891,7 +5918,7 @@ def get_official_emergency_numbers(country_code, state_name=None):
     return {
         "national": national,
         "state": state_info,
-        "disclaimer": "Official reference numbers, not verified live — always confirm locally, as these can change.",
+        "disclaimer": "Official reference numbers. Numbers can change, so it is worth confirming locally.",
     }
 
 
@@ -6236,9 +6263,8 @@ def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engi
         "data_confidence": data_confidence,
         "data_incomplete": data_incomplete,
         "disclaimer": (
-            "This is a location-history and terrain-based estimate for general awareness, not a certified "
-            "flood-zone survey, insurance assessment, or legal disclosure. Always get a professional flood-risk "
-            "survey and check official flood maps before a property purchase or lease decision."
+            "A location-history and terrain-based estimate for general awareness. "
+            "Before a property purchase or lease, a professional flood-risk survey and the official flood maps are a helpful next step."
         ),
     }
 

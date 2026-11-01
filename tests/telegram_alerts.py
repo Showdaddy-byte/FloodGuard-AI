@@ -813,7 +813,7 @@ def help_text():
     return (
         "<b>FloodGuard AI flood alerts</b>\n"
         "I message you when the modelled flood-risk score for a place you follow reaches the alert level "
-        f"(default <b>{int(ALERT_THRESHOLD)}</b> out of 100; a model score, not a probability), and send an urgent "
+        f"(default <b>{int(ALERT_THRESHOLD)}</b> out of 100; FloodGuard's model score), and send an urgent "
         "update if it rises sharply. Times are shown in your place's local time zone.\n\n"
         "/add <i>place, country</i> — e.g. <code>/add Lekki, Lagos, Nigeria</code> or <code>/add Houston, United States</code>\n"
         "/list — your places\n"
