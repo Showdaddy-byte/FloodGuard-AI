@@ -292,8 +292,98 @@
             font-style: italic;
         }
     </style>
+<style id="fg-motion-css">
+        /* ================= FloodGuard motion layer: living sky, icon dock, slide-up panels ================= */
+        #fg-sky{position:fixed;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none;display:block}
+        body.fg-has-dock{padding-bottom:118px}
+        .fg-sheet{position:fixed!important;left:50%;bottom:96px;width:min(1020px,calc(100% - 16px))!important;max-width:none!important;max-height:calc(100vh - 120px);max-height:calc(100dvh - 120px);overflow:auto;margin:0!important;z-index:9000;border-radius:24px!important;border:1px solid rgba(125,211,252,.35)!important;background:linear-gradient(180deg,#0e2036,#08121f)!important;color:#e8f2fa;box-shadow:0 -10px 60px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.04) inset;transform:translate(-50%,40px) scale(.97);opacity:0;visibility:hidden;transition:transform .35s ease,opacity .25s ease,visibility 0s linear .35s;overscroll-behavior:contain}
+        .fg-sheet.fg-open{transform:translate(-50%,0) scale(1);opacity:1;visibility:visible;transition:transform .45s cubic-bezier(.2,.9,.25,1.05),opacity .3s ease,visibility 0s}
+        .fg-sheet-head{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:12px;padding:12px 14px;background:linear-gradient(180deg,#10263f,rgba(16,38,63,.92));backdrop-filter:blur(8px);border-bottom:1px solid rgba(125,211,252,.22)}
+        .fg-sheet-head .fg-hic{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;color:#fff;background:var(--c,#0ea5e9);flex:0 0 auto}
+        .fg-sheet-head .fg-hic svg{width:20px;height:20px}
+        .fg-sheet-head strong{font-size:1.05rem;flex:1;min-width:0}
+        .fg-close{width:38px;height:38px;border-radius:50%;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08);color:#fff;font-size:1.3rem;line-height:1;cursor:pointer;padding:0;display:grid;place-items:center}
+        .fg-close:hover{background:rgba(255,255,255,.2)}
+        .fg-sheet>.route-safety-header:first-of-type,.fg-sheet>.watchlist-header:first-of-type{margin-top:8px}
+        #fg-backdrop{position:fixed;inset:0;z-index:8900;background:rgba(2,8,20,.6);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);opacity:0;visibility:hidden;transition:opacity .3s,visibility 0s linear .3s}
+        #fg-backdrop.fg-on{opacity:1;visibility:visible;transition:opacity .3s,visibility 0s}
+        #fg-dock{position:fixed;left:50%;bottom:calc(10px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:9500;max-width:calc(100% - 16px);display:flex;gap:4px;padding:8px;border-radius:26px;background:rgba(8,18,32,.82);border:1px solid rgba(125,211,252,.3);backdrop-filter:blur(14px) saturate(1.3);-webkit-backdrop-filter:blur(14px) saturate(1.3);box-shadow:0 10px 40px rgba(0,0,0,.5);overflow-x:auto;scrollbar-width:none;scroll-snap-type:x proximity}
+        #fg-dock::-webkit-scrollbar{display:none}
+        .fg-dk{--c:#38bdf8;flex:0 0 auto;width:64px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 2px 5px;border:0;border-radius:18px;background:transparent;color:#cfe3f3;font:inherit;font-size:.66rem;font-weight:700;cursor:pointer;scroll-snap-align:center;transition:transform .25s cubic-bezier(.3,1.6,.5,1),background-color .25s}
+        .fg-dk .fg-ico{width:38px;height:38px;border-radius:13px;display:grid;place-items:center;color:#fff;background:linear-gradient(145deg,var(--c),color-mix(in srgb,var(--c) 55%,#000));box-shadow:0 4px 12px color-mix(in srgb,var(--c) 45%,transparent);transition:transform .3s}
+        .fg-dk .fg-ico svg{width:22px;height:22px}
+        .fg-dk:hover,.fg-dk:focus-visible{transform:translateY(-5px);outline:none;background:rgba(255,255,255,.07)}
+        .fg-dk:hover .fg-ico{transform:rotate(-6deg) scale(1.08)}
+        .fg-dk[aria-expanded="true"]{background:rgba(255,255,255,.12);box-shadow:0 0 0 1.5px var(--c) inset}
+        .fg-dk[aria-expanded="true"] .fg-ico{animation:fg-bob 1.8s ease-in-out infinite}
+        .fg-dk.fg-sos .fg-ico{animation:fg-sos 2s infinite}
+        @keyframes fg-bob{50%{transform:translateY(-3px)}}
+        @keyframes fg-sos{0%,100%{box-shadow:0 4px 12px rgba(220,38,38,.5)}50%{box-shadow:0 0 0 7px rgba(220,38,38,.0),0 4px 20px rgba(248,113,113,.9)}}
+        @media (max-width:560px){.fg-dk{width:58px;font-size:.62rem}.fg-sheet{bottom:92px;border-radius:20px!important}}
+        .ec-fab{bottom:calc(104px + env(safe-area-inset-bottom,0px))!important}
+        /* ---- live conditions strip ---- */
+        #fg-live{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:0 0 18px}
+        .fg-card{position:relative;overflow:hidden;border-radius:20px;padding:14px;color:#fff;border:1px solid rgba(255,255,255,.18);background:linear-gradient(150deg,var(--a),var(--b));box-shadow:0 8px 24px rgba(0,0,0,.28);animation:fg-in .7s cubic-bezier(.2,.9,.3,1) both;animation-delay:var(--d,0s)}
+        @keyframes fg-in{from{transform:translateY(18px) scale(.96);opacity:0}to{transform:none;opacity:1}}
+        .fg-card h4{margin:0 0 6px;font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;opacity:.85}
+        .fg-card .fg-big{font-size:1.6rem;font-weight:800;line-height:1.1}
+        .fg-card .fg-sub{font-size:.8rem;opacity:.9;margin-top:4px}
+        .fg-gauge-card{grid-column:span 2;--a:#0f3b5c;--b:#0a1f35;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:8px;align-items:center}
+        @media (max-width:520px){.fg-gauge-card{grid-column:span 1;grid-template-columns:minmax(0,1fr)}}
+        .fg-gauge svg{width:100%;height:auto;display:block;overflow:visible}
+        .fg-needle{transform-origin:100px 100px;transform:rotate(-90deg);transition:transform 1.8s cubic-bezier(.2,1.4,.4,1)}
+        .fg-gnum{font-weight:800;font-size:2.4rem;line-height:1}
+        .fg-ladder{display:grid;gap:4px;margin-top:8px}
+        .fg-rung{font-size:.7rem;font-weight:800;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.08);color:rgba(255,255,255,.55);display:flex;justify-content:space-between;transition:all .4s}
+        .fg-rung.on{color:#fff;background:var(--rc);box-shadow:0 0 0 2px rgba(255,255,255,.55),0 0 18px var(--rc);animation:fg-glow 1.6s ease-in-out infinite;transform:scale(1.04)}
+        @keyframes fg-glow{50%{box-shadow:0 0 0 2px rgba(255,255,255,.9),0 0 30px var(--rc)}}
+        .fg-wind-card{--a:#0b6a77;--b:#0a3d57}
+        .fg-wind svg{width:64px;height:64px;float:right;margin:-4px -4px 0 6px}
+        .fg-fan{transform-origin:32px 32px;animation:fg-spin var(--spin,6s) linear infinite}
+        @keyframes fg-spin{to{transform:rotate(360deg)}}
+        .fg-streaks{position:absolute;left:0;right:0;bottom:8px;height:30px;pointer-events:none}
+        .fg-streaks i{position:absolute;left:-30%;height:2px;border-radius:2px;background:rgba(255,255,255,.55);animation:fg-streak var(--sp,3s) linear infinite;animation-delay:var(--dl,0s)}
+        @keyframes fg-streak{to{transform:translateX(480px)}}
+        .fg-day-card{--a:#1d4f91;--b:#0b1e46}
+        .fg-day-card.night{--a:#1a1c52;--b:#050a22}
+        .fg-arc{position:relative;height:64px;margin-top:6px}
+        .fg-arc .fg-orb{position:absolute;width:30px;height:30px;border-radius:50%;left:calc(var(--px) * 1% - 15px);bottom:calc(var(--py) * 1px);background:radial-gradient(circle at 35% 35%,#fff7c2,#ffb703);box-shadow:0 0 26px 8px rgba(255,193,7,.55);transition:left 1.6s,bottom 1.6s}
+        .fg-day-card.night .fg-orb{background:radial-gradient(circle at 35% 35%,#fff,#cfd8ff);box-shadow:0 0 22px 6px rgba(190,205,255,.5)}
+        .fg-arc .fg-horizon{position:absolute;left:0;right:0;bottom:0;height:2px;background:rgba(255,255,255,.35)}
+        .fg-stars i{position:absolute;width:3px;height:3px;border-radius:50%;background:#fff;animation:fg-tw 2.4s ease-in-out infinite;animation-delay:var(--dl)}
+        @keyframes fg-tw{50%{opacity:.15;transform:scale(.6)}}
+        .fg-storm-card{--a:#3b3f66;--b:#161a33}
+        .fg-storm-card.rain{--a:#1f6f9e;--b:#0c2c4a}
+        .fg-storm-card.clear{--a:#e08a00;--b:#b84f00}
+        .fg-storm-card.clouds,.fg-storm-card.mist,.fg-storm-card.snow{--a:#4b6a86;--b:#243649}
+        .fg-bolt{width:34px;height:44px;float:right;margin:-2px -2px 0 6px;filter:drop-shadow(0 0 8px #fde047);animation:fg-bolt 3s infinite}
+        .fg-storm-card:not(.storm) .fg-bolt{display:none}
+        @keyframes fg-bolt{0%,60%,100%{opacity:.15}62%,66%{opacity:1}64%{opacity:.3}}
+        .fg-drops{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+        .fg-drops i{position:absolute;top:-14px;width:2px;height:12px;border-radius:2px;background:rgba(190,230,255,.7);animation:fg-drop var(--sp,1s) linear infinite;animation-delay:var(--dl)}
+        @keyframes fg-drop{to{transform:translateY(190px)}}
+        .fg-note{grid-column:1/-1;font-size:.74rem;opacity:.75;margin:0}
+        @media (prefers-reduced-motion:reduce){.fg-card,.fg-dk .fg-ico,.fg-rung.on,.fg-fan,.fg-streaks i,.fg-drops i,.fg-stars i,.fg-bolt,.fg-dk.fg-sos .fg-ico,.ec-fab.ec-alert{animation:none!important}.fg-needle{transition:none}.fg-sheet,.fg-sheet.fg-open{transition:none}}
+
+        body.fg-sheet-open .ec-fab{opacity:0;pointer-events:none;visibility:hidden}
+        .fg-sheet{padding-left:clamp(14px,3vw,28px)!important;padding-right:clamp(14px,3vw,28px)!important;padding-bottom:28px!important}
+        .fg-sheet .fg-sheet-head{margin-left:calc(-1 * clamp(14px,3vw,28px));margin-right:calc(-1 * clamp(14px,3vw,28px));padding-left:clamp(14px,3vw,28px);padding-right:clamp(14px,3vw,28px)}
+        html{background:#050b16;overflow-x:hidden}
+        body.fg-has-dock{background:transparent!important;animation:none!important;padding:0 0 110px!important;overflow-x:hidden}
+        body.fg-has-dock .hero{background:linear-gradient(rgba(4,10,22,.35),rgba(4,10,22,.5))!important;min-height:0!important;padding:34px 20px 26px!important;backdrop-filter:blur(2px)}
+        body.fg-has-dock .hero h1{font-size:clamp(30px,5vw,48px)!important;margin-bottom:12px!important}
+        body.fg-has-dock .hero p{font-size:clamp(15px,2.2vw,19px)!important;margin-bottom:16px!important}
+        body.fg-has-dock .hero-button{padding:11px 22px;font-size:16px}
+        body.fg-has-dock .navbar{background:rgba(8,16,30,.62)!important;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+        body.fg-has-dock .dashboard{background:transparent!important;padding:40px 14px 60px}
+        body.fg-has-dock .dashboard-card{background:rgba(10,24,44,.72)!important;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+        body.fg-has-dock .prediction-card{background:rgba(14,32,58,.7)!important}
+        @media(max-width:700px){.navbar{padding:12px 16px!important}.fg-sheet{width:calc(100% - 12px)!important}}
+</style>
 </head>
 <body class="{% if prediction %}weather-{{ prediction.scene.code }}{% else %}weather-clouds{% endif %}">
+    <canvas id="fg-sky" aria-hidden="true"></canvas>
+    <div id="fg-backdrop" aria-hidden="true"></div>
     <div class="spinner" id="spinner" aria-live="polite" aria-busy="true">
         <div class="scan-loader">
             <div class="scan-radar" aria-hidden="true"><span></span></div>
@@ -309,11 +399,14 @@
         </div>
     </div>
 
+    <nav id="fg-dock" aria-label="FloodGuard features"></nav>
+    <a href="#emergency-centre" id="ec-fab" class="ec-fab{% if prediction and prediction.risk in ['HIGH','SEVERE','CRITICAL'] %} ec-alert{% endif %}" aria-label="Emergency help: numbers, hospitals, fire and rescue near you">🚨 {% if prediction and prediction.risk in ['HIGH','SEVERE','CRITICAL'] %}Flood warning: get emergency help{% else %}Emergency help{% endif %}</a>
     <nav class="navbar">
         <div class="logo">FloodGuard AI</div>
         <ul class="nav-links">
             <li><a href="#home">Home</a></li>
             <li><a href="#dashboard">Dashboard</a></li>
+            <li><a href="#emergency-centre">🚨 Emergency</a></li>
             <li><a href="https://floodguardai.blogspot.com/" target="_blank" rel="noopener noreferrer">📰 Blog</a></li>
             <li><a href="#contact">Contact</a></li>
         </ul>
@@ -626,6 +719,61 @@
         </details>
     </section>
 
+    <section id="emergency-centre" class="route-safety-panel" data-alert="{{ 'true' if (prediction and prediction.risk in ['HIGH','SEVERE','CRITICAL']) else 'false' }}"{% if prediction %} data-lat="{{ prediction.latitude }}" data-lon="{{ prediction.longitude }}" data-label="{{ prediction.city }}"{% endif %}>
+        <style>
+            .ec-fab{position:fixed;left:14px;bottom:14px;z-index:9999;display:inline-flex;align-items:center;gap:8px;background:#b91c1c;color:#fff;font-weight:700;font-size:.95rem;padding:11px 16px;border-radius:999px;text-decoration:none;box-shadow:0 4px 16px rgba(0,0,0,.4);border:2px solid #fff}
+            .ec-fab:hover{background:#991b1b}
+            .ec-fab.ec-alert{animation:ec-pulse 1.6s infinite}
+            @keyframes ec-pulse{0%{box-shadow:0 0 0 0 rgba(220,38,38,.75)}70%{box-shadow:0 0 0 16px rgba(220,38,38,0)}100%{box-shadow:0 0 0 0 rgba(220,38,38,0)}}
+            @media (prefers-reduced-motion:reduce){.ec-fab.ec-alert{animation:none}}
+            #emergency-centre.ec-alert-panel{border:2px solid #dc2626}
+            .ec-lead{font-size:1.05rem;font-weight:700;margin:0 0 6px}
+            .ec-urgent{border:1px solid #dc2626;background:rgba(220,38,38,.12);border-radius:10px;padding:10px 12px;margin:0 0 14px;font-size:.95rem;line-height:1.45}
+            .ec-form{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px}
+            .ec-form input[type=text]{flex:1 1 260px;min-width:0;background:#0f1a2e;border:1px solid rgba(148,163,184,.3);color:#f8fafc;font:inherit;font-size:15px;padding:12px 14px;box-sizing:border-box}
+            .ec-form button{width:auto;flex:0 0 auto;padding:12px 18px}
+            .ec-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:10px 0 14px}
+            .ec-tile{border:1px solid rgba(127,127,127,.4);background:rgba(127,127,127,.08);border-radius:12px;padding:10px 12px;text-align:left;cursor:pointer;color:inherit;font:inherit;width:auto}
+            .ec-tile strong{display:block;font-size:.95rem}
+            .ec-tile span{font-size:.78rem;opacity:.8}
+            .ec-tile.on{outline:2px solid #38bdf8}
+            .ec-status{min-height:1.4em;margin:6px 0 10px;font-size:.92rem}
+            .ec-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+            @media (max-width:860px){.ec-layout{grid-template-columns:minmax(0,1fr)}}
+            #ec-map{height:420px;border-radius:12px;border:1px solid rgba(127,127,127,.35);position:sticky;top:12px;z-index:0}
+            @media (max-width:860px){ #ec-map{position:relative;height:300px;order:-1}}
+            .ec-group h3{margin:14px 0 6px;font-size:1.02rem}
+            .ec-card{border:1px solid rgba(127,127,127,.35);background:rgba(127,127,127,.07);border-radius:12px;padding:11px 13px;margin:0 0 8px}
+            .ec-name{font-weight:700;margin:0}
+            .ec-meta{font-size:.82rem;opacity:.82;margin:2px 0 0;line-height:1.4}
+            .ec-badge{display:inline-block;font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px;border:1px solid currentColor;margin:4px 4px 0 0}
+            .ec-ok{color:#16a34a}.ec-pend{color:#d97706}
+            .ec-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+            .ec-btn{display:inline-block;padding:8px 14px;border-radius:8px;font-weight:700;font-size:.9rem;text-decoration:none;background:#0ea5e9;color:#fff}
+            .ec-btn.call{background:#15803d}.ec-btn.dir{background:#1d4ed8}.ec-btn.alt{background:#475569}
+            .ec-num{font-size:1.3rem;font-weight:800}
+            .ec-notes{font-size:.8rem;opacity:.88;margin-top:12px;line-height:1.5}
+            .ec-notes summary{cursor:pointer;font-weight:600}
+        </style>
+        <div class="route-safety-header">
+            <h2>🚨 Emergency &amp; Rescue Assistance</h2>
+            <p>Need emergency assistance? Find the emergency numbers for your location and the nearest hospitals, fire stations, ambulance stations, police and rescue points, with one-touch calling and directions. Works anywhere in the world.</p>
+        </div>
+        <div class="ec-urgent" role="note"><strong>If life is in danger, call your local emergency number now.</strong> Do not wait for this page to load. Do not walk or drive through floodwater.</div>
+        <form id="ec-form" class="ec-form">
+            <input type="text" id="ec-q" placeholder="Place, e.g. Gbagada, Lagos  |  Houston  |  Jakarta" maxlength="120" autocomplete="off">
+            <button type="submit" class="map-pin-btn" id="ec-go">Find help</button>
+            <button type="button" class="map-pin-btn" id="ec-geo">&#128205; Use my location</button>
+        </form>
+        <div id="ec-status" class="ec-status" aria-live="polite"></div>
+        <div id="ec-tiles" class="ec-tiles" hidden></div>
+        <div class="ec-layout" id="ec-layout" hidden>
+            <div id="ec-results"></div>
+            <div id="ec-map" role="img" aria-label="Map of emergency facilities"></div>
+        </div>
+        <details class="ec-notes" id="ec-notes" hidden><summary>Read before relying on this page</summary><ul id="ec-caveats"></ul></details>
+    </section>
+
     <section id="get-alerts" class="route-safety-panel">
         <div class="route-safety-header">
             <h2>Get Alerted Before It Floods</h2>
@@ -702,6 +850,7 @@
                     <p>{{ prediction.ground_alert.message }} This has raised the risk level below to reflect what people are seeing on the ground right now.</p>
                 </div>
                 {% endif %}
+                <div id="fg-live" aria-label="Live conditions"></div>
                 <div class="weather-panel scene-{{ prediction.scene.code }}">
                     <div class="sky">
                         <div class="sun"></div>
@@ -3311,5 +3460,434 @@
             });
         })();
     </script>
+    <script>
+    (function () {
+        var root = document.getElementById("emergency-centre");
+        if (!root) return;
+        var form = document.getElementById("ec-form"), qEl = document.getElementById("ec-q");
+        var statusEl = document.getElementById("ec-status"), resultsEl = document.getElementById("ec-results");
+        var tilesEl = document.getElementById("ec-tiles"), layoutEl = document.getElementById("ec-layout");
+        var notesEl = document.getElementById("ec-notes"), mapEl = document.getElementById("ec-map");
+        var map = null, layer = null, token = 0, last = null, activeTab = "all";
+        function esc(v) { return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+        function say(m, err) { statusEl.textContent = m || ""; statusEl.style.color = err ? "#dc2626" : ""; }
+        function telHref(n) { var d = String(n).replace(/[^\d+]/g, ""); return "tel:" + d; }
+        function km(m) { return m < 950 ? Math.round(m / 10) * 10 + " m" : (m / 1000).toFixed(1) + " km"; }
+        var COLORS = { hospital: "#dc2626", ambulance: "#ea580c", fire: "#f59e0b", rescue: "#7c3aed", police: "#2563eb", shelter: "#16a34a" };
+        var ICON = { hospital: "🏥", ambulance: "🚑", fire: "🚒", rescue: "🛟", police: "👮", shelter: "⛺" };
+
+        function ensureMap() {
+            if (map || typeof L === "undefined") return;
+            map = L.map(mapEl, { minZoom: 2 }).setView([20, 0], 2);
+            L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
+            layer = L.layerGroup().addTo(map);
+        }
+        function verifyBadge(a) {
+            return a.verified_on ? '<span class="ec-badge ec-ok">Verified ' + esc(a.verified_on) + "</span>" : '<span class="ec-badge ec-pend">Not yet verified by FloodGuard</span>';
+        }
+        function numbersHtml(d) {
+            var out = "", n = d.numbers || {}, nat = n.national || {}, any = false;
+            var rows = [];
+            if (nat.general) rows.push(["National emergency number", nat.general, "all emergencies"]);
+            if (nat.police) rows.push(["Police", nat.police, ""]);
+            if (nat.ambulance) rows.push(["Ambulance", nat.ambulance, ""]);
+            if (nat.fire) rows.push(["Fire", nat.fire, ""]);
+            if (nat.fire_ambulance) rows.push(["Fire / ambulance", nat.fire_ambulance, ""]);
+            rows.forEach(function (r) {
+                any = true;
+                out += '<div class="ec-card"><p class="ec-name">' + esc(r[0]) + '</p><p class="ec-num">' + esc(r[1]) + '</p><div class="ec-actions"><a class="ec-btn call" href="' + telHref(r[1]) + '">📞 Call ' + esc(r[1]) + "</a></div></div>";
+            });
+            if (nat.notes) out += '<p class="ec-meta">' + esc(nat.notes) + "</p>";
+            (d.agencies || []).forEach(function (a) {
+                any = true;
+                var nums = (a.numbers || []).map(function (x) { return '<a class="ec-btn call" href="' + telHref(x) + '">📞 ' + esc(x) + "</a>"; }).join("");
+                out += '<div class="ec-card" data-svc="' + esc((a.services || []).join(" ")) + '"><p class="ec-name">' + esc(a.agency) + '</p>' +
+                    (a.note ? '<p class="ec-meta">' + esc(a.note) + "</p>" : "") +
+                    (a.numbers && a.numbers.length ? "" : '<p class="ec-meta"><em>No verified number held, so none is shown.</em></p>') +
+                    verifyBadge(a) + (a.source ? '<span class="ec-meta"> Source: ' + esc(a.source) + "</span>" : "") +
+                    (nums ? '<div class="ec-actions">' + nums + "</div>" : "") + "</div>";
+            });
+            if (!any) out = '<div class="ec-card"><p class="ec-name">No local emergency number on file for this country</p><p class="ec-meta">' +
+                esc(d.numbers_note || "FloodGuard does not guess emergency numbers. Dial your local emergency number, or ask someone nearby.") + "</p></div>";
+            if (n.disclaimer) out += '<p class="ec-meta">' + esc(n.disclaimer) + "</p>";
+            return out;
+        }
+        function facilityHtml(f) {
+            var extra = [];
+            if (f.ownership) extra.push(esc(f.ownership));
+            (f.kinds || []).forEach(function (k) { extra.push(esc(k)); });
+            if (f.emergency_dept) extra.push(esc(f.emergency_dept));
+            return '<div class="ec-card" data-lat="' + f.lat + '" data-lon="' + f.lon + '"><p class="ec-name">' + ICON[f.category] + " " + esc(f.name) + '</p>' +
+                '<p class="ec-meta">' + km(f.distance_m) + " away (straight line)" + (f.address ? " · " + esc(f.address) : "") + "</p>" +
+                (extra.length ? '<p class="ec-meta">' + extra.join(" · ") + "</p>" : "") +
+                (f.phone ? '<p class="ec-meta">Phone in OpenStreetMap: ' + esc(f.phone) + "</p>" : '<p class="ec-meta">No phone number in OpenStreetMap for this place.</p>') +
+                '<div class="ec-actions">' + (f.tel ? '<a class="ec-btn call" href="tel:' + esc(f.tel) + '">📞 Call</a>' : "") +
+                '<a class="ec-btn dir" target="_blank" rel="noopener" href="' + esc(f.directions.google) + '">Directions (Google Maps)</a>' +
+                '<a class="ec-btn alt" target="_blank" rel="noopener" href="' + esc(f.directions.osm) + '">Directions (OpenStreetMap)</a></div></div>';
+        }
+        var TABS = [["all", "Emergency numbers", "National and local hotlines"], ["hospital", "Nearest hospitals", "Government hospitals and emergency units"],
+            ["ambulance", "Ambulance services", "Mapped ambulance stations"], ["fire", "Fire and rescue", "Fire stations and rescue stations"],
+            ["rescue", "Flood rescue teams", "Agencies to call for rescue"], ["shelter", "Safe shelters", "Mapped assembly points"], ["police", "Police", "Nearest police stations"]];
+        function renderTiles() {
+            tilesEl.hidden = false;
+            tilesEl.innerHTML = TABS.map(function (t) { return '<button type="button" class="ec-tile' + (t[0] === activeTab ? " on" : "") + '" data-tab="' + t[0] + '"><strong>' + esc(t[1]) + "</strong><span>" + esc(t[2]) + "</span></button>"; }).join("");
+            Array.prototype.forEach.call(tilesEl.querySelectorAll(".ec-tile"), function (b) { b.addEventListener("click", function () { activeTab = b.getAttribute("data-tab"); renderTiles(); renderResults(); }); });
+        }
+        function emptyNote(label, d) {
+            var why = d.facilities_ok ? "OpenStreetMap lists none within " + d.radius_km + " km. That may mean none are mapped, not that none exist." : (d.facilities_error || "Facility data is unavailable right now.");
+            return '<div class="ec-card"><p class="ec-name">No ' + esc(label.toLowerCase()) + " found</p><p class=\"ec-meta\">" + esc(why) + "</p></div>";
+        }
+        function renderResults() {
+            var d = last; if (!d) return;
+            var html = "", cats = ["hospital", "ambulance", "fire", "rescue", "police", "shelter"];
+            var place = d.place || {};
+            html += '<p class="ec-lead">Help near ' + esc(place.label) + (place.country && String(place.label).indexOf(place.country) < 0 ? ", " + esc(place.country) : "") + "</p>";
+            if (d.stale) html += '<p class="ec-meta" style="color:#d97706">Facility data is ' + esc(d.data_age_minutes) + " min old (OpenStreetMap could not be reached just now).</p>";
+            function svcFilter(svc) { return function (a) { return (a.services || []).indexOf(svc) >= 0; }; }
+            if (activeTab === "all") {
+                html += '<div class="ec-group"><h3>Emergency numbers</h3>' + numbersHtml(d) + "</div>";
+            } else if (activeTab === "rescue") {
+                var ag = (d.agencies || []).filter(svcFilter("rescue"));
+                html += '<div class="ec-group"><h3>Flood rescue: who to call</h3>' + (ag.length ? ag.map(function (a) {
+                    return '<div class="ec-card"><p class="ec-name">' + esc(a.agency) + "</p>" + (a.note ? '<p class="ec-meta">' + esc(a.note) + "</p>" : "") + verifyBadge(a) +
+                        '<div class="ec-actions">' + (a.numbers || []).map(function (x) { return '<a class="ec-btn call" href="' + telHref(x) + '">📞 ' + esc(x) + "</a>"; }).join("") + "</div></div>";
+                }).join("") : '<div class="ec-card"><p class="ec-meta">FloodGuard has no sourced flood-rescue agency for this country. Call the local emergency number.</p></div>') + "</div>";
+                var rs = (d.facilities || {}).rescue || [];
+                if (rs.length) html += '<div class="ec-group"><h3>Mapped rescue stations</h3>' + rs.map(facilityHtml).join("") + "</div>";
+            } else {
+                var list = (d.facilities || {})[activeTab] || [], label = (d.categories || {})[activeTab] || activeTab;
+                var total = (d.facilities || {})[activeTab + "_total"];
+                html += '<div class="ec-group"><h3>' + esc(label) + "</h3>" + (list.length ? list.map(facilityHtml).join("") : emptyNote(label, d)) +
+                    (total > list.length ? '<p class="ec-meta">Showing the nearest ' + list.length + " of " + total + " mapped within " + d.radius_km + " km.</p>" : "") + "</div>";
+            }
+            if (d.radius_km < 20) html += '<div class="ec-actions"><button type="button" class="map-pin-btn" id="ec-wider" style="width:auto">Search wider (20 km)</button></div>';
+            resultsEl.innerHTML = html;
+            var w = document.getElementById("ec-wider"); if (w) w.addEventListener("click", function () { run({ lat: place.lat, lon: place.lon }, true); });
+            Array.prototype.forEach.call(resultsEl.querySelectorAll(".ec-card[data-lat]"), function (c) {
+                c.addEventListener("click", function (e) { if (e.target.closest("a")) return; if (map) map.setView([+c.getAttribute("data-lat"), +c.getAttribute("data-lon")], 16); });
+            });
+            drawMap(d);
+        }
+        function drawMap(d) {
+            ensureMap(); if (!map) return;
+            layer.clearLayers();
+            var pts = [], p = d.place;
+            L.circleMarker([p.lat, p.lon], { radius: 9, color: "#fff", weight: 2, fillColor: "#0ea5e9", fillOpacity: 1 }).addTo(layer).bindPopup("<strong>" + esc(p.label) + "</strong><br>Searched location");
+            pts.push([p.lat, p.lon]);
+            var f = d.facilities || {};
+            ["hospital", "ambulance", "fire", "rescue", "police", "shelter"].forEach(function (c) {
+                (f[c] || []).forEach(function (x) {
+                    L.circleMarker([x.lat, x.lon], { radius: 7, color: "#fff", weight: 1.5, fillColor: COLORS[c], fillOpacity: .95, opacity: activeTab === "all" || activeTab === c ? 1 : .35 })
+                        .addTo(layer).bindPopup("<strong>" + esc(x.name) + "</strong><br>" + esc((d.categories || {})[c] || c) + " · " + km(x.distance_m));
+                    if (activeTab === c) pts.push([x.lat, x.lon]);
+                });
+            });
+            if (pts.length > 1) map.fitBounds(pts, { padding: [28, 28], maxZoom: 15 }); else map.setView([p.lat, p.lon], 13);
+            setTimeout(function () { map.invalidateSize(); }, 60);
+        }
+        function show(d) {
+            last = d; layoutEl.hidden = false; notesEl.hidden = false;
+            document.getElementById("ec-caveats").innerHTML = (d.caveats || []).map(function (c) { return "<li>" + esc(c) + "</li>"; }).join("");
+            renderTiles(); renderResults();
+        }
+        function run(params, wider) {
+            var my = ++token, qs = [];
+            if (params.q) qs.push("q=" + encodeURIComponent(params.q));
+            if (params.lat != null) qs.push("lat=" + Number(params.lat).toFixed(6), "lon=" + Number(params.lon).toFixed(6));
+            if (wider) qs.push("wider=1");
+            say("Finding emergency help...");
+            fetch("/api/emergency?" + qs.join("&")).then(function (r) { return r.json(); }).then(function (d) {
+                if (my !== token) return;
+                if (!d.ok) { say(d.error || "Something went wrong. If you need help now, call your local emergency number.", true); return; }
+                if (d.status === "ambiguous") {
+                    layoutEl.hidden = false; tilesEl.hidden = true; last = null;
+                    resultsEl.innerHTML = '<p class="ec-lead">' + esc(d.message) + "</p>" + (d.choices || []).map(function (c, i) { return '<button type="button" class="map-pin-btn ec-choice" data-i="' + i + '" style="display:block;width:auto;margin:4px 0">' + esc(c.label) + "</button>"; }).join("");
+                    Array.prototype.forEach.call(resultsEl.querySelectorAll(".ec-choice"), function (b) { b.addEventListener("click", function () { var c = d.choices[+b.getAttribute("data-i")]; run({ lat: c.lat, lon: c.lon }); }); });
+                    say(""); return;
+                }
+                if (d.status === "not_found") { say(d.message, true); return; }
+                say(""); show(d);
+            }).catch(function () { if (my === token) say("Network error. If you need help now, call your local emergency number.", true); });
+        }
+        form.addEventListener("submit", function (e) { e.preventDefault(); var q = qEl.value.trim(); if (q) run({ q: q }); else say("Type a place, or press Use my location.", true); });
+        document.getElementById("ec-geo").addEventListener("click", function () {
+            if (!navigator.geolocation) { say("Your browser cannot share your location. Type a place instead.", true); return; }
+            say("Waiting for your location...");
+            navigator.geolocation.getCurrentPosition(function (pos) { run({ lat: pos.coords.latitude, lon: pos.coords.longitude }); },
+                function () { say("Location was not shared. Type a place name instead.", true); }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 });
+        });
+        /* A flood warning for the place just searched: open with that place already loaded. */
+        if (root.getAttribute("data-alert") === "true") root.classList.add("ec-alert-panel");
+        var dl = root.getAttribute("data-lat"), dn = root.getAttribute("data-lon");
+        if (dl && dn && root.getAttribute("data-alert") === "true") { qEl.value = root.getAttribute("data-label") || ""; run({ lat: dl, lon: dn }); }
+        else if (dl && dn) { qEl.value = root.getAttribute("data-label") || ""; }
+    })();
+    </script>
+<script>
+window.FG = {
+{% if prediction %}
+    scene: {{ prediction.scene.code | tojson }}, sceneLabel: {{ prediction.scene.label | tojson }},
+    wind: {{ (prediction.wind | default(0)) | tojson }}, rain: {{ (prediction.rainfall | default(0)) | tojson }},
+    temp: {{ (prediction.temperature | default(none)) | tojson }}, score: {{ prediction.score | tojson }}, risk: {{ prediction.risk | tojson }},
+    city: {{ prediction.city | tojson }}, coastal: {{ (prediction.coastal | default(false)) | tojson }},
+    tz: {{ ((prediction.area or {}).timezone | default(none)) | tojson }}
+{% else %}
+    scene: "clouds", sceneLabel: "", wind: 0, rain: 0, temp: null, score: null, risk: "", city: "", coastal: false, tz: null
+{% endif %}
+};
+</script>
+<script id="fg-motion-js">
+(function () {
+    "use strict";
+    var D = window.FG || {};
+    var reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    function $(s, r) { return (r || document).querySelector(s); }
+    function esc(v) { return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+    function num(v) { var n = Number(v); return isFinite(n) ? n : null; }
+
+    /* ---------- local time at the searched place (device clock only when no zone is known) ---------- */
+    function clockAt(tz) {
+        var zoneKnown = false, h, m;
+        if (tz) {
+            try {
+                var p = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: tz }).format(new Date()).split(":");
+                h = +p[0] % 24; m = +p[1]; zoneKnown = true;
+            } catch (e) { zoneKnown = false; }
+        }
+        if (!zoneKnown) { var d = new Date(); h = d.getHours(); m = d.getMinutes(); }
+        return { h: h, m: m, t: h + m / 60, zoneKnown: zoneKnown };
+    }
+    var clock = clockAt(D.tz);
+    var isDay = clock.t >= 6 && clock.t < 18;
+    var scene = D.scene || "clouds";
+    var wind = num(D.wind) || 0;
+    var rainMm = num(D.rain) || 0;
+
+    /* ---------- risk colours (shared by gauge, ladder, dock glow) ---------- */
+    var RISK = { LOW: "#14b8a6", WATCH: "#eab308", HIGH: "#f97316", SEVERE: "#ef4444", CRITICAL: "#be123c" };
+    var ORDER = ["LOW", "WATCH", "HIGH", "SEVERE", "CRITICAL"];
+    var riskName = String(D.risk || "").toUpperCase();
+    if (RISK[riskName]) document.documentElement.style.setProperty("--fg-risk", RISK[riskName]);
+
+    /* =====================================================================
+       1. LIVING SKY (canvas): day/night, clouds, rain, lightning, wind
+       ===================================================================== */
+    (function sky() {
+        var cv = $("#fg-sky"); if (!cv || !cv.getContext) return;
+        var ctx = cv.getContext("2d"), W = 0, H = 0, dpr = 1, last = performance.now(), run = true;
+        var small = window.innerWidth < 640;
+        function lerp(a, b, t) { return a + (b - a) * t; }
+        function mix(c1, c2, t) { return [lerp(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)]; }
+        function rgb(c, a) { return "rgba(" + (c[0] | 0) + "," + (c[1] | 0) + "," + (c[2] | 0) + "," + (a == null ? 1 : a) + ")"; }
+        var PAL = { dayT: [12, 70, 118], dayB: [60, 150, 196], duskT: [58, 38, 96], duskB: [226, 112, 72], nightT: [4, 9, 28], nightB: [22, 34, 78] };
+        var top, bot, t = clock.t;
+        if (t >= 6.5 && t < 17.5) { top = PAL.dayT; bot = PAL.dayB; }
+        else if (t >= 17.5 && t < 19.2) { var k = (t - 17.5) / 1.7; top = mix(PAL.dayT, PAL.nightT, k); bot = mix(PAL.duskB, PAL.nightB, k); if (k < .5) { top = mix(PAL.dayT, PAL.duskT, k * 2); } else { top = mix(PAL.duskT, PAL.nightT, (k - .5) * 2); } }
+        else if (t >= 5 && t < 6.5) { var k2 = (t - 5) / 1.5; top = mix(PAL.nightT, PAL.dayT, k2); bot = mix(PAL.duskB, PAL.dayB, k2); }
+        else { top = PAL.nightT; bot = PAL.nightB; }
+        var tone = { storm: [[26, 34, 52], [62, 72, 96], .85], rain: [[34, 58, 80], [78, 108, 130], .6], mist: [[110, 126, 140], [170, 182, 192], .65], snow: [[96, 116, 140], [178, 194, 210], .5], clouds: [[52, 78, 104], [112, 140, 162], .35], clear: [null, null, 0] }[scene] || [null, null, 0];
+        if (tone[0]) { top = mix(top, tone[0], tone[2]); bot = mix(bot, tone[1], tone[2]); if (!isDay) { top = mix(top, PAL.nightT, .55); bot = mix(bot, PAL.nightB, .55); } }
+
+        var stars = [], clouds = [], drops = [], streaks = [], flakes = [], bolt = null, flash = 0, nextBolt = 2 + Math.random() * 4;
+        var cloudDark = scene === "storm" ? .78 : scene === "rain" ? .55 : .25;
+        function build() {
+            var cs = scene === "clear" ? 3 : scene === "storm" ? 9 : scene === "rain" ? 8 : 6;
+            clouds = [];
+            for (var i = 0; i < cs; i++) clouds.push({ x: Math.random() * W, y: H * (.04 + Math.random() * .38), s: 70 + Math.random() * 120, v: .4 + Math.random() * .8, a: .35 + Math.random() * .4 });
+            stars = [];
+            if (!isDay && (scene === "clear" || scene === "clouds" || scene === "mist")) for (var j = 0; j < (small ? 55 : 110); j++) stars.push({ x: Math.random() * W, y: Math.random() * H * .7, r: Math.random() * 1.3 + .3, p: Math.random() * 6 });
+            var rainy = scene === "storm" ? 170 : scene === "rain" ? 110 : 0;
+            if (rainy) rainy += Math.min(120, rainMm * 25);
+            if (small) rainy = Math.round(rainy * .55);
+            drops = [];
+            for (var d = 0; d < rainy; d++) drops.push({ x: Math.random() * W, y: Math.random() * H, l: 10 + Math.random() * 14, v: 520 + Math.random() * 380 });
+            flakes = [];
+            if (scene === "snow") for (var f = 0; f < (small ? 60 : 120); f++) flakes.push({ x: Math.random() * W, y: Math.random() * H, r: 1 + Math.random() * 2.4, v: 30 + Math.random() * 50, p: Math.random() * 6 });
+            streaks = [];
+            var sn = Math.min(26, Math.round(4 + wind * 2.2)); if (wind < .8) sn = 3; if (small) sn = Math.round(sn * .6);
+            for (var s = 0; s < sn; s++) streaks.push({ x: Math.random() * W, y: Math.random() * H, l: 60 + Math.random() * 120, v: 40 + wind * 38 + Math.random() * 60, p: Math.random() * 6 });
+        }
+        function resize() {
+            dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+            W = window.innerWidth; H = window.innerHeight;
+            cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0); build(); draw(0, 0);
+        }
+        function cloudShape(x, y, s, a) {
+            var base = isDay ? [255, 255, 255] : [150, 165, 200], dark = [42, 50, 70];
+            var c = mix(base, dark, cloudDark);
+            ctx.fillStyle = rgb(c, a);
+            ctx.beginPath(); ctx.arc(x, y, s * .32, 0, 6.3); ctx.arc(x + s * .3, y - s * .12, s * .38, 0, 6.3); ctx.arc(x + s * .62, y, s * .3, 0, 6.3); ctx.arc(x + s * .32, y + s * .1, s * .34, 0, 6.3); ctx.fill();
+        }
+        function makeBolt() {
+            var x = W * (.15 + Math.random() * .7), y = H * .12, pts = [[x, y]];
+            while (y < H * (.5 + Math.random() * .25)) { x += (Math.random() - .5) * 70; y += 22 + Math.random() * 28; pts.push([x, y]); }
+            bolt = { pts: pts, life: 0 }; flash = 1;
+        }
+        function draw(ts, dt) {
+            var g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, rgb(top)); g.addColorStop(1, rgb(bot));
+            ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+            for (var i = 0; i < stars.length; i++) { var s = stars[i]; ctx.fillStyle = "rgba(255,255,255," + (.35 + .55 * Math.abs(Math.sin(ts * .001 + s.p))).toFixed(2) + ")"; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 6.3); ctx.fill(); }
+            if (scene === "clear" || scene === "clouds") {   /* sun or moon travels with the local time */
+                var prog = isDay ? (t - 6) / 12 : ((t >= 18 ? t - 18 : t + 6) / 12);
+                var ox = W * (.08 + .84 * prog), oy = H * .62 - Math.sin(Math.PI * prog) * H * .5;
+                var rg = ctx.createRadialGradient(ox, oy, 0, ox, oy, 150);
+                if (isDay) { rg.addColorStop(0, "rgba(255,236,160,.95)"); rg.addColorStop(.12, "rgba(255,214,102,.55)"); rg.addColorStop(1, "rgba(255,200,80,0)"); }
+                else { rg.addColorStop(0, "rgba(235,240,255,.95)"); rg.addColorStop(.1, "rgba(190,205,255,.4)"); rg.addColorStop(1, "rgba(170,190,255,0)"); }
+                ctx.fillStyle = rg; ctx.fillRect(ox - 160, oy - 160, 320, 320);
+                ctx.fillStyle = isDay ? "#fff1b8" : "#f4f6ff"; ctx.beginPath(); ctx.arc(ox, oy, isDay ? 26 : 20, 0, 6.3); ctx.fill();
+            }
+            for (var c = 0; c < clouds.length; c++) { var cl = clouds[c]; cl.x += cl.v * (8 + wind * 7) * dt; if (cl.x > W + cl.s) cl.x = -cl.s * 1.2; cloudShape(cl.x, cl.y, cl.s, cl.a); }
+            if (scene === "mist") { for (var m = 0; m < 3; m++) { var my = H * (.3 + m * .22), mg = ctx.createLinearGradient(0, my - 60, 0, my + 60); mg.addColorStop(0, "rgba(220,230,238,0)"); mg.addColorStop(.5, "rgba(220,230,238,.22)"); mg.addColorStop(1, "rgba(220,230,238,0)"); ctx.fillStyle = mg; ctx.fillRect(((ts * .01 * (m + 1)) % (W + 400)) - 400 + 0, my - 60, W, 120); ctx.fillRect(0, my - 60, W, 120); } }
+            ctx.lineWidth = 1.4;
+            for (var w = 0; w < streaks.length; w++) { var st = streaks[w]; st.x += st.v * dt; if (st.x > W + st.l) { st.x = -st.l; st.y = Math.random() * H; } var wob = Math.sin(ts * .002 + st.p) * 6; ctx.strokeStyle = "rgba(255,255,255,.14)"; ctx.beginPath(); ctx.moveTo(st.x - st.l, st.y); ctx.quadraticCurveTo(st.x - st.l * .5, st.y + wob, st.x, st.y + wob * .4); ctx.stroke(); }
+            if (drops.length) { var slant = Math.min(.55, wind * .05); ctx.strokeStyle = "rgba(190,225,255,.5)"; ctx.lineWidth = 1.2; ctx.beginPath(); for (var d = 0; d < drops.length; d++) { var p = drops[d]; p.y += p.v * dt; p.x += p.v * slant * dt; if (p.y > H) { p.y = -20; p.x = Math.random() * W; } ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.l * slant, p.y - p.l); } ctx.stroke(); }
+            for (var f = 0; f < flakes.length; f++) { var fl = flakes[f]; fl.y += fl.v * dt; fl.x += Math.sin(ts * .001 + fl.p) * .4; if (fl.y > H) { fl.y = -5; fl.x = Math.random() * W; } ctx.fillStyle = "rgba(255,255,255,.85)"; ctx.beginPath(); ctx.arc(fl.x, fl.y, fl.r, 0, 6.3); ctx.fill(); }
+            if (scene === "storm" && !reduce) {
+                nextBolt -= dt; if (nextBolt <= 0) { makeBolt(); nextBolt = 3 + Math.random() * 6; }
+                if (bolt) {
+                    bolt.life += dt; var al = Math.max(0, 1 - bolt.life * 3.2);
+                    if (al <= 0) bolt = null; else {
+                        ctx.save(); ctx.lineJoin = "round"; ctx.strokeStyle = "rgba(255,255,230," + al + ")"; ctx.shadowColor = "#a5b4fc"; ctx.shadowBlur = 24; ctx.lineWidth = 3;
+                        ctx.beginPath(); bolt.pts.forEach(function (q, i2) { if (i2) ctx.lineTo(q[0], q[1]); else ctx.moveTo(q[0], q[1]); }); ctx.stroke(); ctx.restore();
+                    }
+                }
+                if (flash > 0) { ctx.fillStyle = "rgba(210,220,255," + (flash * .32).toFixed(3) + ")"; ctx.fillRect(0, 0, W, H); flash -= dt * 3.2; }
+            }
+            var sc = ctx.createLinearGradient(0, 0, 0, H); sc.addColorStop(0, "rgba(0,0,0,.18)"); sc.addColorStop(1, "rgba(0,0,0,.34)"); ctx.fillStyle = sc; ctx.fillRect(0, 0, W, H);  /* keeps white text readable */
+        }
+        function loop(now) {
+            if (!run) return;
+            var dt = Math.min(.05, (now - last) / 1000); last = now;
+            draw(now, dt); requestAnimationFrame(loop);
+        }
+        window.addEventListener("resize", function () { small = window.innerWidth < 640; resize(); });
+        document.addEventListener("visibilitychange", function () { run = !document.hidden; if (run) { last = performance.now(); requestAnimationFrame(loop); } });
+        resize();
+        if (!reduce) requestAnimationFrame(loop);
+    })();
+
+    /* =====================================================================
+       2. LIVE CONDITIONS STRIP: gauge, risk ladder, wind, day/night, storm
+       ===================================================================== */
+    (function live() {
+        var host = $("#fg-live"); if (!host || D.score == null) return;
+        var score = Math.max(0, Math.min(100, num(D.score) || 0));
+        function pt(sc, r) { var a = (180 - sc * 1.8) * Math.PI / 180; return [(100 + r * Math.cos(a)).toFixed(1), (100 - r * Math.sin(a)).toFixed(1)]; }
+        function arc(a, b, col) { var p1 = pt(a, 80), p2 = pt(b, 80); return '<path d="M' + p1[0] + " " + p1[1] + " A80 80 0 0 1 " + p2[0] + " " + p2[1] + '" stroke="' + col + '" stroke-width="16" fill="none" stroke-linecap="butt"/>'; }
+        var arcs = arc(0, 20, "#14b8a6") + arc(20, 40, "#84cc16") + arc(40, 60, "#eab308") + arc(60, 80, "#f97316") + arc(80, 100, "#be123c");
+        var rungs = ORDER.slice().reverse().map(function (n) { return '<div class="fg-rung' + (n === riskName ? " on" : "") + '" style="--rc:' + RISK[n] + '"><span>' + n + "</span>" + (n === riskName ? "<span>now</span>" : "") + "</div>"; }).join("");
+        var gauge = '<div class="fg-card fg-gauge-card" style="--d:0s"><div class="fg-gauge"><svg viewBox="0 0 200 118" role="img" aria-label="Flood score ' + score + ' out of 100">' +
+            '<g opacity=".95">' + arcs + '</g><circle cx="100" cy="100" r="62" fill="rgba(5,12,24,.55)"/>' +
+            '<g class="fg-needle" id="fg-needle"><path d="M100 100 L100 30" stroke="#fff" stroke-width="4" stroke-linecap="round"/><circle cx="100" cy="30" r="5" fill="' + (RISK[riskName] || "#fff") + '" stroke="#fff" stroke-width="2"/></g>' +
+            '<circle cx="100" cy="100" r="9" fill="#fff"/><text x="12" y="116" fill="#fff" font-size="10" opacity=".7">0</text><text x="176" y="116" fill="#fff" font-size="10" opacity=".7">100</text></svg></div>' +
+            '<div><h4>Flood risk gauge</h4><div class="fg-gnum"><span id="fg-count">0</span><small style="font-size:.9rem;opacity:.7"> / 100</small></div><div class="fg-ladder">' + rungs + '</div></div></div>';
+        var bf = wind < 1.5 ? "Calm" : wind < 5.5 ? "Light breeze" : wind < 10.8 ? "Moderate wind" : wind < 17.2 ? "Strong wind" : "Gale force";
+        var spin = wind < .6 ? 0 : Math.max(.5, 7 - wind * .45);
+        var streaks = ""; for (var i = 0; i < 4; i++) streaks += '<i style="top:' + (i * 7) + "px;width:" + (30 + i * 14) + "px;--sp:" + Math.max(1.1, 3.4 - wind * .12 + i * .3).toFixed(2) + "s;--dl:-" + (i * .7) + 's"></i>';
+        var windCard = '<div class="fg-card fg-wind-card" style="--d:.1s"><div class="fg-wind"><svg viewBox="0 0 64 64" aria-hidden="true"><g class="fg-fan" style="' + (spin ? "--spin:" + spin.toFixed(2) + "s" : "animation:none") + '"><path d="M32 32 L32 6 Q42 14 32 32Z" fill="#fde68a"/><path d="M32 32 L58 32 Q50 42 32 32Z" fill="#a7f3d0"/><path d="M32 32 L32 58 Q22 50 32 32Z" fill="#fbcfe8"/><path d="M32 32 L6 32 Q14 22 32 32Z" fill="#bae6fd"/></g><circle cx="32" cy="32" r="4" fill="#fff"/></svg></div><h4>Wind</h4><div class="fg-big">' + wind.toFixed(1) + ' m/s</div><div class="fg-sub">' + bf + '</div>' + (wind >= .6 ? '<div class="fg-streaks">' + streaks + "</div>" : "") + "</div>";
+        var hh = ("0" + clock.h).slice(-2) + ":" + ("0" + clock.m).slice(-2);
+        var prog = isDay ? Math.max(0, Math.min(1, (clock.t - 6) / 12)) : ((clock.t >= 18 ? clock.t - 18 : clock.t + 6) / 12);
+        var px = 8 + prog * 84, py = Math.sin(Math.PI * prog) * 30;
+        var starsHtml = ""; if (!isDay) for (var s = 0; s < 14; s++) starsHtml += '<i style="left:' + (Math.round(Math.random() * 92) + 2) + "%;top:" + (Math.round(Math.random() * 60)) + "%;--dl:-" + (Math.random() * 2.4).toFixed(2) + 's"></i>';
+        var dayCard = '<div class="fg-card fg-day-card' + (isDay ? "" : " night") + '" style="--d:.2s"><h4>' + (isDay ? "Daytime" : "Night") + '</h4><div class="fg-big">' + hh + '</div><div class="fg-sub">' + (clock.zoneKnown ? "Local time at " + esc(D.city || "this place") : "Your device clock (place time zone unavailable)") + '</div><div class="fg-stars">' + starsHtml + '</div><div class="fg-arc"><div class="fg-horizon"></div><div class="fg-orb" style="--px:' + px.toFixed(1) + ";--py:" + py.toFixed(1) + '"></div></div></div>';
+        var drops = ""; var nd = scene === "storm" ? 16 : scene === "rain" ? 12 : 0;
+        for (var d = 0; d < nd; d++) drops += '<i style="left:' + (Math.round(Math.random() * 96)) + "%;--sp:" + (.7 + Math.random() * .7).toFixed(2) + "s;--dl:-" + (Math.random() * 1.4).toFixed(2) + 's"></i>';
+        var rainTxt = rainMm > 0 ? rainMm.toFixed(1) + " mm rain" : "No rain recorded now";
+        var stormCard = '<div class="fg-card fg-storm-card ' + esc(scene) + '" style="--d:.3s"><div class="fg-drops">' + drops + '</div><svg class="fg-bolt" viewBox="0 0 34 44" aria-hidden="true"><path d="M20 0 L2 26 H15 L10 44 L32 15 H19Z" fill="#fde047"/></svg><h4>Sky now</h4><div class="fg-big">' + esc(D.sceneLabel || scene) + '</div><div class="fg-sub">' + rainTxt + (D.temp != null ? " · " + esc(D.temp) + " °C" : "") + "</div></div>";
+        host.innerHTML = gauge + windCard + dayCard + stormCard + '<p class="fg-note">Indicators show the latest conditions FloodGuard received for this place. The flood score is a model score, not a confirmed flood and not a calibrated probability.</p>';
+        var needle = $("#fg-needle"), cnt = $("#fg-count");
+        function go() { if (needle) needle.style.transform = "rotate(" + (-90 + score * 1.8) + "deg)"; var t0 = performance.now(); (function step(n) { var k = Math.min(1, (n - t0) / (reduce ? 1 : 1500)); cnt.textContent = Math.round(score * (1 - Math.pow(1 - k, 3))); if (k < 1) requestAnimationFrame(step); })(t0); }
+        if (reduce) go(); else setTimeout(go, 250);
+    })();
+
+    /* =====================================================================
+       3. ICON DOCK + SLIDE-UP PANELS (one panel at a time; tap again to close)
+       ===================================================================== */
+    var ICONS = {
+        gauge: '<path d="M4 17a8 8 0 0 1 16 0"/><path d="M12 17l4-5"/><circle cx="12" cy="17" r="1.2"/>',
+        road: '<path d="M8 3 5 21M16 3l3 18M12 5v2M12 11v2M12 17v2"/>',
+        siren: '<path d="M7 18v-5a5 5 0 0 1 10 0v5"/><path d="M5 18h14v2.5H5zM12 3v2M4.5 6l1.6 1.5M19.5 6l-1.6 1.5"/>',
+        bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+        pin: '<path d="M12 21s7-6 7-11a7 7 0 0 0-14 0c0 5 7 11 7 11z"/><circle cx="12" cy="10" r="2.6"/>',
+        alert: '<path d="M12 3 22 20H2z"/><path d="M12 10v5M12 17.5v.5"/>',
+        globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+        route: '<circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M8.2 18H15a3.5 3.5 0 0 0 0-7H9a3.5 3.5 0 0 1 0-7h6.8"/>',
+        home: '<path d="M3 11 12 3l9 8"/><path d="M5 10v10h14V10M10 20v-6h4v6"/>',
+        light: '<rect x="8" y="2.5" width="8" height="19" rx="3"/><circle cx="12" cy="7.5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="16.5" r="1.4"/>',
+        close: '<path d="M6 6l12 12M18 6 6 18"/>'
+    };
+    function svg(name, size) { return '<svg viewBox="0 0 24 24" width="' + (size || 22) + '" height="' + (size || 22) + '" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONS[name] + "</svg>"; }
+    var DOCK = [
+        ["home-top", "Dashboard", "gauge", "#38bdf8"],
+        ["critical-roads", "Streets", "road", "#f59e0b"],
+        ["emergency-centre", "Emergency", "siren", "#ef4444"],
+        ["get-alerts", "Get alerts", "bell", "#a78bfa"],
+        ["monitored-places", "Places", "pin", "#22c55e"],
+        ["active-alerts", "Live alerts", "alert", "#fb923c"],
+        ["global-now", "World map", "globe", "#3b82f6"],
+        ["route-safety", "Routes", "route", "#14b8a6"],
+        ["property-check", "Property", "home", "#ec4899"],
+        ["live-traffic", "Traffic", "light", "#84cc16"]
+    ];
+    var dock = $("#fg-dock"), backdrop = $("#fg-backdrop"), openId = null, lastBtn = null;
+    var sheets = {};
+    DOCK.forEach(function (it) {
+        var el = document.getElementById(it[0]);
+        if (it[0] !== "home-top" && el) {
+            el.classList.add("fg-sheet"); el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true"); el.setAttribute("aria-label", it[1]);
+            var head = document.createElement("div"); head.className = "fg-sheet-head"; head.style.setProperty("--c", it[3]);
+            head.innerHTML = '<span class="fg-hic" style="--c:' + it[3] + '">' + svg(it[2], 20) + "</span><strong>" + esc(it[1]) + '</strong><button type="button" class="fg-close" aria-label="Close ' + esc(it[1]) + '">' + svg("close", 18) + "</button>";
+            el.insertBefore(head, el.firstChild);
+            $(".fg-close", head).addEventListener("click", function () { closeSheet(); });
+            sheets[it[0]] = el;
+        }
+    });
+    function buildDock() {
+        if (!dock) return;
+        dock.innerHTML = DOCK.filter(function (it) { return it[0] === "home-top" || sheets[it[0]]; }).map(function (it) {
+            return '<button type="button" class="fg-dk' + (it[0] === "emergency-centre" ? " fg-sos" : "") + '" data-open="' + it[0] + '" style="--c:' + it[3] + '" aria-expanded="false" aria-label="' + esc(it[1]) + '"><span class="fg-ico">' + svg(it[2], 22) + "</span><span>" + esc(it[1]) + "</span></button>";
+        }).join("");
+        dock.addEventListener("click", function (e) {
+            var b = e.target.closest(".fg-dk"); if (!b) return;
+            var id = b.getAttribute("data-open");
+            if (id === "home-top") { closeSheet(); var dsh = document.getElementById("dashboard"); if (dsh) dsh.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" }); return; }
+            if (openId === id) closeSheet(); else openSheet(id, b);
+        });
+    }
+    function setPressed() { Array.prototype.forEach.call(document.querySelectorAll(".fg-dk"), function (b) { b.setAttribute("aria-expanded", b.getAttribute("data-open") === openId ? "true" : "false"); }); }
+    function openSheet(id, btn) {
+        var el = sheets[id]; if (!el) return;
+        if (openId && openId !== id) sheets[openId].classList.remove("fg-open");
+        openId = id; lastBtn = btn || document.querySelector('.fg-dk[data-open="' + id + '"]');
+        el.classList.add("fg-open"); document.body.classList.add("fg-sheet-open"); if (backdrop) backdrop.classList.add("fg-on");
+        document.body.style.overflow = "hidden"; setPressed(); el.scrollTop = 0;
+        try { history.replaceState(null, "", "#" + id); } catch (e) { /* ignore */ }
+        setTimeout(function () { window.dispatchEvent(new Event("resize")); var c = $(".fg-close", el); if (c) c.focus({ preventScroll: true }); }, 380);
+    }
+    function closeSheet() {
+        if (!openId) return;
+        sheets[openId].classList.remove("fg-open"); document.body.classList.remove("fg-sheet-open"); if (backdrop) backdrop.classList.remove("fg-on");
+        document.body.style.overflow = ""; var b = lastBtn; openId = null; setPressed();
+        try { history.replaceState(null, "", location.pathname + location.search); } catch (e) { /* ignore */ }
+        if (b) b.focus({ preventScroll: true });
+    }
+    if (backdrop) backdrop.addEventListener("click", closeSheet);
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeSheet(); });
+    /* any in-page link to a panel (nav, buttons, notices) opens that panel instead of scrolling */
+    document.addEventListener("click", function (e) {
+        var a = e.target.closest && e.target.closest('a[href^="#"]'); if (!a || a.closest("#fg-dock")) return;
+        var id = (a.getAttribute("href") || "").slice(1);
+        if (sheets[id]) { e.preventDefault(); openSheet(id); }
+    });
+    window.addEventListener("hashchange", function () { var id = location.hash.slice(1); if (sheets[id] && openId !== id) openSheet(id); });
+    /* code elsewhere that scrolls to a panel opens it */
+    var nativeScroll = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function () { if (this.classList && this.classList.contains("fg-sheet") && sheets[this.id]) { openSheet(this.id); return; } return nativeScroll.apply(this, arguments); };
+    buildDock(); document.body.classList.add("fg-has-dock");
+    if (location.hash && sheets[location.hash.slice(1)]) setTimeout(function () { openSheet(location.hash.slice(1)); }, 300);
+})();
+
+</script>
 </body>
 </html>

@@ -10,6 +10,8 @@
 | official_sources.py | NEW |
 | templates/admin_telegram.html | NEW (admin page at /admin/telegram) |
 | tests/test_street_and_telegram.py | NEW (69 offline tests) |
+| emergency_centre.py | NEW (Emergency Centre module) |
+| tests/test_emergency_centre.py | NEW (16 offline tests) |
 
 Not changed: rainfall_engine.py, Procfile, .gitignore, run_server.ps1, community.db (new tables are created automatically; verified against a copy of your database).
 
@@ -55,6 +57,9 @@ Existing tables are untouched. Use a Render persistent disk for community.db or 
 - [ ] Home page loads; existing sections (dashboard, routes, email alerts, map) still work.
 - [ ] Search "Lisbon", then "Lekki": the map and list change to each place; no results from the earlier search remain.
 - [ ] Press "Pin a location" in Critical Roads, click a street area on the map: a pin appears, the status says "Checking the pinned spot...", then streets for that spot load. Pin open sea: you get "could not identify a place", no streets.
+- [ ] Emergency Centre: search "Gbagada, Lagos": LASEMA/LASAMBUS/Lagos Fire show with 767/112 and a "Not yet verified" badge; NEMA, NSCDC and Red Cross show with NO call button. Hospitals tab lists hospitals with Call (only if OSM has a phone) and Directions. "Use my location" asks permission. The red "Emergency help" button is visible on the page and the nav has an Emergency link.
+- [ ] Emergency Centre: search a place at HIGH/SEVERE/CRITICAL risk: the button pulses and the section loads that place by itself.
+- [ ] Search "Paris" in the Emergency Centre: you are asked which country.
 - [ ] Search "Paris": you are asked which country; each choice loads only that place.
 - [ ] Search a remote place with few mapped roads: you see "No street-level prediction" plus the area-level score, map centred on the place.
 - [ ] Cards show country/region/city/neighbourhood, score + severity, factors, source, assessed time in the area's time zone, evidence label and "What to do".

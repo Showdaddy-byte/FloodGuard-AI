@@ -26,6 +26,7 @@ from rainfall_engine import (
 )
 import official_sources
 import street_risk
+import emergency_centre
 import telegram_alerts as tg
 try:
     import ee
@@ -482,7 +483,7 @@ def query_overpass(query):
     return None
 
 
-def query_overpass_streets(query):
+def query_overpass_streets(query, timeout=50, passes=2):
     """Overpass access for street-level assessments. These queries return the
     geometry of every named road around a place, so they are much heavier than
     the water-proximity lookups query_overpass() serves: they need a longer
@@ -491,11 +492,11 @@ def query_overpass_streets(query):
     Returns parsed JSON or None (only when every mirror failed); the reason for
     each failure is printed to the server log."""
     last_note = "no endpoint tried"
-    for round_number in range(2):
+    for round_number in range(passes):
         for index, url in enumerate(OVERPASS_URLS, start=1):
             try:
                 response = requests.post(
-                    url, data={"data": query}, timeout=50,
+                    url, data={"data": query}, timeout=timeout,
                     headers={"User-Agent": "FloodGuardAI/1.0 (https://myfloodguard.online; flood risk web app)",
                              "Accept": "application/json"},
                 )
@@ -515,7 +516,7 @@ def query_overpass_streets(query):
             except (requests.RequestException, ValueError) as error:
                 last_note = f"mirror {index} {type(error).__name__}"
                 print(f"Overpass street query failed ({last_note}): {_redact(error)}")
-        if round_number == 0:
+        if round_number < passes - 1:
             time.sleep(4)  # every mirror busy: wait briefly, then one more pass
     print(f"Overpass street query gave up: {last_note}")
     return None
@@ -7946,6 +7947,67 @@ def reverse_place_global(lat, lon):
         "city": city, "neighbourhood": neighbourhood, "result_type": "pin",
         "timezone": zone.get("name"), "tz_offset": zone.get("offset_STD_seconds"), "confidence": 1,
     }, None
+
+
+def _emergency_overpass(query):
+    # Emergency lookups must answer quickly: one pass over the mirrors, 22 s each.
+    return query_overpass_streets(query, timeout=22, passes=1)
+
+
+@app.route("/api/emergency")
+def api_emergency():
+    """Emergency & Rescue Assistance for any place in the world.
+    ?lat=&lon=   a point (browser geolocation or a map pin)
+    ?q=<text>    a place name; ambiguous names return choices, never a guess
+    &wider=1     search 20 km instead of 8 km"""
+    if not _street_rate_ok("em:" + _client_ip(), limit=30, window=600):
+        return jsonify({"ok": False, "error": "Too many lookups in a short time. Please wait a few minutes. If you need help now, call your local emergency number."}), 429
+    q = (request.args.get("q") or "").strip()[:120]
+    raw_lat, raw_lon = request.args.get("lat"), request.args.get("lon")
+    place = None
+    if raw_lat is not None or raw_lon is not None:
+        try:
+            lat, lon = float(raw_lat), float(raw_lon)
+            if not (math.isfinite(lat) and math.isfinite(lon) and -90 <= lat <= 90 and -180 <= lon <= 180):
+                raise ValueError
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "That location is invalid."}), 400
+        place, _reverse_error = reverse_place_global(lat, lon)
+        label = place_label(place) if place else "Your selected point"
+    elif q:
+        places, error = geocode_global(q)
+        if error:
+            return jsonify({"ok": False, "error": error}), 503
+        place, choices = pick_place(places)
+        if choices:
+            return jsonify({"ok": True, "status": "ambiguous", "query": q,
+                            "message": f"'{q}' could be several places. Which one do you mean?",
+                            "choices": [{"label": place_label(c), "country": c["country"], "lat": c["lat"], "lon": c["lon"]} for c in choices]})
+        if not place:
+            return jsonify({"ok": True, "status": "not_found", "query": q,
+                            "message": f"I could not find a place called '{q}'. Try adding the city and country."})
+        lat, lon, label = place["lat"], place["lon"], place_label(place)
+    else:
+        return jsonify({"ok": False, "error": "Search a place or use your location."}), 400
+
+    cc = (place or {}).get("country_code") or ""
+    region = (place or {}).get("state") or ""
+    official = get_official_emergency_numbers(cc, region) if cc else None
+    agencies = emergency_centre.agencies_for(cc, region) if cc else []
+    result = emergency_centre.nearby_facilities(lat, lon, _emergency_overpass,
+                                                radius_m=20000 if request.args.get("wider") == "1" else 8000)
+    return jsonify({
+        "ok": True, "status": "ok",
+        "place": {"label": label, "lat": lat, "lon": lon, "country": (place or {}).get("country"), "country_code": cc,
+                  "region": region, "city": (place or {}).get("city")},
+        "numbers": official, "agencies": agencies,
+        "numbers_note": None if cc else "FloodGuard could not tell which country this point is in, so it cannot show a local number. Dial your local emergency number.",
+        "facilities": result["facilities"], "facilities_ok": result["ok"], "facilities_error": result["error"],
+        "stale": result["stale"], "data_age_minutes": result["age_minutes"],
+        "radius_km": 20 if request.args.get("wider") == "1" else 8,
+        "categories": emergency_centre.CATEGORY_LABEL, "caveats": emergency_centre.CAVEATS,
+        "retrieved_at": datetime.utcnow().isoformat(),
+    })
 
 
 def _street_risk_for_pin(raw_lat, raw_lon, q, refresh):

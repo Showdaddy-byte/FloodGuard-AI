@@ -283,6 +283,8 @@ Honesty rules built into the code:
 
 **Pin a location**: the Critical Roads section has a "Pin a location" button. Press it, click the map, and FloodGuard names the spot (Geoapify reverse geocoding) and assesses the streets around it (`GET /api/street-risk?lat=..&lon=..`). If the point cannot be named (open water, unmapped land) nothing is assessed and the site says so; it never substitutes another place.
 
+**Emergency & Rescue Assistance** (homepage section, nav link and a floating "Emergency help" button; the button pulses red and the section opens pre-loaded when the searched place is at HIGH, SEVERE or CRITICAL). `GET /api/emergency?lat=&lon=` or `?q=` returns, for any place worldwide: emergency numbers (national table in `app.py`, plus sourced state agencies in `emergency_centre.CURATED_AGENCIES`) and the nearest hospitals, ambulance stations, fire stations, rescue stations, police and mapped assembly points from OpenStreetMap, each with a Call button (only when OpenStreetMap has a phone) and directions links. Rules: no invented numbers (an agency with no verified number is listed without a call button); every curated contact shows "Verified <date>" only if `verified_on` is set, otherwise "Not yet verified by FloodGuard"; distances are straight-line; presence on the list never implies an ambulance is available; ownership and emergency-department status are shown only when tagged or evident from the name; ambiguous place names ask which one.
+
 Extra scheduler call (same CRON token as the others): `POST /api/refresh-street-risk`.
 
 Limits: OpenStreetMap coverage differs by country; terrain is 30-90 m; messages are English only; free-tier quotas (Geoapify, OpenWeather, Overpass) bound how many places can be swept.
