@@ -81,3 +81,17 @@ Data per area (shown in "Data used for this area" on each card):
 - The 0-100 score is not a calibrated probability. Thresholds are configurable (global and per country).
 Rate limits / costs (free tiers; check current terms): Geoapify free ~3,000 requests/day (each search or registration uses 1-2); OpenWeather free tier per-minute/day caps; Overpass is a shared public service (fair use - the app caches 3 h, limits 2 concurrent jobs and per-IP rate); Open-Meteo free non-commercial limits (check commercial terms if the site earns revenue); Telegram Bot API is free (~30 messages/second limit); Render free web service sleeps and its disk is ephemeral. Global scale is bounded by the OpenWeather/Geoapify quotas: the sweep only covers curated places plus subscriber places (cap TELEGRAM_MAX_EXTRA_AREAS).
 Other limits: messages are English only; time zone comes from Geoapify; emergency numbers come from the app's own table (a generic "follow local authorities" line is used where none is known).
+
+## Motion redesign (templates/index.html)
+- Replace `templates/index.html`. No Python changes are needed.
+- The first screen is the hero plus the Dashboard. Every other feature opens from the icon dock as a slide-up panel (tap the icon again, press Esc, or tap outside to close).
+- Built from the copy of index.html I had. If you changed index.html since, send me your current copy so I can merge.
+
+## Keep monitoring data fresh (every 15 minutes)
+1. On Render, set `CRON_SECRET` to a long random value.
+2. At cron-job.org (free), create a job that runs every 15 minutes:
+   `https://myfloodguard.online/api/refresh-watchlist?token=YOUR_CRON_SECRET`
+   (It now replies at once with HTTP 202 and runs the sweep in the background.)
+3. Optional, every 10 minutes: `/api/refresh-global-alerts?token=YOUR_CRON_SECRET`.
+4. Check: open `/api/watchlist-status`; `age_text` should read "N minutes ago" (under ~20) after the first sweep.
+Note: a Render restart empties the database, so the first sweep after a deploy takes a few minutes to refill it.

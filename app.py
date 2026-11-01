@@ -4,6 +4,7 @@ from io import BytesIO
 from functools import wraps
 import math
 import os
+import sys
 import socket
 import sqlite3
 import threading
@@ -1205,13 +1206,48 @@ def refresh_watchlist_cache():
     conn.close()
 
 
+def start_watchlist_sweep_background():
+    """Start a full monitoring sweep in a background thread and return at
+    once. Returns True if a sweep was started, False if one is already
+    running (in this or another process). A sweep of every monitored place
+    takes minutes, far longer than a scheduler's HTTP timeout or gunicorn's
+    request timeout, so it must never run inside the request itself."""
+    global _watchlist_refreshing
+
+    with _watchlist_refresh_lock:
+        if _watchlist_refreshing:
+            return False
+        _watchlist_refreshing = True
+
+    if not try_acquire_lock("watchlist_refresh", max_age_minutes=60):
+        with _watchlist_refresh_lock:
+            _watchlist_refreshing = False
+        return False
+
+    def _run():
+        global _watchlist_refreshing
+        try:
+            refresh_watchlist_cache()
+        except Exception as error:  # noqa: BLE001
+            print(f"Watchlist sweep crashed: {error}")
+        finally:
+            release_lock("watchlist_refresh")
+            with _watchlist_refresh_lock:
+                _watchlist_refreshing = False
+
+    threading.Thread(target=_run, daemon=True).start()
+    return True
+
+
 def maybe_refresh_watchlist_async():
     """Kick off a background refresh if the cache is stale. Non-blocking, so
     a visitor's page load is never delayed by the monitoring sweep."""
     global _watchlist_refreshing
 
     conn = sqlite3.connect(DB_PATH)
-    row = conn.execute("SELECT MIN(updated_at) FROM watchlist_cache").fetchone()
+    # Newest row = when the last sweep actually ran. (MIN would let a single
+    # location that keeps failing make every visit look "stale" forever.)
+    row = conn.execute("SELECT MAX(updated_at) FROM watchlist_cache").fetchone()
     conn.close()
 
     oldest = row[0] if row else None
@@ -1346,7 +1382,16 @@ def get_watchlist_status():
     for e in entries:
         e["coastal"] = bool(e.get("coastal"))
     active_alerts = [e for e in entries if e["risk_level"] in ALERT_LEVELS or e["ground_alert_message"]]
-    oldest_update = min((e["updated_at"] for e in entries), default=None)
+    # "Last checked" = the most recent sweep. `behind` counts places whose
+    # own result is older than two cycles (e.g. a source failed for them).
+    oldest_update = max((e["updated_at"] for e in entries), default=None)
+    behind = 0
+    for e in entries:
+        try:
+            if (datetime.utcnow() - _parse_stored_datetime(e["updated_at"])).total_seconds() / 60 >= WATCHLIST_REFRESH_MINUTES * 2:
+                behind += 1
+        except Exception:  # noqa: BLE001
+            pass
 
     # Never let the banner confidently say "no alerts" on data that's gone
     # stale — a missed refresh cycle (e.g. no external cron configured, or
@@ -1355,7 +1400,7 @@ def get_watchlist_status():
     age_minutes = None
     if oldest_update:
         age_minutes = (datetime.utcnow() - _parse_stored_datetime(oldest_update)).total_seconds() / 60
-        is_stale = age_minutes >= (WATCHLIST_REFRESH_MINUTES * 2)
+        is_stale = age_minutes >= (WATCHLIST_REFRESH_MINUTES * 4)  # warn only after ~60 min
 
     return {
         "entries": entries,
@@ -1365,7 +1410,25 @@ def get_watchlist_status():
         "last_updated": oldest_update,
         "is_stale": is_stale,
         "age_minutes": round(age_minutes) if age_minutes is not None else None,
+        "age_text": _age_text(age_minutes),
+        "places_behind": behind,
     }
+
+
+def _age_text(minutes):
+    """Plain wording for how old data is (never a raw four-digit minute count)."""
+    if minutes is None:
+        return None
+    m = int(round(minutes))
+    if m < 1:
+        return "just now"
+    if m < 60:
+        return f"{m} minute{'s' if m != 1 else ''} ago"
+    if m < 60 * 48:
+        h = round(m / 60)
+        return f"about {h} hour{'s' if h != 1 else ''} ago"
+    d = round(m / 1440)
+    return f"about {d} days ago"
 
 
 def _local_tag(tag):
@@ -1566,6 +1629,7 @@ def get_global_alerts_status():
         "last_updated": last_updated,
         "is_stale": is_stale,
         "age_minutes": round(age_minutes) if age_minutes is not None else None,
+        "age_text": _age_text(age_minutes),
     }
 
 
@@ -6822,7 +6886,8 @@ def api_watchlist_status():
 
 @app.route("/api/refresh-watchlist", methods=["GET", "POST"])
 def api_refresh_watchlist():
-    """Trigger a synchronous refresh of all monitored locations. Intended to
+    """Start a refresh of all monitored locations (runs in the background and
+    replies immediately, so a scheduler's timeout can never cut it short). Intended to
     be called by an external scheduler (e.g. a free GitHub Actions cron job
     or cron-job.org) every 10-15 minutes so the homepage alert banner stays
     current even with zero visitor traffic in between."""
@@ -6835,15 +6900,10 @@ def api_refresh_watchlist():
     if CRON_SECRET and not _cron_token_ok():
         return jsonify({"ok": False, "error": "Unauthorized."}), 403
 
-    if not try_acquire_lock("watchlist_refresh", max_age_minutes=60):
-        return jsonify({"ok": True, "note": "A refresh is already in progress; returning current cache.", **get_watchlist_status()})
-
-    try:
-        refresh_watchlist_cache()
-    finally:
-        release_lock("watchlist_refresh")
-
-    return jsonify({"ok": True, **get_watchlist_status()})
+    started = start_watchlist_sweep_background()
+    note = ("Sweep started in the background; it takes a few minutes. Results appear as each place finishes."
+            if started else "A sweep is already running; nothing new started.")
+    return jsonify({"ok": True, "started": started, "note": note, **get_watchlist_status()}), 202
 
 
 @app.route("/api/global-alerts")
@@ -8327,6 +8387,45 @@ def sitemap():
 </urlset>
 """
     return Response(xml, mimetype="application/xml")
+
+
+# ---------------------------------------------------------------------------
+# Built-in 15-minute refresh loop
+# ---------------------------------------------------------------------------
+# Keeps the monitoring data fresh even if no external scheduler is set up and
+# nobody is visiting. It only runs while the process is awake (so keep your
+# uptime monitor), and an external cron job on /api/refresh-watchlist is still
+# the most reliable belt-and-braces. Duplicate sweeps are prevented by the
+# shared database lock inside start_watchlist_sweep_background().
+_auto_refresh_started = False
+
+
+def _auto_refresh_loop():
+    # First sweep shortly after boot so a fresh deploy refills the cache,
+    # then one every WATCHLIST_REFRESH_MINUTES.
+    time.sleep(max(30, WATCHLIST_STARTUP_GRACE_MINUTES * 60))
+    while True:
+        try:
+            start_watchlist_sweep_background()
+        except Exception as error:  # noqa: BLE001
+            print(f"Auto refresh loop error: {error}")
+        time.sleep(WATCHLIST_REFRESH_MINUTES * 60)
+
+
+def start_auto_refresh():
+    global _auto_refresh_started
+    if _auto_refresh_started or not API_KEY:
+        return False
+    if os.getenv("DISABLE_AUTO_REFRESH", "").strip() == "1":
+        return False
+    if "unittest" in sys.modules or "pytest" in sys.modules:
+        return False
+    _auto_refresh_started = True
+    threading.Thread(target=_auto_refresh_loop, daemon=True, name="watchlist-auto-refresh").start()
+    return True
+
+
+start_auto_refresh()
 
 
 if __name__ == "__main__":

@@ -564,7 +564,7 @@
             {% elif watchlist.active_alerts %}
             <div class="watchlist-state watchlist-active" id="watchlist-alert-list">
                 {% if watchlist.is_stale %}
-                <p class="watchlist-stale-note">⚠ This data is {{ watchlist.age_minutes }} minute(s) old and refreshing now — conditions may have changed since.</p>
+                <p class="watchlist-stale-note">⚠ This data is last updated {{ watchlist.age_text }} and refreshing now — conditions may have changed since.</p>
                 {% endif %}
                 {% for alert in watchlist.active_alerts %}
                 <div class="watchlist-alert-card risk-border-{{ alert.risk_color }}">
@@ -582,12 +582,12 @@
             </div>
             {% elif watchlist.is_stale %}
             <div class="watchlist-state watchlist-stale" id="watchlist-alert-list">
-                <p>⚠ Monitoring data is {{ watchlist.age_minutes }} minutes old and may be outdated — conditions could have changed. Refreshing now.</p>
+                <p>🔄 Updating live data now. Last updated {{ watchlist.age_text }}.</p>
                 <button type="button" id="manual-refresh-btn">Check now</button>
             </div>
             {% else %}
             <div class="watchlist-state watchlist-clear" id="watchlist-alert-list">
-                <p>✅ No active flood alerts across {{ watchlist.entries | length }} monitored locations right now. Last checked {{ watchlist.age_minutes }} minute(s) ago.</p>
+                <p>✅ No active flood alerts across {{ watchlist.entries | length }} monitored locations right now. Last checked {{ watchlist.age_text }}.</p>
             </div>
             {% endif %}
         </div>
@@ -1381,7 +1381,7 @@
 
         if (data.active_alerts && data.active_alerts.length) {
             const staleNote = data.is_stale
-                ? '<p class="watchlist-stale-note">⚠ This data is ' + data.age_minutes + " minute(s) old and refreshing now — conditions may have changed since.</p>"
+                ? '<p class="watchlist-stale-note">🔄 Updating live data now. Last updated ' + data.age_text + ".</p>"
                 : "";
             const cards = data.active_alerts.map((alert) => {
                 const color = riskColorClass(alert.risk_level);
@@ -1413,7 +1413,7 @@
         } else if (data.is_stale) {
             body.innerHTML =
                 '<div class="watchlist-state watchlist-stale" id="watchlist-alert-list">' +
-                "<p>⚠ Monitoring data is " + data.age_minutes + " minutes old and may be outdated — conditions could have changed. Refreshing now.</p>" +
+                "<p>🔄 Updating live data now. Last updated " + data.age_text + ".</p>" +
                 '<button type="button" id="manual-refresh-btn">Check now</button>' +
                 "</div>";
             attachManualRefreshHandler();
@@ -1424,7 +1424,7 @@
         } else {
             body.innerHTML =
                 '<div class="watchlist-state watchlist-clear" id="watchlist-alert-list">' +
-                "<p>✅ No active flood alerts across " + data.entries.length + " monitored locations right now. Last checked " + data.age_minutes + " minute(s) ago.</p>" +
+                "<p>✅ No active flood alerts across " + data.entries.length + " monitored locations right now. Last checked " + data.age_text + ".</p>" +
                 "</div>";
 
             const heading = document.querySelector("#active-alerts h2");
@@ -1548,7 +1548,7 @@
 
         if (data.entries && data.entries.length) {
             const staleNote = data.is_stale
-                ? '<p class="watchlist-stale-note">⚠ This data is ' + data.age_minutes + " minute(s) old and refreshing now.</p>"
+                ? '<p class="watchlist-stale-note">⚠ This data was last updated ' + data.age_text + " and is refreshing now.</p>"
                 : "";
             const cards = data.entries.map((alert) => {
                 const color = riskColorClassFromColor(alert.risk_color);
@@ -1573,7 +1573,7 @@
         } else {
             body.innerHTML =
                 '<div class="watchlist-state watchlist-clear" id="global-alerts-list">' +
-                "<p>✅ No active flood events reported by GDACS worldwide right now. Last checked " + data.age_minutes + " minute(s) ago.</p>" +
+                "<p>✅ No active flood events reported by GDACS worldwide right now. Last checked " + data.age_text + ".</p>" +
                 "</div>";
             const dot = heading ? heading.querySelector(".live-dot") : null;
             if (dot) dot.remove();
