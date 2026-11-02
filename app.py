@@ -380,6 +380,10 @@ def _redact(error):
 
 _service_cooldowns = {}
 SERVICE_COOLDOWN_SECONDS = 120
+# Soil moisture (ERA5 via Open-Meteo) moves slowly, so a value up to this old
+# is reused. After one 429 from Open-Meteo the soil lookup pauses this long.
+SOIL_MOISTURE_TTL_MINUTES = 6 * 60
+SOIL_MOISTURE_RATE_LIMIT_PAUSE_SECONDS = 5 * 60
 
 
 def _service_available(service_name):
@@ -3396,6 +3400,8 @@ def fetch_soil_moisture(lat, lon):
     soil STATE. Already-saturated ground can't absorb more rain regardless
     of its clay content, which a static soil-type lookup alone can't tell
     you."""
+    if not _service_available("open-meteo-soil"):
+        return None  # paused after a rate-limit; the cached value is used
     try:
         response = requests.get(
             SOIL_MOISTURE_URL,
@@ -3407,6 +3413,12 @@ def fetch_soil_moisture(lat, lon):
             },
             timeout=10,
         )
+        if response.status_code == 429:
+            # Stop asking for a few minutes instead of hammering a service
+            # that has just told us to slow down.
+            _mark_service_down("open-meteo-soil", SOIL_MOISTURE_RATE_LIMIT_PAUSE_SECONDS)
+            print(f"Soil moisture rate-limited by Open-Meteo; pausing {SOIL_MOISTURE_RATE_LIMIT_PAUSE_SECONDS // 60} minutes.")
+            return None
         response.raise_for_status()
         data = response.json()
         values = data.get("hourly", {}).get("soil_moisture_0_to_1cm") or []
@@ -5118,7 +5130,7 @@ def get_geo_context(city_key, lat, lon):
 
         if age_hours < GEO_CONTEXT_TTL_HOURS and not critical_fields_missing:
                         # Soil moisture changes more slowly than weather but faster than
-            # static terrain. Reuse it for up to 60 minutes to avoid hitting
+            # static terrain. Reuse it for up to 6 hours to avoid hitting
             # Open-Meteo on every watchlist prediction.
             soil_moisture_value = cached.get("soil_moisture")
             soil_moisture_updated_at = cached.get("soil_moisture_updated_at")
@@ -5134,7 +5146,7 @@ def get_geo_context(city_key, lat, lon):
             else:
                 soil_moisture_age_minutes = float("inf")
 
-            if soil_moisture_age_minutes >= 60:
+            if soil_moisture_age_minutes >= SOIL_MOISTURE_TTL_MINUTES:
                 fresh_moisture = fetch_soil_moisture(lat, lon)
 
                 if fresh_moisture is not None:
@@ -5300,7 +5312,7 @@ def get_geo_context(city_key, lat, lon):
     else:
         soil_moisture_age_minutes = float("inf")
 
-    if soil_moisture_age_minutes >= 60:
+    if soil_moisture_age_minutes >= SOIL_MOISTURE_TTL_MINUTES:
         fresh_moisture = fetch_soil_moisture(lat, lon)
         if fresh_moisture is not None:
             soil_moisture = fresh_moisture
