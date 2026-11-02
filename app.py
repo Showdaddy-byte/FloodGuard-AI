@@ -5912,6 +5912,17 @@ def get_official_emergency_numbers(country_code, state_name=None):
                     state_info = info
                     break
 
+    if not national:
+        # Not in the curated set: fall back to the hardcoded world directory
+        # (world_emergency.py). Those entries carry a plain "confirm locally"
+        # note and are never mixed with curated numbers.
+        try:
+            from world_emergency import reference_numbers, with_reference_note
+            ref = reference_numbers(country_code)
+            national = with_reference_note(ref) if ref else None
+        except Exception:  # noqa: BLE001 - never let this break a result page
+            national = None
+
     if not national and not state_info:
         return None
 

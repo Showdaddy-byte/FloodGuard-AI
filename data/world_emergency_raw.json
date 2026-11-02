@@ -1,0 +1,1950 @@
+{
+ "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+ "retrieved_on": "2026-11-02",
+ "rows": [
+  {
+   "country": "Algeria",
+   "region": "Africa",
+   "main": "1548",
+   "ambulance": "14",
+   "fire": "",
+   "other": "Gendarme – 1055"
+  },
+  {
+   "country": "Angola",
+   "region": "Africa",
+   "main": "113",
+   "ambulance": "112/116",
+   "fire": "115",
+   "other": ""
+  },
+  {
+   "country": "Ascension Island",
+   "region": "Africa",
+   "main": "999",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Benin",
+   "region": "Africa",
+   "main": "117",
+   "ambulance": "112",
+   "fire": "118",
+   "other": ""
+  },
+  {
+   "country": "Burundi",
+   "region": "Africa",
+   "main": "117",
+   "ambulance": "112",
+   "fire": "118",
+   "other": ""
+  },
+  {
+   "country": "Botswana",
+   "region": "Africa",
+   "main": "999",
+   "ambulance": "997",
+   "fire": "998",
+   "other": "Mobile phones – 112."
+  },
+  {
+   "country": "Burkina Faso",
+   "region": "Africa",
+   "main": "17",
+   "ambulance": "112",
+   "fire": "18",
+   "other": ""
+  },
+  {
+   "country": "Cameroon",
+   "region": "Africa",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 117; Ambulance – 119; Fire – 118; Electricity emergency – 8010."
+  },
+  {
+   "country": "Cape Verde",
+   "region": "Africa",
+   "main": "132",
+   "ambulance": "130",
+   "fire": "131",
+   "other": ""
+  },
+  {
+   "country": "Central African Republic",
+   "region": "Africa",
+   "main": "117",
+   "ambulance": "1220",
+   "fire": "118",
+   "other": ""
+  },
+  {
+   "country": "Chad",
+   "region": "Africa",
+   "main": "17",
+   "ambulance": "2251-4242",
+   "fire": "18",
+   "other": "Ambulance – 2251-1237."
+  },
+  {
+   "country": "Comoros",
+   "region": "Africa",
+   "main": "17",
+   "ambulance": "772-03-73",
+   "fire": "18",
+   "other": "Ambulance – 773-26-04."
+  },
+  {
+   "country": "Republic of Congo",
+   "region": "Africa",
+   "main": "117",
+   "ambulance": "",
+   "fire": "118",
+   "other": ""
+  },
+  {
+   "country": "Democratic Republic of Congo",
+   "region": "Africa",
+   "main": "112",
+   "ambulance": "",
+   "fire": "118",
+   "other": ""
+  },
+  {
+   "country": "Djibouti",
+   "region": "Africa",
+   "main": "17",
+   "ambulance": "19",
+   "fire": "18",
+   "other": ""
+  },
+  {
+   "country": "Egypt",
+   "region": "Africa",
+   "main": "112 or 122",
+   "ambulance": "123",
+   "fire": "180",
+   "other": "Tourist police – 126; Traffic police – 128; Electricity emergency – 121; Gas emergency – 129; Mobile phones – 112."
+  },
+  {
+   "country": "Equatorial Guinea",
+   "region": "Africa",
+   "main": "114",
+   "ambulance": "115",
+   "fire": "112",
+   "other": "Traffic police – 116."
+  },
+  {
+   "country": "Eritrea",
+   "region": "Africa",
+   "main": "113",
+   "ambulance": "114",
+   "fire": "116",
+   "other": "Emergency call – 112; Traffic police – 115."
+  },
+  {
+   "country": "Eswatini",
+   "region": "Africa",
+   "main": "999",
+   "ambulance": "977",
+   "fire": "933",
+   "other": ""
+  },
+  {
+   "country": "Ethiopia",
+   "region": "Africa",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 991; Ambulance – 907; Fire – 939; Traffic police – 945."
+  },
+  {
+   "country": "Gabon",
+   "region": "Africa",
+   "main": "1730",
+   "ambulance": "1300",
+   "fire": "18",
+   "other": ""
+  },
+  {
+   "country": "Gambia",
+   "region": "Africa",
+   "main": "117",
+   "ambulance": "116",
+   "fire": "118",
+   "other": "Police – 112; Electricity emergency – 124; Water emergency – 125."
+  },
+  {
+   "country": "Ghana",
+   "region": "Africa",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 191; Ambulance – 193; Fire – 192."
+  },
+  {
+   "country": "Guinea",
+   "region": "Africa",
+   "main": "117",
+   "ambulance": "18",
+   "fire": "442-020",
+   "other": "Maritime Emergency Service – 19; Gendarmerie – 118; National Gendarmerie – 122"
+  },
+  {
+   "country": "Guinea-Bissau",
+   "region": "Africa",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 117; Ambulance – 119; Fire – 118."
+  },
+  {
+   "country": "Ivory Coast",
+   "region": "Africa",
+   "main": "110 or 111 or 170",
+   "ambulance": "185",
+   "fire": "180",
+   "other": ""
+  },
+  {
+   "country": "Liberia",
+   "region": "Africa",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Kenya",
+   "region": "Africa",
+   "main": "112 or 999 or 911",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Libya",
+   "region": "Africa",
+   "main": "1515",
+   "ambulance": "",
+   "fire": "",
+   "other": "Ambulance – 193."
+  },
+  {
+   "country": "Lesotho",
+   "region": "Africa",
+   "main": "123",
+   "ambulance": "121",
+   "fire": "122",
+   "other": ""
+  },
+  {
+   "country": "Madagascar",
+   "region": "Africa",
+   "main": "117",
+   "ambulance": "124",
+   "fire": "118",
+   "other": "Traffic police – 3600."
+  },
+  {
+   "country": "Malawi",
+   "region": "Africa",
+   "main": "997",
+   "ambulance": "998",
+   "fire": "999",
+   "other": "Police – 990."
+  },
+  {
+   "country": "Mali",
+   "region": "Africa",
+   "main": "17",
+   "ambulance": "15",
+   "fire": "18",
+   "other": "Ambulance – 112, Fire – 112."
+  },
+  {
+   "country": "Mauritania",
+   "region": "Africa",
+   "main": "117",
+   "ambulance": "101",
+   "fire": "118",
+   "other": "Gendarmerie – 116; Traffic police – 119."
+  },
+  {
+   "country": "Mauritius",
+   "region": "Africa",
+   "main": "112",
+   "ambulance": "114",
+   "fire": "115",
+   "other": "Police – 999; Fire – 995."
+  },
+  {
+   "country": "Mayotte",
+   "region": "Africa",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 17; Ambulance – 15; Fire – 18."
+  },
+  {
+   "country": "Morocco",
+   "region": "Africa",
+   "main": "19",
+   "ambulance": "15",
+   "fire": "",
+   "other": "Royal gendarmerie – 177; Mobile phones – 112."
+  },
+  {
+   "country": "Mozambique",
+   "region": "Africa",
+   "main": "119",
+   "ambulance": "117",
+   "fire": "198",
+   "other": ""
+  },
+  {
+   "country": "Namibia",
+   "region": "Africa",
+   "main": "10 111",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Niger",
+   "region": "Africa",
+   "main": "17",
+   "ambulance": "15",
+   "fire": "18",
+   "other": ""
+  },
+  {
+   "country": "Nigeria",
+   "region": "Africa",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Réunion",
+   "region": "Africa",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 17; Ambulance – 15; Fire – 18."
+  },
+  {
+   "country": "Rwanda",
+   "region": "Africa",
+   "main": "112",
+   "ambulance": "912",
+   "fire": "112",
+   "other": "Traffic police – 113."
+  },
+  {
+   "country": "Saint Helena",
+   "region": "Africa",
+   "main": "999",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Sao Tome and Principe",
+   "region": "Africa",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Senegal",
+   "region": "Africa",
+   "main": "17",
+   "ambulance": "18",
+   "fire": "1515",
+   "other": ""
+  },
+  {
+   "country": "Seychelles",
+   "region": "Africa",
+   "main": "112 or 999",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 133; Ambulance – 151."
+  },
+  {
+   "country": "Sierra Leone",
+   "region": "Africa",
+   "main": "019",
+   "ambulance": "999",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Somalia",
+   "region": "Africa",
+   "main": "888",
+   "ambulance": "999",
+   "fire": "555",
+   "other": "Traffic police – 777."
+  },
+  {
+   "country": "South Africa",
+   "region": "Africa",
+   "main": "10 111",
+   "ambulance": "10 177",
+   "fire": "",
+   "other": "Emergency in Cape Town – 107; Mobile phones – 112."
+  },
+  {
+   "country": "Sudan",
+   "region": "Africa",
+   "main": "999",
+   "ambulance": "",
+   "fire": "",
+   "other": "Traffic police – 777 777."
+  },
+  {
+   "country": "South Sudan",
+   "region": "Africa",
+   "main": "999",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Tanzania",
+   "region": "Africa",
+   "main": "112",
+   "ambulance": "114",
+   "fire": "115",
+   "other": "Police – 999; Health call centre - 199"
+  },
+  {
+   "country": "Togo",
+   "region": "Africa",
+   "main": "117",
+   "ambulance": "8200",
+   "fire": "118",
+   "other": ""
+  },
+  {
+   "country": "Tristan da Cunha",
+   "region": "Africa",
+   "main": "999",
+   "ambulance": "911",
+   "fire": "999",
+   "other": ""
+  },
+  {
+   "country": "Tunisia",
+   "region": "Africa",
+   "main": "197",
+   "ambulance": "190",
+   "fire": "198",
+   "other": "National guard – 193."
+  },
+  {
+   "country": "Uganda",
+   "region": "Africa",
+   "main": "112",
+   "ambulance": "911",
+   "fire": "112",
+   "other": "Police – 999; Fire – 999."
+  },
+  {
+   "country": "Western Sahara",
+   "region": "Africa",
+   "main": "150",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Zambia",
+   "region": "Africa",
+   "main": "999",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 911; Ambulance – 992; Fire – 993; Mobile phones – 112."
+  },
+  {
+   "country": "Zimbabwe",
+   "region": "Africa",
+   "main": "999",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 995; Ambulance – 994; Fire – 993; Mobile phones – 112."
+  },
+  {
+   "country": "Canada",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": "112 may redirect to 911 on certain mobile phones."
+  },
+  {
+   "country": "Mexico",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": "Anonymous complaint – 089."
+  },
+  {
+   "country": "Saint Pierre and Miquelon",
+   "region": "Americas",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 17; Ambulance – 15; Fire – 18."
+  },
+  {
+   "country": "United States of America",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": "Calling 112 from a mobile phone may redirect to 911 in some states/localities, but emergency officials recommend callers use the standard 911."
+  },
+  {
+   "country": "Belize",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Costa Rica",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": "Mobile phones – 112."
+  },
+  {
+   "country": "El Salvador",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "132",
+   "fire": "913",
+   "other": ""
+  },
+  {
+   "country": "Guatemala",
+   "region": "Americas",
+   "main": "110",
+   "ambulance": "",
+   "fire": "",
+   "other": "Red Cross – 125 limited coverage; Conred – 119 Disaster relief (national)."
+  },
+  {
+   "country": "Honduras",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "195",
+   "fire": "198",
+   "other": ""
+  },
+  {
+   "country": "Nicaragua",
+   "region": "Americas",
+   "main": "118",
+   "ambulance": "128",
+   "fire": "115",
+   "other": "Fire – 911."
+  },
+  {
+   "country": "Panama",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 104; Fire – 103."
+  },
+  {
+   "country": "Anguilla",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Antigua and Barbuda",
+   "region": "Americas",
+   "main": "911 or 999",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Aruba",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "The Bahamas",
+   "region": "Americas",
+   "main": "911 or 919",
+   "ambulance": "",
+   "fire": "",
+   "other": "Mobile phones – 112."
+  },
+  {
+   "country": "Barbados",
+   "region": "Americas",
+   "main": "211",
+   "ambulance": "511",
+   "fire": "311",
+   "other": ""
+  },
+  {
+   "country": "Bermuda",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "British Virgin Islands",
+   "region": "Americas",
+   "main": "911 or 999",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 311."
+  },
+  {
+   "country": "Caribbean Netherlands",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Cayman Islands",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Cuba",
+   "region": "Americas",
+   "main": "106",
+   "ambulance": "104",
+   "fire": "105",
+   "other": ""
+  },
+  {
+   "country": "Curacao",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "910 and 912",
+   "fire": "911",
+   "other": "Calls to 112 forward to 911."
+  },
+  {
+   "country": "Dominica",
+   "region": "Americas",
+   "main": "999",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Dominican Republic",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": "112 redirects to 911 on mobile phones."
+  },
+  {
+   "country": "Grenada",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Guadeloupe",
+   "region": "Americas",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 17; Ambulance – 15; Fire – 18."
+  },
+  {
+   "country": "Haiti",
+   "region": "Americas",
+   "main": "114",
+   "ambulance": "116",
+   "fire": "115",
+   "other": "Police – 122."
+  },
+  {
+   "country": "Jamaica",
+   "region": "Americas",
+   "main": "119",
+   "ambulance": "110",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Martinique",
+   "region": "Americas",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 17; Ambulance – 15; Fire – 18."
+  },
+  {
+   "country": "Montserrat",
+   "region": "Americas",
+   "main": "911 or 999",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Puerto Rico",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Saint Barthélemy",
+   "region": "Americas",
+   "main": "17",
+   "ambulance": "",
+   "fire": "18",
+   "other": ""
+  },
+  {
+   "country": "Saint Kitts and Nevis",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Saint Lucia",
+   "region": "Americas",
+   "main": "911 or 999",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Saint Martin",
+   "region": "Americas",
+   "main": "17",
+   "ambulance": "15",
+   "fire": "18",
+   "other": ""
+  },
+  {
+   "country": "Saint Vincent and the Grenadines",
+   "region": "Americas",
+   "main": "999 or 911 or 112",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Sint Maarten",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "912",
+   "fire": "919",
+   "other": ""
+  },
+  {
+   "country": "Trinidad and Tobago",
+   "region": "Americas",
+   "main": "999 or 911",
+   "ambulance": "811",
+   "fire": "990",
+   "other": ""
+  },
+  {
+   "country": "Turks and Caicos",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "U.S. Virgin Islands",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Argentina",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 101; Ambulance – 107; Fire – 100; Civil defense – 103; Coast guard – 106. 112 redirects to 911 on mobile phones."
+  },
+  {
+   "country": "Bolivia",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 110; Ambulance – 118; Fire – 119; Civil protection – 114."
+  },
+  {
+   "country": "Brazil",
+   "region": "Americas",
+   "main": "190",
+   "ambulance": "192",
+   "fire": "193",
+   "other": "Federal highway police – 191; Federal police – 194; Civil defense – 199. 112 and 911 redirect to 190 on mobile phones."
+  },
+  {
+   "country": "Chile",
+   "region": "Americas",
+   "main": "133",
+   "ambulance": "131",
+   "fire": "132",
+   "other": "911 and 112 redirect to 133."
+  },
+  {
+   "country": "Colombia",
+   "region": "Americas",
+   "main": "112",
+   "ambulance": "125",
+   "fire": "119",
+   "other": "General emergency - 123."
+  },
+  {
+   "country": "Ecuador",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 101; Ambulance – 131; Fire – 102; Emergency in Guayaquil – 112."
+  },
+  {
+   "country": "Falkland Islands",
+   "region": "Americas",
+   "main": "112 or 999",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "French Guiana",
+   "region": "Americas",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 17; Ambulance – 15; Fire – 18."
+  },
+  {
+   "country": "Guyana",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "913",
+   "fire": "912",
+   "other": ""
+  },
+  {
+   "country": "Paraguay",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 912; Ambulance – 141; Fire – 132.; Rescue – 131"
+  },
+  {
+   "country": "Peru",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 105; Ambulance (SAMU) – 106; Fire – 116; Civil defense – 115."
+  },
+  {
+   "country": "South Georgia and the South Sandwich Islands",
+   "region": "Americas",
+   "main": "999",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Suriname",
+   "region": "Americas",
+   "main": "115",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 115; Ambulance – 113; Fire – 110."
+  },
+  {
+   "country": "Uruguay",
+   "region": "Americas",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 109; Ambulance – 105; Fire – 104."
+  },
+  {
+   "country": "Venezuela",
+   "region": "Americas",
+   "main": "911 and 171",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Afghanistan",
+   "region": "Asia",
+   "main": "119",
+   "ambulance": "112",
+   "fire": "119",
+   "other": ""
+  },
+  {
+   "country": "Bahrain",
+   "region": "Asia",
+   "main": "999",
+   "ambulance": "",
+   "fire": "",
+   "other": "Mobile phones – 112, Traffic police – 199, Coast Guard – 994."
+  },
+  {
+   "country": "Bangladesh",
+   "region": "Asia",
+   "main": "999",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Bhutan",
+   "region": "Asia",
+   "main": "113",
+   "ambulance": "112",
+   "fire": "110",
+   "other": ""
+  },
+  {
+   "country": "British Indian Ocean Territory",
+   "region": "Asia",
+   "main": "112 or 999",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Brunei",
+   "region": "Asia",
+   "main": "993",
+   "ambulance": "991",
+   "fire": "995",
+   "other": "Search and Rescue – 998"
+  },
+  {
+   "country": "Cambodia",
+   "region": "Asia",
+   "main": "117",
+   "ambulance": "119",
+   "fire": "118",
+   "other": ""
+  },
+  {
+   "country": "People's Republic of China",
+   "region": "Asia",
+   "main": "110",
+   "ambulance": "120",
+   "fire": "119",
+   "other": "Traffic accident reports – 122; Coast guard – 95110"
+  },
+  {
+   "country": "Christmas Island",
+   "region": "Asia",
+   "main": "000",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Cocos (Keeling) Islands",
+   "region": "Asia",
+   "main": "000",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "East Timor",
+   "region": "Asia",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Hong Kong",
+   "region": "Asia",
+   "main": "999",
+   "ambulance": "",
+   "fire": "",
+   "other": "Mobile phones – 112 (Automatically redirects to 999)."
+  },
+  {
+   "country": "India",
+   "region": "Asia",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 100; Ambulance – 108; Fire brigade – 101; Disaster management – 104; Women Helpline – 181; Child Helpline – 1098;"
+  },
+  {
+   "country": "Indonesia",
+   "region": "Asia",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 110; Ambulance – 118 or 119; Fire – 113 or 1131; Search & rescue – 115; Natural disasters – 129; Electricity emergency – 123."
+  },
+  {
+   "country": "Iran",
+   "region": "Asia",
+   "main": "110",
+   "ambulance": "115",
+   "fire": "125",
+   "other": "Social Emergency – 123; Iranian Red Crescent – 112 (non-mobile phones). 112 and 911 redirect to 110 on mobile phones."
+  },
+  {
+   "country": "Iraq",
+   "region": "Asia",
+   "main": "112 or 911",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 104; Ambulance – 122; Fire – 115."
+  },
+  {
+   "country": "Israel",
+   "region": "Asia",
+   "main": "100",
+   "ambulance": "101",
+   "fire": "102",
+   "other": "Home Front Command – 104; Mobile phones – 112."
+  },
+  {
+   "country": "Japan",
+   "region": "Asia",
+   "main": "110",
+   "ambulance": "119",
+   "fire": "",
+   "other": "Coast guard – 118; Information about emergencies – #7119 free call."
+  },
+  {
+   "country": "Jordan",
+   "region": "Asia",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": "Mobile phones – 112."
+  },
+  {
+   "country": "Kazakhstan",
+   "region": "Asia",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 102; Ambulance – 103; Fire – 101; Gas leaks – 104."
+  },
+  {
+   "country": "South Korea",
+   "region": "Asia",
+   "main": "112",
+   "ambulance": "119",
+   "fire": "",
+   "other": "Non Emergency – 110; Narcotics Report – 127."
+  },
+  {
+   "country": "Kuwait",
+   "region": "Asia",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Kyrgyzstan",
+   "region": "Asia",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Laos",
+   "region": "Asia",
+   "main": "191",
+   "ambulance": "195",
+   "fire": "190",
+   "other": ""
+  },
+  {
+   "country": "Lebanon",
+   "region": "Asia",
+   "main": "999 or 112",
+   "ambulance": "140",
+   "fire": "175",
+   "other": "Police – 160; Civil defense – 125."
+  },
+  {
+   "country": "Macau",
+   "region": "Asia",
+   "main": "999",
+   "ambulance": "",
+   "fire": "",
+   "other": "From mobile phones – 110 or 112 (all redirects to 999); Judiciary Police – 993"
+  },
+  {
+   "country": "Malaysia",
+   "region": "Asia",
+   "main": "999",
+   "ambulance": "",
+   "fire": "",
+   "other": "From mobile phones – 112"
+  },
+  {
+   "country": "Maldives",
+   "region": "Asia",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 119; Ambulance – 100; Fire – 118; Coastguard – 191; For Natural Disasters – 115."
+  },
+  {
+   "country": "Mongolia",
+   "region": "Asia",
+   "main": "105",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 102; Ambulance – 103; Fire – 101."
+  },
+  {
+   "country": "Myanmar",
+   "region": "Asia",
+   "main": "999",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 199; Ambulance – 192; Fire – 191 (can also call for Natural disasters)"
+  },
+  {
+   "country": "Nepal",
+   "region": "Asia",
+   "main": "100",
+   "ambulance": "102",
+   "fire": "101",
+   "other": "Traffic police – 103; From mobile phones – 112."
+  },
+  {
+   "country": "Oman",
+   "region": "Asia",
+   "main": "9999",
+   "ambulance": "",
+   "fire": "",
+   "other": "From mobile phones – 112."
+  },
+  {
+   "country": "Pakistan",
+   "region": "Asia",
+   "main": "15",
+   "ambulance": "115 and 1122",
+   "fire": "16",
+   "other": "Ambulance – 1122; Traffic police – 1915; Mobile phones – 112; Tourist police – 1422."
+  },
+  {
+   "country": "Palestine",
+   "region": "Asia",
+   "main": "100",
+   "ambulance": "101",
+   "fire": "102",
+   "other": ""
+  },
+  {
+   "country": "Philippines",
+   "region": "Asia",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": "From mobile phones – 112"
+  },
+  {
+   "country": "Qatar",
+   "region": "Asia",
+   "main": "999",
+   "ambulance": "",
+   "fire": "",
+   "other": "Mobile phones – 112."
+  },
+  {
+   "country": "Saudi Arabia",
+   "region": "Asia",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 999; Ambulance – 997; Fire – 998; Traffic police – 993."
+  },
+  {
+   "country": "Singapore",
+   "region": "Asia",
+   "main": "999",
+   "ambulance": "995",
+   "fire": "",
+   "other": "Mobile phones – 112 or 911; Non-emergency ambulance – 1777."
+  },
+  {
+   "country": "Sri Lanka",
+   "region": "Asia",
+   "main": "119",
+   "ambulance": "110",
+   "fire": "",
+   "other": "Traffic police – 112 691 111."
+  },
+  {
+   "country": "Syria",
+   "region": "Asia",
+   "main": "112",
+   "ambulance": "110",
+   "fire": "113",
+   "other": "Traffic police – 115."
+  },
+  {
+   "country": "Taiwan",
+   "region": "Asia",
+   "main": "110",
+   "ambulance": "119",
+   "fire": "",
+   "other": "112 on mobile phones; Coast guard – 118"
+  },
+  {
+   "country": "Tajikistan",
+   "region": "Asia",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 102; Ambulance – 103; Fire – 101; Gas leaks – 104."
+  },
+  {
+   "country": "Thailand",
+   "region": "Asia",
+   "main": "191",
+   "ambulance": "1669",
+   "fire": "199",
+   "other": "Tourist police – 1155; Highway patrol – 1193; Mobile Phones – 112."
+  },
+  {
+   "country": "Turkey",
+   "region": "Asia",
+   "main": "112 or 911 or 153",
+   "ambulance": "112 or 911",
+   "fire": "",
+   "other": "Municipal police – 153; 911 automatically connects to 112."
+  },
+  {
+   "country": "Turkmenistan",
+   "region": "Asia",
+   "main": "02",
+   "ambulance": "03",
+   "fire": "01",
+   "other": "For mobile phones: Fire - 001; Police - 002; Ambulance - 003."
+  },
+  {
+   "country": "United Arab Emirates",
+   "region": "Asia",
+   "main": "999",
+   "ambulance": "998",
+   "fire": "997",
+   "other": "Coast guard – 996; Non-emergency police – 901"
+  },
+  {
+   "country": "Uzbekistan",
+   "region": "Asia",
+   "main": "102",
+   "ambulance": "103",
+   "fire": "101",
+   "other": "Emergency service – 1050; Gas leaks – 104."
+  },
+  {
+   "country": "Vietnam",
+   "region": "Asia",
+   "main": "113",
+   "ambulance": "115",
+   "fire": "114",
+   "other": "111 – Child abuse, 112 – Livesaving services"
+  },
+  {
+   "country": "Yemen",
+   "region": "Asia",
+   "main": "194",
+   "ambulance": "191",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Akrotiri and Dhekelia",
+   "region": "Europe",
+   "main": "112 or 999",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Åland Islands",
+   "region": "Europe",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Albania",
+   "region": "Europe",
+   "main": "129",
+   "ambulance": "127",
+   "fire": "128",
+   "other": "Traffic police – 126; Emergency at sea – 125. Mobile phones ambulance – 112"
+  },
+  {
+   "country": "Andorra",
+   "region": "Europe",
+   "main": "110",
+   "ambulance": "116",
+   "fire": "118",
+   "other": "112 – Mountain / Sky Rescue collaboration with Spanish (Catalan) and French authorities"
+  },
+  {
+   "country": "Armenia",
+   "region": "Europe",
+   "main": "112 or 911",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 102; Ambulance – 103; Fire – 101; Gas emergency – 104; Search & rescue – 108."
+  },
+  {
+   "country": "Austria",
+   "region": "Europe",
+   "main": "112 or 133",
+   "ambulance": "144",
+   "fire": "122",
+   "other": "Gas emergency – 128; Mountain rescue – 140; Doctors – 141; Crisis hotline – 142."
+  },
+  {
+   "country": "Azerbaijan",
+   "region": "Europe",
+   "main": "112 or 102",
+   "ambulance": "112 or 103",
+   "fire": "112 or 101",
+   "other": "Gas Service – 104; Traffic police – 902; Emergency – 112."
+  },
+  {
+   "country": "Belarus",
+   "region": "Europe",
+   "main": "102",
+   "ambulance": "103",
+   "fire": "101",
+   "other": "Gas emergency – 104."
+  },
+  {
+   "country": "Belgium",
+   "region": "Europe",
+   "main": "101 or 112",
+   "ambulance": "112",
+   "fire": "",
+   "other": "Non-emergency number for the fire department – 1722."
+  },
+  {
+   "country": "Bosnia and Herzegovina",
+   "region": "Europe",
+   "main": "122",
+   "ambulance": "124",
+   "fire": "123",
+   "other": "Civil protection – 121."
+  },
+  {
+   "country": "Bulgaria",
+   "region": "Europe",
+   "main": "112 or 166",
+   "ambulance": "112 or 150",
+   "fire": "112 or 160",
+   "other": ""
+  },
+  {
+   "country": "Croatia",
+   "region": "Europe",
+   "main": "112 or 192",
+   "ambulance": "112 or 194",
+   "fire": "112 or 193",
+   "other": "Search and rescue at sea – 112 or 195; Road help – 1987."
+  },
+  {
+   "country": "Cyprus",
+   "region": "Europe",
+   "main": "112 or 199",
+   "ambulance": "",
+   "fire": "",
+   "other": "Air/sea rescue – 1441; Poison control – 1401."
+  },
+  {
+   "country": "Czech Republic",
+   "region": "Europe",
+   "main": "112 or 158",
+   "ambulance": "112 or 155",
+   "fire": "112 or 150",
+   "other": "Municipal police – 156; Mountain rescue – 1210."
+  },
+  {
+   "country": "Denmark",
+   "region": "Europe",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Non-emergency police – 114."
+  },
+  {
+   "country": "Estonia",
+   "region": "Europe",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Faroe Islands",
+   "region": "Europe",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Non-emergency police – 114."
+  },
+  {
+   "country": "Finland",
+   "region": "Europe",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Maritime rescue – 02 94 1000; Poison Control – 0800 147 111; Medical Helpline – 116 117 (except in Åland)"
+  },
+  {
+   "country": "France",
+   "region": "Europe",
+   "main": "17",
+   "ambulance": "112 or 15",
+   "fire": "112 or 18",
+   "other": "Deaf FAX/SMS – 114; Maritime rescue – 196."
+  },
+  {
+   "country": "Georgia",
+   "region": "Europe",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Germany",
+   "region": "Europe",
+   "main": "110",
+   "ambulance": "112",
+   "fire": "",
+   "other": "Traditionally 110 for the police and 112 for the fire brigade and rescue service. Due to EU Directive 112 works also for the police. Non-emergency medical on-call duty: 116 117."
+  },
+  {
+   "country": "Gibraltar",
+   "region": "Europe",
+   "main": "199 or 112 or 999",
+   "ambulance": "190 or 112 or 999",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Greece",
+   "region": "Europe",
+   "main": "100 or 112",
+   "ambulance": "166 or 112",
+   "fire": "199 or 112",
+   "other": "Coast guard – 108"
+  },
+  {
+   "country": "Greenland",
+   "region": "Europe",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Mobile phones only. From landline phones dial the local police station, hospital or fire brigade."
+  },
+  {
+   "country": "Guernsey",
+   "region": "Europe",
+   "main": "112 or 999",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Hungary",
+   "region": "Europe",
+   "main": "112 or 107",
+   "ambulance": "112 or 104",
+   "fire": "112 or 105",
+   "other": "Water emergency – 1817."
+  },
+  {
+   "country": "Iceland",
+   "region": "Europe",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Non-emergency police Reykjavík area – 444 10 00; 911 redirects to 112 on mobile phones."
+  },
+  {
+   "country": "Ireland",
+   "region": "Europe",
+   "main": "112 or 999",
+   "ambulance": "",
+   "fire": "",
+   "other": "SMS messages can be sent to 112."
+  },
+  {
+   "country": "Isle of Man",
+   "region": "Europe",
+   "main": "112 or 999",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Italy",
+   "region": "Europe",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "112 is now the European single emergency number. Where it is operational, calls to the traditional numbers 113 (Police), 115 (Fire), 118 (Ambulance) are routed to the 112 centre."
+  },
+  {
+   "country": "Jersey",
+   "region": "Europe",
+   "main": "112 or 999",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Kosovo",
+   "region": "Europe",
+   "main": "192",
+   "ambulance": "194",
+   "fire": "193",
+   "other": ""
+  },
+  {
+   "country": "Latvia",
+   "region": "Europe",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 110; Ambulance – 113; Gas emergency – 114."
+  },
+  {
+   "country": "Lithuania",
+   "region": "Europe",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 022; Ambulance – 033; Fire – 011."
+  },
+  {
+   "country": "Liechtenstein",
+   "region": "Europe",
+   "main": "117",
+   "ambulance": "144",
+   "fire": "118",
+   "other": ""
+  },
+  {
+   "country": "Luxembourg",
+   "region": "Europe",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 113."
+  },
+  {
+   "country": "Malta",
+   "region": "Europe",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Moldova",
+   "region": "Europe",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Monaco",
+   "region": "Europe",
+   "main": "17",
+   "ambulance": "112 or 18",
+   "fire": "112 or 18",
+   "other": "112 and 18 redirects to fire and rescue service which can also handle ambulance service"
+  },
+  {
+   "country": "Montenegro",
+   "region": "Europe",
+   "main": "122 or 112",
+   "ambulance": "124 or 112",
+   "fire": "123 or 112",
+   "other": "Emergency at sea: 129"
+  },
+  {
+   "country": "Netherlands",
+   "region": "Europe",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Non-emergency police – 0900 88 44; Animal emergency – 144."
+  },
+  {
+   "country": "North Macedonia",
+   "region": "Europe",
+   "main": "192 or 112",
+   "ambulance": "194 or 112",
+   "fire": "193 or 112",
+   "other": ""
+  },
+  {
+   "country": "Northern Cyprus",
+   "region": "Europe",
+   "main": "155",
+   "ambulance": "112",
+   "fire": "199",
+   "other": "Forest Fire – 177; Coast Guard – 158; Civil Defense – 101."
+  },
+  {
+   "country": "Norway",
+   "region": "Europe",
+   "main": "112",
+   "ambulance": "113",
+   "fire": "110",
+   "other": "Emergency at sea: 120; non-emergency police: 02 800; 911 redirects to 112."
+  },
+  {
+   "country": "Poland",
+   "region": "Europe",
+   "main": "997 or 112",
+   "ambulance": "999 or 112",
+   "fire": "998 or 112",
+   "other": "Road help – 981; Sea and mountain rescue – 985; Water emergency – 994. 911 redirects to 112."
+  },
+  {
+   "country": "Portugal",
+   "region": "Europe",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Forest fire – 117; Social emergency – 144."
+  },
+  {
+   "country": "Romania",
+   "region": "Europe",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "911 redirects to 112"
+  },
+  {
+   "country": "Russia",
+   "region": "Europe",
+   "main": "102 or 112",
+   "ambulance": "103 or 112",
+   "fire": "101 or 112",
+   "other": "Gas emergency – 104"
+  },
+  {
+   "country": "San Marino",
+   "region": "Europe",
+   "main": "112 or 113",
+   "ambulance": "118",
+   "fire": "115",
+   "other": "112, 113 and 115 reach the Interforce Operations Centre."
+  },
+  {
+   "country": "Serbia",
+   "region": "Europe",
+   "main": "192 or 112",
+   "ambulance": "194",
+   "fire": "193",
+   "other": "Civil protection – 1985"
+  },
+  {
+   "country": "Slovakia",
+   "region": "Europe",
+   "main": "112 or 158",
+   "ambulance": "112 or 155",
+   "fire": "112 or 150",
+   "other": "Municipal police – 159."
+  },
+  {
+   "country": "Slovenia",
+   "region": "Europe",
+   "main": "113",
+   "ambulance": "112",
+   "fire": "",
+   "other": "Road help – 1987; Emergency at sea – 080 18 00."
+  },
+  {
+   "country": "Spain",
+   "region": "Europe",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "National Police – 091; Civil Guard – 062; Municipal Police – 092; Local Firefighters – 080; SAMUR – 061; Maritime Rescue – 902 202 202"
+  },
+  {
+   "country": "Sweden",
+   "region": "Europe",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Non-emergency police – 114 14; Non-emergency medical advice – 1177."
+  },
+  {
+   "country": "Switzerland",
+   "region": "Europe",
+   "main": "117",
+   "ambulance": "144",
+   "fire": "118",
+   "other": "Poison control – 145; Rega air rescue – 1414. 112 is used differently based on the Canton."
+  },
+  {
+   "country": "Ukraine",
+   "region": "Europe",
+   "main": "102",
+   "ambulance": "103",
+   "fire": "101",
+   "other": "General emergencies – 112; Gas emergency – 104."
+  },
+  {
+   "country": "United Kingdom",
+   "region": "Europe",
+   "main": "999 or 112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Non-emergency police – 101; Non-emergency health issues – 111; gas leaks – 0800 111 999."
+  },
+  {
+   "country": "Vatican City",
+   "region": "Europe",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Emergency calls are handled by the Gendarmerie Corps."
+  },
+  {
+   "country": "American Samoa",
+   "region": "Oceania",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Australia",
+   "region": "Oceania",
+   "main": "000",
+   "ambulance": "",
+   "fire": "",
+   "other": "Mobile phones – 112 or 000; State Emergency Service – 132 500; Poison control – 13 11 26; Lifeline – 13 11 14."
+  },
+  {
+   "country": "Cook Islands",
+   "region": "Oceania",
+   "main": "999",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Fiji",
+   "region": "Oceania",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 917; Fire – 910; Crime Stoppers – 919."
+  },
+  {
+   "country": "French Polynesia",
+   "region": "Oceania",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 17; Ambulance – 15; Fire – 18."
+  },
+  {
+   "country": "Guam",
+   "region": "Oceania",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Kiribati",
+   "region": "Oceania",
+   "main": "100 or 999",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 192; Ambulance – 194 and 195; Fire – 193."
+  },
+  {
+   "country": "Marshall Islands",
+   "region": "Oceania",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Micronesia",
+   "region": "Oceania",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Nauru",
+   "region": "Oceania",
+   "main": "110",
+   "ambulance": "111",
+   "fire": "112",
+   "other": ""
+  },
+  {
+   "country": "New Caledonia",
+   "region": "Oceania",
+   "main": "112",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 17; Ambulance – 15; Fire – 18."
+  },
+  {
+   "country": "New Zealand",
+   "region": "Oceania",
+   "main": "111",
+   "ambulance": "",
+   "fire": "",
+   "other": "Traffic – *555 (mobile phones only). 112 and 911 redirect to 111 on mobile phones. Police non-emergency – 105."
+  },
+  {
+   "country": "Northern Mariana Islands",
+   "region": "Oceania",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Palau",
+   "region": "Oceania",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  },
+  {
+   "country": "Papua New Guinea",
+   "region": "Oceania",
+   "main": "112",
+   "ambulance": "111",
+   "fire": "110",
+   "other": ""
+  },
+  {
+   "country": "Samoa",
+   "region": "Oceania",
+   "main": "999",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 995; Ambulance – 996; Fire – 994."
+  },
+  {
+   "country": "Solomon Islands",
+   "region": "Oceania",
+   "main": "911 or 999",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 999; Ambulance – 111; Fire – 988."
+  },
+  {
+   "country": "Tonga",
+   "region": "Oceania",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 922; Ambulance – 933; Fire – 999."
+  },
+  {
+   "country": "Tuvalu",
+   "region": "Oceania",
+   "main": "911",
+   "ambulance": "",
+   "fire": "",
+   "other": "Police – 911; Ambulance – 999; Fire – 000."
+  },
+  {
+   "country": "Vanuatu",
+   "region": "Oceania",
+   "main": "111",
+   "ambulance": "112",
+   "fire": "113",
+   "other": ""
+  },
+  {
+   "country": "Wallis and Futuna",
+   "region": "Oceania",
+   "main": "15",
+   "ambulance": "",
+   "fire": "",
+   "other": ""
+  }
+ ]
+}

@@ -1,0 +1,2290 @@
+{
+ "countries": {
+  "AD": {
+   "ambulance": "116",
+   "fire": "118",
+   "name": "Andorra",
+   "notes": "112 – Mountain / Sky Rescue collaboration with Spanish (Catalan) and French authorities.",
+   "police": "110",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "AE": {
+   "ambulance": "998",
+   "fire": "997",
+   "name": "United Arab Emirates",
+   "notes": "Coast guard – 996; Non-emergency police – 901.",
+   "police": "999",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "AF": {
+   "fire": "119",
+   "general": "112",
+   "name": "Afghanistan",
+   "police": "119",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "AG": {
+   "general": "911",
+   "name": "Antigua and Barbuda",
+   "notes": "Police also listed: 911, 999.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "AI": {
+   "general": "911",
+   "name": "Anguilla",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "AL": {
+   "ambulance": "127",
+   "fire": "128",
+   "name": "Albania",
+   "notes": "Traffic police – 126; Emergency at sea – 125. Mobile phones ambulance – 112.",
+   "police": "129",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "AM": {
+   "general": "112",
+   "name": "Armenia",
+   "notes": "Police also listed: 911. Police – 102; Ambulance – 103; Fire – 101; Gas emergency – 104; Search & rescue – 108.",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "AO": {
+   "ambulance": "116",
+   "fire": "115",
+   "general": "112",
+   "name": "Angola",
+   "police": "113",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "AR": {
+   "general": "911",
+   "name": "Argentina",
+   "notes": "Police – 101; Ambulance – 107; Fire – 100; Civil defense – 103; Coast guard – 106. 112 redirects to 911 on mobile phones.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "AS": {
+   "general": "911",
+   "name": "American Samoa",
+   "region": "Oceania",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "AT": {
+   "ambulance": "144",
+   "fire": "122",
+   "general": "112",
+   "name": "Austria",
+   "notes": "Gas emergency – 128; Mountain rescue – 140; Doctors – 141; Crisis hotline – 142.",
+   "police": "133",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "AU": {
+   "general": "000",
+   "name": "Australia",
+   "notes": "Mobile phones – 112 or 000; State Emergency Service – 132 500; Poison control – 13 11 26; Lifeline – 13 11 14.",
+   "region": "Oceania",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "AW": {
+   "general": "911",
+   "name": "Aruba",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "AX": {
+   "general": "112",
+   "name": "Åland Islands",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "AZ": {
+   "ambulance": "103",
+   "fire": "101",
+   "general": "112",
+   "name": "Azerbaijan",
+   "notes": "Gas Service – 104; Traffic police – 902; Emergency – 112.",
+   "police": "102",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "BA": {
+   "ambulance": "124",
+   "fire": "123",
+   "name": "Bosnia and Herzegovina",
+   "notes": "Civil protection – 121.",
+   "police": "122",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "BB": {
+   "ambulance": "511",
+   "fire": "311",
+   "name": "Barbados",
+   "police": "211",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "BD": {
+   "general": "999",
+   "name": "Bangladesh",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "BE": {
+   "general": "112",
+   "name": "Belgium",
+   "notes": "Non-emergency number for the fire department – 1722.",
+   "police": "101",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "BF": {
+   "fire": "18",
+   "general": "112",
+   "name": "Burkina Faso",
+   "police": "17",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "BG": {
+   "ambulance": "150",
+   "fire": "160",
+   "general": "112",
+   "name": "Bulgaria",
+   "police": "166",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "BH": {
+   "general": "999",
+   "name": "Bahrain",
+   "notes": "Mobile phones – 112, Traffic police – 199, Coast Guard – 994.",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "BI": {
+   "fire": "118",
+   "general": "112",
+   "name": "Burundi",
+   "police": "117",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "BJ": {
+   "fire": "118",
+   "general": "112",
+   "name": "Benin",
+   "police": "117",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "BL": {
+   "fire": "18",
+   "name": "Saint Barthélemy",
+   "police": "17",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "BM": {
+   "general": "911",
+   "name": "Bermuda",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "BN": {
+   "ambulance": "991",
+   "fire": "995",
+   "name": "Brunei",
+   "notes": "Search and Rescue – 998.",
+   "police": "993",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "BO": {
+   "general": "911",
+   "name": "Bolivia",
+   "notes": "Police – 110; Ambulance – 118; Fire – 119; Civil protection – 114.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "BQ": {
+   "general": "911",
+   "name": "Caribbean Netherlands",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "BR": {
+   "ambulance": "192",
+   "fire": "193",
+   "name": "Brazil",
+   "notes": "Federal highway police – 191; Federal police – 194; Civil defense – 199. 112 and 911 redirect to 190 on mobile phones.",
+   "police": "190",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "BS": {
+   "general": "911",
+   "name": "The Bahamas",
+   "notes": "Police also listed: 911, 919. Mobile phones – 112.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "BT": {
+   "fire": "110",
+   "general": "112",
+   "name": "Bhutan",
+   "police": "113",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "BW": {
+   "ambulance": "997",
+   "fire": "998",
+   "name": "Botswana",
+   "notes": "Mobile phones – 112.",
+   "police": "999",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "BY": {
+   "ambulance": "103",
+   "fire": "101",
+   "name": "Belarus",
+   "notes": "Gas emergency – 104.",
+   "police": "102",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "BZ": {
+   "general": "911",
+   "name": "Belize",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "CA": {
+   "general": "911",
+   "name": "Canada",
+   "notes": "112 may redirect to 911 on certain mobile phones.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "CC": {
+   "general": "000",
+   "name": "Cocos (Keeling) Islands",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "CD": {
+   "fire": "118",
+   "general": "112",
+   "name": "Democratic Republic of Congo",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "CF": {
+   "ambulance": "1220",
+   "fire": "118",
+   "name": "Central African Republic",
+   "police": "117",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "CG": {
+   "fire": "118",
+   "name": "Republic of Congo",
+   "police": "117",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "CH": {
+   "ambulance": "144",
+   "fire": "118",
+   "name": "Switzerland",
+   "notes": "Poison control – 145; Rega air rescue – 1414. 112 is used differently based on the Canton.",
+   "police": "117",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "CI": {
+   "ambulance": "185",
+   "fire": "180",
+   "name": "Ivory Coast",
+   "notes": "Police also listed: 110, 111, 170.",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "CK": {
+   "general": "999",
+   "name": "Cook Islands",
+   "region": "Oceania",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "CL": {
+   "ambulance": "131",
+   "fire": "132",
+   "name": "Chile",
+   "notes": "911 and 112 redirect to 133.",
+   "police": "133",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "CM": {
+   "general": "112",
+   "name": "Cameroon",
+   "notes": "Police – 117; Ambulance – 119; Fire – 118; Electricity emergency – 8010.",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "CN": {
+   "ambulance": "120",
+   "fire": "119",
+   "name": "People's Republic of China",
+   "notes": "Traffic accident reports – 122; Coast guard – 95110.",
+   "police": "110",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "CO": {
+   "ambulance": "125",
+   "fire": "119",
+   "general": "112",
+   "name": "Colombia",
+   "notes": "General emergency - 123.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "CR": {
+   "general": "911",
+   "name": "Costa Rica",
+   "notes": "Mobile phones – 112.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "CU": {
+   "ambulance": "104",
+   "fire": "105",
+   "name": "Cuba",
+   "police": "106",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "CV": {
+   "ambulance": "130",
+   "fire": "131",
+   "name": "Cape Verde",
+   "police": "132",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "CW": {
+   "fire": "911",
+   "name": "Curacao",
+   "notes": "Ambulance also listed: 910, 912. Calls to 112 forward to 911.",
+   "police": "911",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "CX": {
+   "general": "000",
+   "name": "Christmas Island",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "CY": {
+   "general": "199",
+   "name": "Cyprus",
+   "notes": "Air/sea rescue – 1441; Poison control – 1401.",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "CZ": {
+   "ambulance": "155",
+   "fire": "150",
+   "general": "112",
+   "name": "Czech Republic",
+   "notes": "Municipal police – 156; Mountain rescue – 1210.",
+   "police": "158",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "DE": {
+   "general": "112",
+   "name": "Germany",
+   "notes": "Traditionally 110 for the police and 112 for the fire brigade and rescue service. Due to EU Directive 112 works also for the police. Non-emergency medical on-call duty: 116 117.",
+   "police": "110",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "DJ": {
+   "ambulance": "19",
+   "fire": "18",
+   "name": "Djibouti",
+   "police": "17",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "DK": {
+   "general": "112",
+   "name": "Denmark",
+   "notes": "Non-emergency police – 114.",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "DM": {
+   "general": "999",
+   "name": "Dominica",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "DO": {
+   "general": "911",
+   "name": "Dominican Republic",
+   "notes": "112 redirects to 911 on mobile phones.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "DZ": {
+   "ambulance": "14",
+   "name": "Algeria",
+   "notes": "Gendarme – 1055.",
+   "police": "1548",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "EC": {
+   "general": "911",
+   "name": "Ecuador",
+   "notes": "Police – 101; Ambulance – 131; Fire – 102; Emergency in Guayaquil – 112.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "EE": {
+   "general": "112",
+   "name": "Estonia",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "EG": {
+   "ambulance": "123",
+   "fire": "180",
+   "general": "112",
+   "name": "Egypt",
+   "notes": "Tourist police – 126; Traffic police – 128; Electricity emergency – 121; Gas emergency – 129; Mobile phones – 112.",
+   "police": "122",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "EH": {
+   "general": "150",
+   "name": "Western Sahara",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "ER": {
+   "ambulance": "114",
+   "fire": "116",
+   "name": "Eritrea",
+   "notes": "Emergency call – 112; Traffic police – 115.",
+   "police": "113",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "ES": {
+   "general": "112",
+   "name": "Spain",
+   "notes": "National Police – 091; Civil Guard – 062; Municipal Police – 092; Local Firefighters – 080; SAMUR – 061; Maritime Rescue – 902 202 202.",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "ET": {
+   "general": "911",
+   "name": "Ethiopia",
+   "notes": "Police – 991; Ambulance – 907; Fire – 939; Traffic police – 945.",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "FI": {
+   "general": "112",
+   "name": "Finland",
+   "notes": "Maritime rescue – 02 94 1000; Poison Control – 0800 147 111; Medical Helpline – 116 117 (except in Åland)",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "FJ": {
+   "general": "911",
+   "name": "Fiji",
+   "notes": "Police – 917; Fire – 910; Crime Stoppers – 919.",
+   "region": "Oceania",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "FK": {
+   "general": "999",
+   "name": "Falkland Islands",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "FM": {
+   "general": "911",
+   "name": "Micronesia",
+   "region": "Oceania",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "FO": {
+   "general": "112",
+   "name": "Faroe Islands",
+   "notes": "Non-emergency police – 114.",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "FR": {
+   "ambulance": "15",
+   "fire": "18",
+   "general": "112",
+   "name": "France",
+   "notes": "Deaf FAX/SMS – 114; Maritime rescue – 196.",
+   "police": "17",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "GA": {
+   "ambulance": "1300",
+   "fire": "18",
+   "name": "Gabon",
+   "police": "1730",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "GB": {
+   "general": "999",
+   "name": "United Kingdom",
+   "notes": "Non-emergency police – 101; Non-emergency health issues – 111; gas leaks – 0800 111 999.",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "GD": {
+   "general": "911",
+   "name": "Grenada",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "GE": {
+   "general": "112",
+   "name": "Georgia",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "GF": {
+   "general": "112",
+   "name": "French Guiana",
+   "notes": "Police – 17; Ambulance – 15; Fire – 18.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "GG": {
+   "general": "999",
+   "name": "Guernsey",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "GH": {
+   "general": "112",
+   "name": "Ghana",
+   "notes": "Police – 191; Ambulance – 193; Fire – 192.",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "GI": {
+   "general": "112",
+   "name": "Gibraltar",
+   "notes": "Police also listed: 199, 999. Ambulance also listed: 190, 999.",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "GL": {
+   "general": "112",
+   "name": "Greenland",
+   "notes": "Mobile phones only. From landline phones dial the local police station, hospital or fire brigade.",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "GM": {
+   "ambulance": "116",
+   "fire": "118",
+   "name": "Gambia",
+   "notes": "Police – 112; Electricity emergency – 124; Water emergency – 125.",
+   "police": "117",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "GN": {
+   "ambulance": "18",
+   "fire": "442-020",
+   "name": "Guinea",
+   "notes": "Maritime Emergency Service – 19; Gendarmerie – 118; National Gendarmerie – 122.",
+   "police": "117",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "GP": {
+   "general": "112",
+   "name": "Guadeloupe",
+   "notes": "Police – 17; Ambulance – 15; Fire – 18.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "GQ": {
+   "ambulance": "115",
+   "general": "112",
+   "name": "Equatorial Guinea",
+   "notes": "Traffic police – 116.",
+   "police": "114",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "GR": {
+   "ambulance": "166",
+   "fire": "199",
+   "general": "112",
+   "name": "Greece",
+   "notes": "Coast guard – 108.",
+   "police": "100",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "GS": {
+   "general": "999",
+   "name": "South Georgia and the South Sandwich Islands",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "GT": {
+   "general": "110",
+   "name": "Guatemala",
+   "notes": "Red Cross – 125 limited coverage; Conred – 119 Disaster relief (national).",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "GU": {
+   "general": "911",
+   "name": "Guam",
+   "region": "Oceania",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "GW": {
+   "general": "112",
+   "name": "Guinea-Bissau",
+   "notes": "Police – 117; Ambulance – 119; Fire – 118.",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "GY": {
+   "ambulance": "913",
+   "fire": "912",
+   "name": "Guyana",
+   "police": "911",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "HK": {
+   "general": "999",
+   "name": "Hong Kong",
+   "notes": "Mobile phones – 112 (Automatically redirects to 999).",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "HN": {
+   "ambulance": "195",
+   "fire": "198",
+   "name": "Honduras",
+   "police": "911",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "HR": {
+   "ambulance": "194",
+   "fire": "193",
+   "general": "112",
+   "name": "Croatia",
+   "notes": "Search and rescue at sea – 112 or 195; Road help – 1987.",
+   "police": "192",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "HT": {
+   "ambulance": "116",
+   "fire": "115",
+   "name": "Haiti",
+   "notes": "Police – 122.",
+   "police": "114",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "HU": {
+   "ambulance": "104",
+   "fire": "105",
+   "general": "112",
+   "name": "Hungary",
+   "notes": "Water emergency – 1817.",
+   "police": "107",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "ID": {
+   "general": "112",
+   "name": "Indonesia",
+   "notes": "Police – 110; Ambulance – 118 or 119; Fire – 113 or 1131; Search & rescue – 115; Natural disasters – 129; Electricity emergency – 123.",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "IE": {
+   "general": "999",
+   "name": "Ireland",
+   "notes": "SMS messages can be sent to 112.",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "IL": {
+   "ambulance": "101",
+   "fire": "102",
+   "name": "Israel",
+   "notes": "Home Front Command – 104; Mobile phones – 112.",
+   "police": "100",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "IM": {
+   "general": "999",
+   "name": "Isle of Man",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "IN": {
+   "general": "112",
+   "name": "India",
+   "notes": "Police – 100; Ambulance – 108; Fire brigade – 101; Disaster management – 104; Women Helpline – 181; Child Helpline – 1098;",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "IO": {
+   "general": "999",
+   "name": "British Indian Ocean Territory",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "IQ": {
+   "general": "112",
+   "name": "Iraq",
+   "notes": "Police also listed: 911. Police – 104; Ambulance – 122; Fire – 115.",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "IR": {
+   "ambulance": "115",
+   "fire": "125",
+   "name": "Iran",
+   "notes": "Social Emergency – 123; Iranian Red Crescent – 112 (non-mobile phones). 112 and 911 redirect to 110 on mobile phones.",
+   "police": "110",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "IS": {
+   "general": "112",
+   "name": "Iceland",
+   "notes": "Non-emergency police Reykjavík area – 444 10 00; 911 redirects to 112 on mobile phones.",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "IT": {
+   "general": "112",
+   "name": "Italy",
+   "notes": "112 is now the European single emergency number. Where it is operational, calls to the traditional numbers 113 (Police), 115 (Fire), 118 (Ambulance) are routed to the 112 centre.",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "JE": {
+   "general": "999",
+   "name": "Jersey",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "JM": {
+   "ambulance": "110",
+   "name": "Jamaica",
+   "police": "119",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "JO": {
+   "general": "911",
+   "name": "Jordan",
+   "notes": "Mobile phones – 112.",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "JP": {
+   "ambulance": "119",
+   "name": "Japan",
+   "notes": "Coast guard – 118; Information about emergencies – #7119 free call.",
+   "police": "110",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "KE": {
+   "general": "112",
+   "name": "Kenya",
+   "notes": "Police also listed: 999, 911.",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "KG": {
+   "general": "112",
+   "name": "Kyrgyzstan",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "KH": {
+   "ambulance": "119",
+   "fire": "118",
+   "name": "Cambodia",
+   "police": "117",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "KI": {
+   "general": "100",
+   "name": "Kiribati",
+   "notes": "Police also listed: 100, 999. Police – 192; Ambulance – 194 and 195; Fire – 193.",
+   "region": "Oceania",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "KM": {
+   "ambulance": "772-03-73",
+   "fire": "18",
+   "name": "Comoros",
+   "notes": "Ambulance – 773-26-04.",
+   "police": "17",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "KN": {
+   "general": "911",
+   "name": "Saint Kitts and Nevis",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "KR": {
+   "ambulance": "119",
+   "general": "112",
+   "name": "South Korea",
+   "notes": "Non Emergency – 110; Narcotics Report – 127.",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "KW": {
+   "general": "112",
+   "name": "Kuwait",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "KY": {
+   "general": "911",
+   "name": "Cayman Islands",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "KZ": {
+   "general": "112",
+   "name": "Kazakhstan",
+   "notes": "Police – 102; Ambulance – 103; Fire – 101; Gas leaks – 104.",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "LA": {
+   "ambulance": "195",
+   "fire": "190",
+   "name": "Laos",
+   "police": "191",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "LB": {
+   "ambulance": "140",
+   "fire": "175",
+   "general": "112",
+   "name": "Lebanon",
+   "notes": "Police – 160; Civil defense – 125.",
+   "police": "999",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "LC": {
+   "general": "911",
+   "name": "Saint Lucia",
+   "notes": "Police also listed: 911, 999.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "LI": {
+   "ambulance": "144",
+   "fire": "118",
+   "name": "Liechtenstein",
+   "police": "117",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "LK": {
+   "ambulance": "110",
+   "name": "Sri Lanka",
+   "notes": "Traffic police – 112 691 111.",
+   "police": "119",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "LR": {
+   "general": "911",
+   "name": "Liberia",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "LS": {
+   "ambulance": "121",
+   "fire": "122",
+   "name": "Lesotho",
+   "police": "123",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "LT": {
+   "general": "112",
+   "name": "Lithuania",
+   "notes": "Police – 022; Ambulance – 033; Fire – 011.",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "LU": {
+   "general": "112",
+   "name": "Luxembourg",
+   "notes": "Police – 113.",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "LV": {
+   "general": "112",
+   "name": "Latvia",
+   "notes": "Police – 110; Ambulance – 113; Gas emergency – 114.",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "LY": {
+   "general": "1515",
+   "name": "Libya",
+   "notes": "Ambulance – 193.",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "MA": {
+   "ambulance": "15",
+   "name": "Morocco",
+   "notes": "Royal gendarmerie – 177; Mobile phones – 112.",
+   "police": "19",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "MC": {
+   "ambulance": "18",
+   "fire": "18",
+   "general": "112",
+   "name": "Monaco",
+   "notes": "112 and 18 redirects to fire and rescue service which can also handle ambulance service.",
+   "police": "17",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "MD": {
+   "general": "112",
+   "name": "Moldova",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "ME": {
+   "ambulance": "124",
+   "fire": "123",
+   "general": "112",
+   "name": "Montenegro",
+   "notes": "Emergency at sea: 129.",
+   "police": "122",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "MF": {
+   "ambulance": "15",
+   "fire": "18",
+   "name": "Saint Martin",
+   "police": "17",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "MG": {
+   "ambulance": "124",
+   "fire": "118",
+   "name": "Madagascar",
+   "notes": "Traffic police – 3600.",
+   "police": "117",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "MH": {
+   "general": "911",
+   "name": "Marshall Islands",
+   "region": "Oceania",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "MK": {
+   "ambulance": "194",
+   "fire": "193",
+   "general": "112",
+   "name": "North Macedonia",
+   "police": "192",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "ML": {
+   "ambulance": "15",
+   "fire": "18",
+   "name": "Mali",
+   "notes": "Ambulance – 112, Fire – 112.",
+   "police": "17",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "MM": {
+   "general": "999",
+   "name": "Myanmar",
+   "notes": "Police – 199; Ambulance – 192; Fire – 191 (can also call for Natural disasters)",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "MN": {
+   "general": "105",
+   "name": "Mongolia",
+   "notes": "Police – 102; Ambulance – 103; Fire – 101.",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "MO": {
+   "general": "999",
+   "name": "Macau",
+   "notes": "From mobile phones – 110 or 112 (all redirects to 999); Judiciary Police – 993.",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "MP": {
+   "general": "911",
+   "name": "Northern Mariana Islands",
+   "region": "Oceania",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "MQ": {
+   "general": "112",
+   "name": "Martinique",
+   "notes": "Police – 17; Ambulance – 15; Fire – 18.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "MR": {
+   "ambulance": "101",
+   "fire": "118",
+   "name": "Mauritania",
+   "notes": "Gendarmerie – 116; Traffic police – 119.",
+   "police": "117",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "MS": {
+   "general": "911",
+   "name": "Montserrat",
+   "notes": "Police also listed: 911, 999.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "MT": {
+   "general": "112",
+   "name": "Malta",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "MU": {
+   "ambulance": "114",
+   "fire": "115",
+   "general": "112",
+   "name": "Mauritius",
+   "notes": "Police – 999; Fire – 995.",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "MV": {
+   "general": "911",
+   "name": "Maldives",
+   "notes": "Police – 119; Ambulance – 100; Fire – 118; Coastguard – 191; For Natural Disasters – 115.",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "MW": {
+   "ambulance": "998",
+   "fire": "999",
+   "name": "Malawi",
+   "notes": "Police – 990.",
+   "police": "997",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "MX": {
+   "general": "911",
+   "name": "Mexico",
+   "notes": "Anonymous complaint – 089.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "MY": {
+   "general": "999",
+   "name": "Malaysia",
+   "notes": "From mobile phones – 112.",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "MZ": {
+   "ambulance": "117",
+   "fire": "198",
+   "name": "Mozambique",
+   "police": "119",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "NA": {
+   "general": "10111",
+   "name": "Namibia",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "NC": {
+   "general": "112",
+   "name": "New Caledonia",
+   "notes": "Police – 17; Ambulance – 15; Fire – 18.",
+   "region": "Oceania",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "NE": {
+   "ambulance": "15",
+   "fire": "18",
+   "name": "Niger",
+   "police": "17",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "NG": {
+   "general": "112",
+   "name": "Nigeria",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "NI": {
+   "ambulance": "128",
+   "fire": "115",
+   "name": "Nicaragua",
+   "notes": "Fire – 911.",
+   "police": "118",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "NL": {
+   "general": "112",
+   "name": "Netherlands",
+   "notes": "Non-emergency police – 0900 88 44; Animal emergency – 144.",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "NO": {
+   "ambulance": "113",
+   "fire": "110",
+   "general": "112",
+   "name": "Norway",
+   "notes": "Emergency at sea: 120; non-emergency police: 02 800; 911 redirects to 112.",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "NP": {
+   "ambulance": "102",
+   "fire": "101",
+   "name": "Nepal",
+   "notes": "Traffic police – 103; From mobile phones – 112.",
+   "police": "100",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "NR": {
+   "ambulance": "111",
+   "general": "112",
+   "name": "Nauru",
+   "police": "110",
+   "region": "Oceania",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "NZ": {
+   "general": "111",
+   "name": "New Zealand",
+   "notes": "Traffic – *555 (mobile phones only). 112 and 911 redirect to 111 on mobile phones. Police non-emergency – 105.",
+   "region": "Oceania",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "OM": {
+   "general": "9999",
+   "name": "Oman",
+   "notes": "From mobile phones – 112.",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "PA": {
+   "general": "911",
+   "name": "Panama",
+   "notes": "Police – 104; Fire – 103.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "PE": {
+   "general": "911",
+   "name": "Peru",
+   "notes": "Police – 105; Ambulance (SAMU) – 106; Fire – 116; Civil defense – 115.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "PF": {
+   "general": "112",
+   "name": "French Polynesia",
+   "notes": "Police – 17; Ambulance – 15; Fire – 18.",
+   "region": "Oceania",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "PG": {
+   "ambulance": "111",
+   "fire": "110",
+   "general": "112",
+   "name": "Papua New Guinea",
+   "region": "Oceania",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "PH": {
+   "general": "911",
+   "name": "Philippines",
+   "notes": "From mobile phones – 112.",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "PK": {
+   "fire": "16",
+   "name": "Pakistan",
+   "notes": "Ambulance also listed: 115, 1122. Ambulance – 1122; Traffic police – 1915; Mobile phones – 112; Tourist police – 1422.",
+   "police": "15",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "PL": {
+   "ambulance": "999",
+   "fire": "998",
+   "general": "112",
+   "name": "Poland",
+   "notes": "Road help – 981; Sea and mountain rescue – 985; Water emergency – 994. 911 redirects to 112.",
+   "police": "997",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "PM": {
+   "general": "112",
+   "name": "Saint Pierre and Miquelon",
+   "notes": "Police – 17; Ambulance – 15; Fire – 18.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "PR": {
+   "general": "911",
+   "name": "Puerto Rico",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "PS": {
+   "ambulance": "101",
+   "fire": "102",
+   "name": "Palestine",
+   "police": "100",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "PT": {
+   "general": "112",
+   "name": "Portugal",
+   "notes": "Forest fire – 117; Social emergency – 144.",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "PW": {
+   "general": "911",
+   "name": "Palau",
+   "region": "Oceania",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "PY": {
+   "general": "911",
+   "name": "Paraguay",
+   "notes": "Police – 912; Ambulance – 141; Fire – 132.; Rescue – 131.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "QA": {
+   "general": "999",
+   "name": "Qatar",
+   "notes": "Mobile phones – 112.",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "RE": {
+   "general": "112",
+   "name": "Réunion",
+   "notes": "Police – 17; Ambulance – 15; Fire – 18.",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "RO": {
+   "general": "112",
+   "name": "Romania",
+   "notes": "911 redirects to 112.",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "RS": {
+   "ambulance": "194",
+   "fire": "193",
+   "general": "112",
+   "name": "Serbia",
+   "notes": "Civil protection – 1985.",
+   "police": "192",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "RU": {
+   "ambulance": "103",
+   "fire": "101",
+   "general": "112",
+   "name": "Russia",
+   "notes": "Gas emergency – 104.",
+   "police": "102",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "RW": {
+   "ambulance": "912",
+   "general": "112",
+   "name": "Rwanda",
+   "notes": "Traffic police – 113.",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "SA": {
+   "general": "911",
+   "name": "Saudi Arabia",
+   "notes": "Police – 999; Ambulance – 997; Fire – 998; Traffic police – 993.",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "SB": {
+   "general": "911",
+   "name": "Solomon Islands",
+   "notes": "Police also listed: 911, 999. Police – 999; Ambulance – 111; Fire – 988.",
+   "region": "Oceania",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "SC": {
+   "general": "999",
+   "name": "Seychelles",
+   "notes": "Police – 133; Ambulance – 151.",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "SD": {
+   "general": "999",
+   "name": "Sudan",
+   "notes": "Traffic police – 777 777.",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "SE": {
+   "general": "112",
+   "name": "Sweden",
+   "notes": "Non-emergency police – 114 14; Non-emergency medical advice – 1177.",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "SG": {
+   "ambulance": "995",
+   "name": "Singapore",
+   "notes": "Mobile phones – 112 or 911; Non-emergency ambulance – 1777.",
+   "police": "999",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "SH": {
+   "general": "999",
+   "name": "Saint Helena",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "SI": {
+   "general": "112",
+   "name": "Slovenia",
+   "notes": "Road help – 1987; Emergency at sea – 080 18 00.",
+   "police": "113",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "SK": {
+   "ambulance": "155",
+   "fire": "150",
+   "general": "112",
+   "name": "Slovakia",
+   "notes": "Municipal police – 159.",
+   "police": "158",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "SL": {
+   "ambulance": "999",
+   "name": "Sierra Leone",
+   "police": "019",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "SM": {
+   "ambulance": "118",
+   "fire": "115",
+   "general": "112",
+   "name": "San Marino",
+   "notes": "112, 113 and 115 reach the Interforce Operations Centre.",
+   "police": "113",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "SN": {
+   "ambulance": "18",
+   "fire": "1515",
+   "name": "Senegal",
+   "police": "17",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "SO": {
+   "ambulance": "999",
+   "fire": "555",
+   "name": "Somalia",
+   "notes": "Traffic police – 777.",
+   "police": "888",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "SR": {
+   "general": "115",
+   "name": "Suriname",
+   "notes": "Police – 115; Ambulance – 113; Fire – 110.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "SS": {
+   "general": "999",
+   "name": "South Sudan",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "ST": {
+   "general": "112",
+   "name": "Sao Tome and Principe",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "SV": {
+   "ambulance": "132",
+   "fire": "913",
+   "name": "El Salvador",
+   "police": "911",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "SX": {
+   "ambulance": "912",
+   "fire": "919",
+   "name": "Sint Maarten",
+   "police": "911",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "SY": {
+   "ambulance": "110",
+   "fire": "113",
+   "general": "112",
+   "name": "Syria",
+   "notes": "Traffic police – 115.",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "SZ": {
+   "ambulance": "977",
+   "fire": "933",
+   "name": "Eswatini",
+   "police": "999",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "TC": {
+   "general": "911",
+   "name": "Turks and Caicos",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "TD": {
+   "ambulance": "2251-4242",
+   "fire": "18",
+   "name": "Chad",
+   "notes": "Ambulance – 2251-1237.",
+   "police": "17",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "TG": {
+   "ambulance": "8200",
+   "fire": "118",
+   "name": "Togo",
+   "police": "117",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "TH": {
+   "ambulance": "1669",
+   "fire": "199",
+   "name": "Thailand",
+   "notes": "Tourist police – 1155; Highway patrol – 1193; Mobile Phones – 112.",
+   "police": "191",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "TJ": {
+   "general": "112",
+   "name": "Tajikistan",
+   "notes": "Police – 102; Ambulance – 103; Fire – 101; Gas leaks – 104.",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "TL": {
+   "general": "112",
+   "name": "East Timor",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "TM": {
+   "ambulance": "03",
+   "fire": "01",
+   "name": "Turkmenistan",
+   "notes": "For mobile phones: Fire - 001; Police - 002; Ambulance - 003.",
+   "police": "02",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "TN": {
+   "ambulance": "190",
+   "fire": "198",
+   "name": "Tunisia",
+   "notes": "National guard – 193.",
+   "police": "197",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "TO": {
+   "general": "911",
+   "name": "Tonga",
+   "notes": "Police – 922; Ambulance – 933; Fire – 999.",
+   "region": "Oceania",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "TR": {
+   "general": "112",
+   "name": "Turkey",
+   "notes": "Police also listed: 911, 153. Ambulance also listed: 911. Municipal police – 153; 911 automatically connects to 112.",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "TT": {
+   "ambulance": "811",
+   "fire": "990",
+   "name": "Trinidad and Tobago",
+   "notes": "Police also listed: 999, 911.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "TV": {
+   "general": "911",
+   "name": "Tuvalu",
+   "notes": "Police – 911; Ambulance – 999; Fire – 000.",
+   "region": "Oceania",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "TW": {
+   "ambulance": "119",
+   "name": "Taiwan",
+   "notes": "112 on mobile phones; Coast guard – 118.",
+   "police": "110",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "TZ": {
+   "ambulance": "114",
+   "fire": "115",
+   "general": "112",
+   "name": "Tanzania",
+   "notes": "Police – 999; Health call centre - 199.",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "UA": {
+   "ambulance": "103",
+   "fire": "101",
+   "name": "Ukraine",
+   "notes": "General emergencies – 112; Gas emergency – 104.",
+   "police": "102",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "UG": {
+   "ambulance": "911",
+   "general": "112",
+   "name": "Uganda",
+   "notes": "Police – 999; Fire – 999.",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "US": {
+   "general": "911",
+   "name": "United States of America",
+   "notes": "Calling 112 from a mobile phone may redirect to 911 in some states/localities, but emergency officials recommend callers use the standard 911.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "UY": {
+   "general": "911",
+   "name": "Uruguay",
+   "notes": "Police – 109; Ambulance – 105; Fire – 104.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "UZ": {
+   "ambulance": "103",
+   "fire": "101",
+   "name": "Uzbekistan",
+   "notes": "Emergency service – 1050; Gas leaks – 104.",
+   "police": "102",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "VA": {
+   "general": "112",
+   "name": "Vatican City",
+   "notes": "Emergency calls are handled by the Gendarmerie Corps.",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "VC": {
+   "general": "112",
+   "name": "Saint Vincent and the Grenadines",
+   "notes": "Police also listed: 999, 911.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "VE": {
+   "general": "911",
+   "name": "Venezuela",
+   "notes": "Police also listed: 911, 171.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "VG": {
+   "general": "911",
+   "name": "British Virgin Islands",
+   "notes": "Police also listed: 911, 999. Police – 311.",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "VI": {
+   "general": "911",
+   "name": "U.S. Virgin Islands",
+   "region": "Americas",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "VN": {
+   "ambulance": "115",
+   "fire": "114",
+   "name": "Vietnam",
+   "notes": "111 – Child abuse, 112 – Livesaving services.",
+   "police": "113",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "VU": {
+   "fire": "113",
+   "general": "112",
+   "name": "Vanuatu",
+   "police": "111",
+   "region": "Oceania",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "WF": {
+   "general": "15",
+   "name": "Wallis and Futuna",
+   "region": "Oceania",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "WS": {
+   "general": "999",
+   "name": "Samoa",
+   "notes": "Police – 995; Ambulance – 996; Fire – 994.",
+   "region": "Oceania",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "XK": {
+   "ambulance": "194",
+   "fire": "193",
+   "name": "Kosovo",
+   "police": "192",
+   "region": "Europe",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "YE": {
+   "ambulance": "191",
+   "name": "Yemen",
+   "police": "194",
+   "region": "Asia",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "YT": {
+   "general": "112",
+   "name": "Mayotte",
+   "notes": "Police – 17; Ambulance – 15; Fire – 18.",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "ZA": {
+   "ambulance": "10177",
+   "name": "South Africa",
+   "notes": "Emergency in Cape Town – 107; Mobile phones – 112.",
+   "police": "10111",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "ZM": {
+   "general": "999",
+   "name": "Zambia",
+   "notes": "Police – 911; Ambulance – 992; Fire – 993; Mobile phones – 112.",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  },
+  "ZW": {
+   "general": "999",
+   "name": "Zimbabwe",
+   "notes": "Police – 995; Ambulance – 994; Fire – 993; Mobile phones – 112.",
+   "region": "Africa",
+   "retrieved_on": "2026-11-02",
+   "source": "Wikipedia, List of emergency telephone numbers (public directory)",
+   "tier": "reference"
+  }
+ },
+ "retrieved_on": "2026-11-02",
+ "source": "Wikipedia, List of emergency telephone numbers (public directory)"
+}

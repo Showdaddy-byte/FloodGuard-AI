@@ -95,3 +95,16 @@ Other limits: messages are English only; time zone comes from Geoapify; emergenc
 3. Optional, every 10 minutes: `/api/refresh-global-alerts?token=YOUR_CRON_SECRET`.
 4. Check: open `/api/watchlist-status`; `age_text` should read "N minutes ago" (under ~20) after the first sweep.
 Note: a Render restart empties the database, so the first sweep after a deploy takes a few minutes to refill it.
+
+## World emergency numbers (hardcoded, updatable)
+
+Files: `world_emergency.py`, `data/world_emergency_numbers.json` (239 countries/territories),
+`data/world_emergency_raw.json` (source rows), `data/emergency_overrides.json`, `tools/build_world_emergency.py`.
+
+Priority order: your curated `NATIONAL_EMERGENCY_NUMBERS` in app.py, then `emergency_overrides.json`, then the public-directory reference set.
+Reference numbers show "not yet confirmed by FloodGuard. Please confirm locally." Add `verified_on` in an override and it shows "Confirmed by FloodGuard on <date>".
+
+To correct one country: edit `data/emergency_overrides.json`, e.g.
+`"GH": {"general": "112", "ambulance": "193", "source": "Ghana NADMO", "verified_on": "2026-11-02"}`. No code change; it is picked up when the file changes.
+To refresh everything: replace rows in `data/world_emergency_raw.json`, run `pip install pycountry` then `python tools/build_world_emergency.py`, commit the JSON.
+Ambiguous directory cells (for example "112 or 911 or 153") keep only the general number and list the rest as text, so a wrong role is never shown.
