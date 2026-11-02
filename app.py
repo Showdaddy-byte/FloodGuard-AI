@@ -3036,6 +3036,44 @@ def classify_slope(slope_percent):
     }
 
 
+def _closest_point_on_element(lat, lon, el):
+    """Closest point (lat, lon) of an Overpass element to the pin. Uses the
+    returned geometry (ways, and relation members) and measures to line
+    segments, not just vertices; falls back to centre/node coordinates."""
+    lines = []
+    if el.get("geometry"):
+        lines.append(el["geometry"])
+    for m in el.get("members") or []:
+        if m.get("geometry"):
+            lines.append(m["geometry"])
+    best, best_d = None, None
+    k = math.cos(math.radians(lat))
+    for line in lines:
+        pts = [(p["lat"], p["lon"]) for p in line if "lat" in p and "lon" in p]
+        for i, (alat, alon) in enumerate(pts):
+            cands = [(alat, alon)]
+            if i + 1 < len(pts):
+                blat, blon = pts[i + 1]
+                ax, ay = (alon - lon) * k, alat - lat
+                bx, by = (blon - lon) * k, blat - lat
+                dx, dy = bx - ax, by - ay
+                L = dx * dx + dy * dy
+                t = 0 if L == 0 else max(0.0, min(1.0, -(ax * dx + ay * dy) / L))
+                cands.append((alat + t * (blat - alat), alon + t * (blon - alon)))
+            for c in cands:
+                d = haversine_meters(lat, lon, c[0], c[1])
+                if best_d is None or d < best_d:
+                    best, best_d = c, d
+    if best is not None:
+        return best
+    center = el.get("center")
+    if center:
+        return (center["lat"], center["lon"])
+    if el.get("type") == "node" and el.get("lat") is not None:
+        return (el["lat"], el["lon"])
+    return None
+
+
 def fetch_water_and_urban_context(lat, lon, radius_m=3000):
     """Single Overpass (OpenStreetMap) query covering both nearby
     water/coastline features and built-up density within radius_m, to keep
@@ -3047,15 +3085,24 @@ def fetch_water_and_urban_context(lat, lon, radius_m=3000):
     (coastline/sea, rivers, lakes/lagoons). Streams and canals still count
     toward nearest_water_m (drainage matters for flooding) but not toward
     nearest_open_water_m, which drives the >1 km proximity rule."""
+    # `out center` reports the middle of a way's bounding box, which for a
+    # long coastline, river or bay can be many km from the pin even when the
+    # water is right beside it; and a hard cap of 40 unsorted results could
+    # drop the nearest feature in a dense city. So ask for the real geometry
+    # (clipped to the search box) and measure to the closest point on it.
+    dlat = radius_m / 111320.0
+    dlon = radius_m / (111320.0 * max(0.05, math.cos(math.radians(lat))))
+    bbox = f"{lat - dlat:.6f},{lon - dlon:.6f},{lat + dlat:.6f},{lon + dlon:.6f}"
     query = f"""
-    [out:json][timeout:12];
+    [out:json][timeout:20];
     (
       way["natural"="coastline"](around:{radius_m},{lat},{lon});
       way["natural"="water"](around:{radius_m},{lat},{lon});
+      relation["natural"="water"](around:{radius_m},{lat},{lon});
       way["waterway"~"river|stream|canal"](around:{radius_m},{lat},{lon});
       node["place"="sea"](around:{radius_m},{lat},{lon});
     );
-    out center tags 40;
+    out tags geom({bbox}) 300;
     (
       nwr["building"](around:600,{lat},{lon});
     );
@@ -3082,12 +3129,8 @@ def fetch_water_and_urban_context(lat, lon, radius_m=3000):
             building_count = int(el.get("tags", {}).get("total", 0) or 0)
             continue
 
-        center = el.get("center")
-        if center:
-            point = (center["lat"], center["lon"])
-        elif el.get("type") == "node":
-            point = (el.get("lat"), el.get("lon"))
-        else:
+        point = _closest_point_on_element(lat, lon, el)
+        if point is None:
             continue
 
         tags = el.get("tags", {})
