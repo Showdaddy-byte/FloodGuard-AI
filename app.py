@@ -477,7 +477,15 @@ def query_overpass(query):
                 headers={"User-Agent": "FloodGuardAI/1.0 (flood risk web app; contact via app owner)"},
             )
             response.raise_for_status()
-            return response.json()
+            data = response.json()
+            # Overpass answers HTTP 200 with a "remark" and no elements when a
+            # query runs out of time or memory. That is a failed lookup, NOT
+            # "no water nearby": treating it as success made busy-server
+            # timeouts show "No major water within 3 km" beside a lagoon.
+            if data.get("remark") and not data.get("elements"):
+                print(f"Overpass endpoint {index} gave an empty answer: {str(data['remark'])[:120]}")
+                continue
+            return data
         except (requests.RequestException, ValueError) as error:
             print(f"Overpass endpoint {index} request failed: {_redact(error)}")
 
@@ -3036,6 +3044,17 @@ def classify_slope(slope_percent):
     }
 
 
+def _water_result_implausible(elevation, nearest_open_water_m, via_earth_engine=False):
+    """True when the lookup says "no open water within 3 km" for a place whose
+    ground height is at most a few metres above sea level. Land that low is
+    almost always beside a coast, lagoon or river, so a "none found" answer is
+    far more likely to be missing/incomplete map data than the truth. We then
+    report the water distance as not confirmed instead of calling the place
+    far from water."""
+    return (not via_earth_engine and nearest_open_water_m is None
+            and elevation is not None and elevation <= 5)
+
+
 def _closest_point_on_element(lat, lon, el):
     """Closest point (lat, lon) of an Overpass element to the pin. Uses the
     returned geometry (ways, and relation members) and measures to line
@@ -5351,7 +5370,8 @@ def get_geo_context(city_key, lat, lon):
         "nearest_water_label": nearest_water_label,
         "nearest_open_water_m": nearest_open_water_m,
         "building_count": building_count,
-        "water_lookup_available": building_count is not None or water_via_earth_engine,
+        "water_lookup_available": (building_count is not None or water_via_earth_engine) and not _water_result_implausible(elevation, nearest_open_water_m, water_via_earth_engine),
+        "water_lookup_implausible": _water_result_implausible(elevation, nearest_open_water_m, water_via_earth_engine) and (building_count is not None),
         "water_via_earth_engine": water_via_earth_engine,
         "clay_percent": clay_percent,
         "emergency_contacts": emergency_contacts,
@@ -6605,6 +6625,7 @@ def build_prediction(query, known_place=None):
         "nearest_water_m": round(nearest_water_m) if nearest_water_m is not None else None,
         "nearest_coast_m": round(nearest_coast_m) if nearest_coast_m is not None else None,
         "water_lookup_available": geo.get("water_lookup_available", False),
+        "water_lookup_implausible": geo.get("water_lookup_implausible", False),
 
         "nearest_water_lat": nearest_water_point[0] if nearest_water_point else None,
         "nearest_water_lon": nearest_water_point[1] if nearest_water_point else None,

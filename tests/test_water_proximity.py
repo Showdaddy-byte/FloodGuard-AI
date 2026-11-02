@@ -34,3 +34,20 @@ class WaterProximity(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EmptyAnswerIsFailure(unittest.TestCase):
+    def test_remark_without_elements_is_not_success(self):
+        class R:
+            def raise_for_status(self): pass
+            def json(self): return {"elements": [], "remark": "runtime error: Query timed out"}
+        with mock.patch.object(flood_app, "request_with_retry", return_value=R()):
+            self.assertIsNone(flood_app.query_overpass("x"))
+
+
+class Plausibility(unittest.TestCase):
+    def test_no_water_at_sea_level_is_not_trusted(self):
+        self.assertTrue(flood_app._water_result_implausible(1, None))
+        self.assertFalse(flood_app._water_result_implausible(40, None))
+        self.assertFalse(flood_app._water_result_implausible(1, 300))
+        self.assertFalse(flood_app._water_result_implausible(None, None))
