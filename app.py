@@ -3051,7 +3051,7 @@ def _water_result_implausible(elevation, nearest_open_water_m, via_earth_engine=
     far more likely to be missing/incomplete map data than the truth. We then
     report the water distance as not confirmed instead of calling the place
     far from water."""
-    return (not via_earth_engine and nearest_open_water_m is None
+    return (nearest_open_water_m is None
             and elevation is not None and elevation <= 5)
 
 
@@ -5371,7 +5371,7 @@ def get_geo_context(city_key, lat, lon):
         "nearest_open_water_m": nearest_open_water_m,
         "building_count": building_count,
         "water_lookup_available": (building_count is not None or water_via_earth_engine) and not _water_result_implausible(elevation, nearest_open_water_m, water_via_earth_engine),
-        "water_lookup_implausible": _water_result_implausible(elevation, nearest_open_water_m, water_via_earth_engine) and (building_count is not None),
+        "water_lookup_implausible": _water_result_implausible(elevation, nearest_open_water_m, water_via_earth_engine) and (building_count is not None or water_via_earth_engine),
         "water_via_earth_engine": water_via_earth_engine,
         "clay_percent": clay_percent,
         "emergency_contacts": emergency_contacts,

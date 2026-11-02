@@ -51,3 +51,6 @@ class Plausibility(unittest.TestCase):
         self.assertFalse(flood_app._water_result_implausible(40, None))
         self.assertFalse(flood_app._water_result_implausible(1, 300))
         self.assertFalse(flood_app._water_result_implausible(None, None))
+
+    def test_satellite_fallback_also_checked(self):
+        self.assertTrue(flood_app._water_result_implausible(1, None, True))
