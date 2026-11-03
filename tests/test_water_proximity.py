@@ -54,3 +54,29 @@ class Plausibility(unittest.TestCase):
 
     def test_satellite_fallback_also_checked(self):
         self.assertTrue(flood_app._water_result_implausible(1, None, True))
+
+
+class SeparatedLookups(unittest.TestCase):
+    def test_partial_answer_with_remark_is_rejected(self):
+        partial = {"elements": [coast_way()], "remark": "runtime error: Query timed out"}
+        with mock.patch.object(flood_app, "query_overpass", return_value=partial):
+            self.assertIsNone(flood_app.fetch_water_context(LAT, LON))
+
+    def test_water_kept_when_building_request_fails(self):
+        def fake(q):
+            return {"elements": [coast_way()]} if "coastline" in q else None
+        with mock.patch.object(flood_app, "query_overpass", side_effect=fake):
+            r = flood_app.fetch_water_and_urban_context(LAT, LON, fallback_building_count=120)
+        self.assertLess(r[0], 400)
+        self.assertEqual(r[2], 120)
+
+    def test_water_failure_returns_all_none(self):
+        with mock.patch.object(flood_app, "query_overpass", return_value=None):
+            self.assertEqual(flood_app.fetch_water_and_urban_context(LAT, LON), (None,) * 6)
+
+    def test_no_result_cap_in_water_query(self):
+        seen = []
+        with mock.patch.object(flood_app, "query_overpass", side_effect=lambda q: seen.append(q) or {"elements": []}):
+            flood_app.fetch_water_context(LAT, LON)
+        self.assertNotIn("300;", seen[0])
+        self.assertNotIn("building", seen[0])

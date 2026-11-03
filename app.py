@@ -486,7 +486,7 @@ def query_overpass(query):
             # query runs out of time or memory. That is a failed lookup, NOT
             # "no water nearby": treating it as success made busy-server
             # timeouts show "No major water within 3 km" beside a lagoon.
-            if data.get("remark") and not data.get("elements"):
+            if data.get("remark"):
                 print(f"Overpass endpoint {index} gave an empty answer: {str(data['remark'])[:120]}")
                 continue
             return data
@@ -3097,65 +3097,56 @@ def _closest_point_on_element(lat, lon, el):
     return None
 
 
-def fetch_water_and_urban_context(lat, lon, radius_m=3000):
-    """Single Overpass (OpenStreetMap) query covering both nearby
-    water/coastline features and built-up density within radius_m, to keep
-    this to one external call instead of two. Coastline/sea features are
-    tracked separately from rivers/lakes so we can tell whether a location
-    is genuinely a coastal region, anywhere in the world.
+def _overpass_answer_is_complete(data):
+    """False when Overpass says it did not finish (timeout, out of memory...).
+    Any "remark" is treated as an incomplete answer, even when some elements
+    came back, because a partial list can miss the nearest water."""
+    return bool(data) and not data.get("remark")
 
-    Returns a 6th value, nearest_open_water_m, counting ONLY open water
-    (coastline/sea, rivers, lakes/lagoons). Streams and canals still count
-    toward nearest_water_m (drainage matters for flooding) but not toward
-    nearest_open_water_m, which drives the >1 km proximity rule."""
-    # `out center` reports the middle of a way's bounding box, which for a
-    # long coastline, river or bay can be many km from the pin even when the
-    # water is right beside it; and a hard cap of 40 unsorted results could
-    # drop the nearest feature in a dense city. So ask for the real geometry
-    # (clipped to the search box) and measure to the closest point on it.
+
+def fetch_water_context(lat, lon, radius_m=3000):
+    """Nearby water only (no building count), as its own Overpass request so a
+    building-count problem can never invalidate the water result.
+
+    Returns (nearest_water_m, nearest_coast_m, nearest_water_point,
+    nearest_water_label, nearest_open_water_m), or None when the lookup did
+    not complete. A completed lookup that found nothing returns a tuple of
+    Nones, which is different from None.
+
+    Streams and canals count toward nearest_water_m (drainage matters) but not
+    nearest_open_water_m, which drives the >1 km proximity rule.
+
+    The query asks for real geometry (clipped to the search box) and measures
+    to the closest point on it: `out center` is the middle of a way's bounding
+    box, which for a long coastline, bay or river can be km from the pin. No
+    result cap is used, because a cap on unsorted results could drop the
+    nearest feature in a densely mapped city."""
     dlat = radius_m / 111320.0
     dlon = radius_m / (111320.0 * max(0.05, math.cos(math.radians(lat))))
     bbox = f"{lat - dlat:.6f},{lon - dlon:.6f},{lat + dlat:.6f},{lon + dlon:.6f}"
     query = f"""
-    [out:json][timeout:20];
+    [out:json][timeout:25];
     (
       way["natural"="coastline"](around:{radius_m},{lat},{lon});
       way["natural"="water"](around:{radius_m},{lat},{lon});
       relation["natural"="water"](around:{radius_m},{lat},{lon});
-      way["waterway"~"river|stream|canal"](around:{radius_m},{lat},{lon});
+      way["waterway"~"river|stream|canal|riverbank"](around:{radius_m},{lat},{lon});
       node["place"="sea"](around:{radius_m},{lat},{lon});
     );
-    out tags geom({bbox}) 300;
-    (
-      nwr["building"](around:600,{lat},{lon});
-    );
-    out count;
+    out tags geom({bbox});
     """
     data = query_overpass(query)
-    if data is None:
-        print("Water and urban-context request failed on every Overpass endpoint.")
-        return None, None, None, None, None, None
+    if data is None or not _overpass_answer_is_complete(data):
+        print("Water request did not complete on any Overpass endpoint.")
+        return None
 
-    elements = data.get("elements", [])
     water_candidates = []  # (point, tags)
     open_water_points = []
     coast_points = []
-    building_count = 0
-
-    for el in elements:
-        if el.get("type") == "count":
-            # Overpass's "out count;" response uses the tag key "total"
-            # (plus "nodes"/"ways"/"relations") — never "buildings". Reading
-            # the wrong key here meant building_count silently evaluated to
-            # 0 on every single request regardless of what Overpass
-            # actually found there.
-            building_count = int(el.get("tags", {}).get("total", 0) or 0)
-            continue
-
+    for el in data.get("elements", []):
         point = _closest_point_on_element(lat, lon, el)
         if point is None:
             continue
-
         tags = el.get("tags", {})
         water_candidates.append((point, tags))
         if not (tags.get("waterway") in ("stream", "canal")):
@@ -3163,9 +3154,7 @@ def fetch_water_and_urban_context(lat, lon, radius_m=3000):
         if tags.get("natural") == "coastline" or tags.get("place") == "sea":
             coast_points.append(point)
 
-    nearest_water_m = None
-    nearest_water_point = None
-    nearest_water_label = None
+    nearest_water_m = nearest_water_point = nearest_water_label = None
     if water_candidates:
         nearest_point, nearest_tags = min(
             water_candidates, key=lambda c: haversine_meters(lat, lon, c[0][0], c[0][1])
@@ -3182,6 +3171,44 @@ def fetch_water_and_urban_context(lat, lon, radius_m=3000):
     if open_water_points:
         nearest_open_water_m = min(haversine_meters(lat, lon, p[0], p[1]) for p in open_water_points)
 
+    return nearest_water_m, nearest_coast_m, nearest_water_point, nearest_water_label, nearest_open_water_m
+
+
+def fetch_building_count(lat, lon, radius_m=600):
+    """Buildings within radius_m as a separate, light request. None if it did
+    not complete."""
+    data = query_overpass(f"""
+    [out:json][timeout:15];
+    nwr["building"](around:{radius_m},{lat},{lon});
+    out count;
+    """)
+    if data is None or not _overpass_answer_is_complete(data):
+        return None
+    for el in data.get("elements", []):
+        if el.get("type") == "count":
+            # The "out count;" tag key is "total", never "buildings".
+            return int(el.get("tags", {}).get("total", 0) or 0)
+    return 0
+
+
+def fetch_water_and_urban_context(lat, lon, radius_m=3000, fallback_building_count=None):
+    """Water and building lookups, now two independent Overpass requests.
+
+    Same 6-value return as before; building_count is None only when the WATER
+    lookup did not complete (callers use that as the "lookup failed" marker).
+    If water succeeded but the building request did not, the last known
+    building count (fallback_building_count) is used, else 0 with a log line:
+    building density only affects a small urbanisation bonus, and must not
+    throw away a good water result."""
+    water = fetch_water_context(lat, lon, radius_m)
+    if water is None:
+        return None, None, None, None, None, None
+    nearest_water_m, nearest_coast_m, nearest_water_point, nearest_water_label, nearest_open_water_m = water
+    building_count = fetch_building_count(lat, lon)
+    if building_count is None:
+        building_count = fallback_building_count if fallback_building_count is not None else 0
+        print("Building-count request did not complete; water result kept, building count "
+              + ("taken from the last saved value." if fallback_building_count is not None else "unknown, treated as 0."))
     return nearest_water_m, nearest_coast_m, building_count, nearest_water_point, nearest_water_label, nearest_open_water_m
 
 
@@ -5252,7 +5279,10 @@ def get_geo_context(city_key, lat, lon):
         )
     else:
         nearest_water_m, nearest_coast_m, building_count, nearest_water_point, nearest_water_label, nearest_open_water_m = (
-            fetch_water_and_urban_context(lat, lon)
+            fetch_water_and_urban_context(
+                lat, lon,
+                fallback_building_count=(cached["building_count"] if cached else None),
+            )
         )
         if building_count is None:
             _suppress_lookup("water", city_key, 3)
