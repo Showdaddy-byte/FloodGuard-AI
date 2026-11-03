@@ -93,3 +93,55 @@ class TravelVerdictWithGaps(unittest.TestCase):
 
     def test_higher_risk_unaffected(self):
         self.assertEqual(flood_app.build_travel_recommendation("HIGH", 60, None, data_incomplete=True)["verdict"], "TRAVEL WITH CAUTION")
+
+
+class BroadArea(unittest.TestCase):
+    def test_country_name_is_flagged(self):
+        self.assertIn("whole country", flood_app.broad_area_note("United States"))
+        self.assertIn("whole country", flood_app.broad_area_note("Nigeria"))
+        self.assertIn("whole country", flood_app.broad_area_note("Anything", "country"))
+
+    def test_state_type_is_flagged(self):
+        self.assertIn("state or region", flood_app.broad_area_note("Lagos State", "state"))
+
+    def test_cities_and_neighbourhoods_are_not(self):
+        for name in ("Lagos", "Banana Island", "Rio de Janeiro", "Kano"):
+            self.assertIsNone(flood_app.broad_area_note(name))
+
+
+class OpenWater(unittest.TestCase):
+    def test_oceans_and_seas_flagged(self):
+        for n in ("North Atlantic Ocean", "Atlantic Ocean", "South China Sea", "Mediterranean Sea",
+                  "Gulf of Guinea", "Bight of Benin", "North Sea, Europe", "Pacific Ocean"):
+            self.assertTrue(flood_app.is_open_water_label(n), n)
+
+    def test_land_places_not_flagged(self):
+        for n in ("Lagos", "Banana Island", "Sea Point, Cape Town", "Seaside, Oregon", "Ocean City, Maryland",
+                  "Bay of Plenty", "Hotel Ocean Breeze Lagos", "Rio de Janeiro", "United States"):
+            self.assertFalse(flood_app.is_open_water_label(n), n)
+
+    def test_address_types_never_flagged(self):
+        self.assertFalse(flood_app.is_open_water_label("Blue Sea", "amenity"))
+
+    def test_homepage_shows_message_not_score(self):
+        client = flood_app.app.test_client()
+        with mock.patch.object(flood_app, "API_KEY", "x"):
+            r = client.get("/?map_lat=30&map_lon=-40&map_label=North+Atlantic+Ocean")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn(b"open water", r.data)
+        self.assertNotIn(b"WATCH FLOOD RISK", r.data)
+
+
+class OpenWaterRule(unittest.TestCase):
+    def test_ocean_like_point(self):
+        self.assertTrue(flood_app._looks_like_open_water(0, None, 0))
+        self.assertTrue(flood_app._looks_like_open_water(2, None, 0))
+
+    def test_failed_building_lookup_never_qualifies(self):
+        self.assertFalse(flood_app._looks_like_open_water(0, None, None))
+
+    def test_towns_and_water_do_not_qualify(self):
+        self.assertFalse(flood_app._looks_like_open_water(1, None, 250))   # Banana Island-style: buildings present
+        self.assertFalse(flood_app._looks_like_open_water(1, 300, 0))      # water found
+        self.assertFalse(flood_app._looks_like_open_water(40, None, 0))    # real inland ground
+        self.assertFalse(flood_app._looks_like_open_water(None, None, 0))

@@ -218,6 +218,21 @@ DIGEST_EVENING_UTC_HOUR = int(os.getenv("DIGEST_EVENING_UTC_HOUR", "17"))
 # a full day cuts external call volume by ~95%+, which is what actually
 # fixes Overpass rate-limiting (406s) rather than just retrying harder.
 GEO_CONTEXT_TTL_HOURS = 24
+
+# --- Background monitoring load limits (free API quotas) ---------------------
+# Always swept every WATCHLIST_REFRESH_MINUTES: coastal places, places
+# downstream of dams, and river-basin places. International curated places are
+# NOT swept unless a visitor has just searched for them. Places visitors
+# search for are swept only while the search is this recent, then dropped.
+SWEEP_ALWAYS_CATEGORIES = ("coastal", "dam_watch", "river_basin")
+SEARCHED_PLACE_MONITOR_MINUTES = 15
+# Inland urban places move slowly; refresh them hourly instead of every sweep.
+URBAN_REFRESH_MINUTES = 60
+# A sweep makes no OpenStreetMap (Overpass) calls for places whose terrain is
+# already saved. Places with no saved terrain may use at most this many
+# Overpass lookups per sweep; the rest wait for a later sweep. This stops the
+# every-place burst after Render wipes the disk on a restart.
+SWEEP_MAX_COLD_OVERPASS = 6
 # How long a row with missing fields is reused before those fields are retried.
 GEO_CONTEXT_RETRY_MINUTES = 20
 EARTH_ENGINE_CONTEXT_TTL_HOURS = 6
@@ -465,10 +480,15 @@ def request_with_retry(
         raise last_exc
 
 
+_sweep_ctx = threading.local()
+
+
 def query_overpass(query):
     """Run an Overpass query, failing over to a mirror when one public
     endpoint is busy or unreachable.  A 429 from one endpoint should not
     make a user's water-proximity or emergency-facility result disappear."""
+    if getattr(_sweep_ctx, "no_overpass", False):
+        return None  # background sweep for a place with saved terrain: use the cache
     for index, url in enumerate(OVERPASS_URLS, start=1):
         try:
             response = request_with_retry(
@@ -1097,13 +1117,20 @@ _watchlist_refreshing = False
 
 
 def get_all_monitored_locations():
-    """Static curated list, plus every distinct location anyone has ever
-    searched, plus every distinct location an alert subscriber is watching —
-    so a place a visitor checks (or subscribes to) stays under continuous
-    monitoring afterward instead of only being watched at the moment of
-    that one search."""
+    """Places the background sweep keeps fresh:
+      - curated coastal, dam-downstream and river-basin places, plus curated
+        inland urban places (swept hourly, see refresh_watchlist_cache);
+      - curated international places ONLY while a visitor has just searched
+        for them;
+      - places visitors searched in the last SEARCHED_PLACE_MONITOR_MINUTES,
+        and then no longer (they do not linger);
+      - places that alert subscribers (web or Telegram) follow, because their
+        alerts depend on them."""
+    cutoff = (datetime.utcnow() - timedelta(minutes=SEARCHED_PLACE_MONITOR_MINUTES)).isoformat()
     conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute("SELECT DISTINCT city_label FROM searches").fetchall()
+    rows = conn.execute(
+        "SELECT DISTINCT city_label FROM searches WHERE created_at >= ?", (cutoff,)
+    ).fetchall()
     alert_rows = conn.execute("SELECT DISTINCT city_label FROM alert_locations").fetchall()
     conn.close()
 
@@ -1113,7 +1140,7 @@ def get_all_monitored_locations():
             searched += tg.extra_monitored_labels()
         except Exception as error:  # noqa: BLE001 - never break the sweep over an optional feature
             print(f"Telegram monitored-area lookup failed: {_redact(error)}")
-    combined = list(MONITORED_LOCATIONS)
+    combined = [loc["label"] for loc in CURATED_LOCATIONS if loc["category"] != "international"]
     seen = {normalize_city(loc) for loc in combined}
     for label in searched:
         key = normalize_city(label)
@@ -1121,6 +1148,21 @@ def get_all_monitored_locations():
             seen.add(key)
             combined.append(label)
     return combined
+
+
+def _location_category(label):
+    loc = CURATED_LOCATION_LOOKUP.get(normalize_city(label))
+    return loc["category"] if loc else None
+
+
+def _prune_unmonitored_watchlist_rows(conn, monitored_labels):
+    """Drop cached rows for places no longer monitored, so the Places panel
+    does not show old data for international or expired searched places."""
+    keep = {normalize_city(l) for l in monitored_labels}
+    for (key,) in conn.execute("SELECT city_key FROM watchlist_cache").fetchall():
+        if key not in keep:
+            conn.execute("DELETE FROM watchlist_cache WHERE city_key = ?", (key,))
+    conn.commit()
 
 
 def _upsert_watchlist_row(conn, prediction, timestamp):
@@ -1190,7 +1232,29 @@ def refresh_watchlist_cache():
     now = datetime.utcnow().isoformat()
     locations = get_all_monitored_locations()
 
+    cold_overpass_left = SWEEP_MAX_COLD_OVERPASS
     for index, location in enumerate(locations):
+        category = _location_category(location)
+        row = conn.execute(
+            "SELECT updated_at FROM watchlist_cache WHERE city_key = ?", (normalize_city(location),)
+        ).fetchone()
+        if category == "urban" and row and row[0]:
+            try:
+                if (datetime.utcnow() - _parse_stored_datetime(row[0])).total_seconds() / 60 < URBAN_REFRESH_MINUTES - 5:
+                    continue  # refreshed recently enough; inland urban places go hourly
+            except (TypeError, ValueError):
+                pass
+        has_saved_terrain = conn.execute(
+            "SELECT 1 FROM geo_context_cache WHERE city_key = ? AND building_count IS NOT NULL",
+            (normalize_city(location),),
+        ).fetchone()
+        if has_saved_terrain:
+            _sweep_ctx.no_overpass = True
+        elif cold_overpass_left > 0:
+            cold_overpass_left -= 1
+            _sweep_ctx.no_overpass = False
+        else:
+            continue  # no saved terrain and the OpenStreetMap budget for this sweep is spent
         try:
             known_place = _known_place_for_curated_location(location)
             if not known_place and tg.enabled():
@@ -1200,6 +1264,8 @@ def refresh_watchlist_cache():
         except Exception as error:  # noqa: BLE001 — one bad location must not break the rest
             print(f"Watchlist refresh failed for {location}: {error}")
             continue
+        finally:
+            _sweep_ctx.no_overpass = False
 
         if not prediction:
             continue
@@ -1217,6 +1283,10 @@ def refresh_watchlist_cache():
         if index < len(locations) - 1:
             time.sleep(WATCHLIST_SWEEP_STAGGER_SECONDS)
 
+    try:
+        _prune_unmonitored_watchlist_rows(conn, locations)
+    except sqlite3.Error as error:
+        print(f"Watchlist prune failed: {error}")
     conn.close()
 
 
@@ -3059,6 +3129,17 @@ def _water_result_implausible(elevation, nearest_open_water_m, via_earth_engine=
     far from water."""
     return (nearest_open_water_m is None
             and elevation is not None and elevation <= 5)
+
+
+def _looks_like_open_water(elevation, nearest_water_m, building_count):
+    """Open sea, or land so empty it cannot be assessed as a place: ground at
+    most 5 m above sea level, no mapped water within the search radius, and a
+    SUCCESSFUL building lookup that found zero buildings. A failed lookup
+    (building_count None) never qualifies, so a service outage cannot create
+    this verdict. It is a rule of thumb, not a land/water map, so the wording
+    says "open water or uninhabited" rather than claiming certainty."""
+    return (elevation is not None and elevation <= 5
+            and nearest_water_m is None and building_count == 0)
 
 
 def _closest_point_on_element(lat, lon, el):
@@ -5428,7 +5509,8 @@ def get_geo_context(city_key, lat, lon):
         "nearest_open_water_m": nearest_open_water_m,
         "building_count": building_count,
         "water_lookup_available": (building_count is not None or water_via_earth_engine) and not _water_result_implausible(elevation, nearest_open_water_m, water_via_earth_engine),
-        "water_lookup_implausible": _water_result_implausible(elevation, nearest_open_water_m, water_via_earth_engine) and (building_count is not None or water_via_earth_engine),
+        "location_type": "OPEN_WATER_OR_UNINHABITED" if _looks_like_open_water(elevation, nearest_water_m, building_count) else "LAND",
+        "water_lookup_implausible": _water_result_implausible(elevation, nearest_open_water_m, water_via_earth_engine) and (building_count is not None or water_via_earth_engine) and not _looks_like_open_water(elevation, nearest_water_m, building_count),
         "water_via_earth_engine": water_via_earth_engine,
         "clay_percent": clay_percent,
         "emergency_contacts": emergency_contacts,
@@ -6400,6 +6482,66 @@ def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engi
     }
 
 
+_BROAD_AREA_ALIASES = {"united states", "the united states", "usa", "us", "u.s.", "u.s.a.", "uk", "u.k.", "uae", "america", "united states of america", "great britain"}
+_broad_area_names_cache = None
+
+
+def _broad_area_names():
+    """Country names (from the bundled world directory) used to recognise a
+    search that means a whole country."""
+    global _broad_area_names_cache
+    if _broad_area_names_cache is None:
+        names = set(_BROAD_AREA_ALIASES)
+        try:
+            path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "world_emergency_numbers.json")
+            with open(path, encoding="utf-8") as fh:
+                for entry in (json.load(fh).get("countries") or {}).values():
+                    if entry.get("name"):
+                        names.add(entry["name"].strip().lower())
+        except (OSError, ValueError):
+            pass
+        _broad_area_names_cache = names
+    return _broad_area_names_cache
+
+
+def broad_area_note(label, result_type=None):
+    """A plain-language note when the searched place is a whole country or
+    state. FloodGuard scores ONE point, so for a place this big the result
+    describes the middle of it and says little about the rest."""
+    rtype = (result_type or "").lower()
+    name = (label or "").split(",")[0].strip().lower()
+    if rtype == "country" or (name and name in _broad_area_names()):
+        kind = "a whole country"
+    elif rtype == "state":
+        kind = "a whole state or region"
+    else:
+        return None
+    return (f"You searched {kind}. FloodGuard scores a single point, the centre of the area that matched, "
+            "so this result does not describe the rest of it. Search a city or neighbourhood for a meaningful result.")
+
+
+_OPEN_WATER_RE = re.compile(
+    r"^(?:(?:[a-z'\-]+\s+){0,2}(?:ocean|sea)"
+    r"|(?:gulf|bight|strait|sea|ocean)\s+of\s+[a-z'\- ]{2,30})$"
+)
+
+
+def is_open_water_label(label, result_type=None):
+    """True when the searched place is an ocean or sea (for example "North
+    Atlantic Ocean", "Gulf of Guinea"). Land flooding is what FloodGuard
+    scores, so a point in open water has no meaningful result. Only the first
+    part of a label is read, and addresses/buildings are never matched, so a
+    street or business that merely contains "Sea" is not caught."""
+    if (result_type or "").lower() in ("building", "amenity", "street", "postcode", "suburb", "city", "town", "village"):
+        return False
+    name = (label or "").split(",")[0].strip().lower()
+    return bool(name and _OPEN_WATER_RE.match(name))
+
+
+OPEN_WATER_MESSAGE = ("That point is in open water. FloodGuard assesses flooding on land, so it has no result for "
+                      "an ocean or sea. Search a coastal city or neighbourhood, or pick a point on land.")
+
+
 def build_prediction(query, known_place=None):
     """query is used for live geocoding unless known_place is supplied, in
     which case geocoding is skipped entirely and these verified coordinates
@@ -6658,6 +6800,15 @@ def build_prediction(query, known_place=None):
         }
 
     travel_recommendation = build_travel_recommendation(flood_model["risk"], flood_model["score"], timeline, data_incomplete=bool(vulnerability.get("data_incomplete")))
+    if geo.get("location_type") == "OPEN_WATER_OR_UNINHABITED" and flood_model["risk"] in ("LOW", "UNKNOWN"):
+        # No land-based "safe" verdict for open water. Real rain/flood signals
+        # (WATCH and above) are left to speak for themselves.
+        travel_recommendation = {
+            "verdict": "NOT A LAND LOCATION",
+            "color": "watch",
+            "headline": "This point looks like open water or an uninhabited area (no buildings or mapped water found, ground at sea level), so FloodGuard's land-based flood assessment does not apply here.",
+            "better_window": None,
+        }
     rainfall_warning = build_rainfall_warning(timeline, coastal=coastal)
     print("STEP 9: Completed")
     prediction_result = {
@@ -6668,6 +6819,7 @@ def build_prediction(query, known_place=None):
         # fire on data without a recent timestamp, and the street-risk panel
         # shows it as "latest assessment".
         "assessed_at": datetime.utcnow().isoformat(),
+        "broad_area_note": broad_area_note(place.get("name"), place.get("result_type")),
         # Structured identity of the place (country, region, city, neighbourhood,
         # time zone) - used to target Telegram subscribers and thresholds.
         "area": _area_meta(dict(place, lat=lat, lon=lon), weather.get("country")),
@@ -6683,6 +6835,7 @@ def build_prediction(query, known_place=None):
         "nearest_coast_m": round(nearest_coast_m) if nearest_coast_m is not None else None,
         "water_lookup_available": geo.get("water_lookup_available", False),
         "water_lookup_implausible": geo.get("water_lookup_implausible", False),
+        "location_type": geo.get("location_type", "LAND"),
 
         "nearest_water_lat": nearest_water_point[0] if nearest_water_point else None,
         "nearest_water_lon": nearest_water_point[1] if nearest_water_point else None,
@@ -6853,12 +7006,19 @@ def home():
     elif city and not error:
         if not API_KEY:
             error = "Weather API key is missing. Add OPENWEATHER_API_KEY to your hosting environment variables."
+        elif is_open_water_label(city):
+            error = OPEN_WATER_MESSAGE
         else:
             prediction, forecast = build_prediction(
                 city,
                 known_place=map_known_place or _known_place_for_curated_location(city),
             )
-            if not prediction:
+            if prediction and is_open_water_label(prediction.get("city"), (prediction.get("area") or {}).get("result_type")):
+                prediction, forecast = None, None
+                error = OPEN_WATER_MESSAGE
+            if error:
+                pass
+            elif not prediction:
                 error = "City not found or weather service unavailable."
             else:
                 reports = get_city_contributions(prediction["city"])
