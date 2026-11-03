@@ -80,3 +80,16 @@ class SeparatedLookups(unittest.TestCase):
             flood_app.fetch_water_context(LAT, LON)
         self.assertNotIn("300;", seen[0])
         self.assertNotIn("building", seen[0])
+
+
+class TravelVerdictWithGaps(unittest.TestCase):
+    def test_low_with_missing_data_is_not_called_safe(self):
+        r = flood_app.build_travel_recommendation("LOW", 20, None, data_incomplete=True)
+        self.assertNotEqual(r["verdict"], "SAFE TO TRAVEL")
+        self.assertIn("not a confirmation", r["headline"])
+
+    def test_low_with_full_data_unchanged(self):
+        self.assertEqual(flood_app.build_travel_recommendation("LOW", 20, None)["verdict"], "SAFE TO TRAVEL")
+
+    def test_higher_risk_unaffected(self):
+        self.assertEqual(flood_app.build_travel_recommendation("HIGH", 60, None, data_incomplete=True)["verdict"], "TRAVEL WITH CAUTION")

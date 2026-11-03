@@ -218,6 +218,8 @@ DIGEST_EVENING_UTC_HOUR = int(os.getenv("DIGEST_EVENING_UTC_HOUR", "17"))
 # a full day cuts external call volume by ~95%+, which is what actually
 # fixes Overpass rate-limiting (406s) rather than just retrying harder.
 GEO_CONTEXT_TTL_HOURS = 24
+# How long a row with missing fields is reused before those fields are retried.
+GEO_CONTEXT_RETRY_MINUTES = 20
 EARTH_ENGINE_CONTEXT_TTL_HOURS = 6
 
 # Locations actively monitored for the homepage alert banner, independent of
@@ -3960,7 +3962,7 @@ def classify_risk(score, coastal=False):
     }
 
 
-def build_travel_recommendation(risk_level, score, timeline):
+def build_travel_recommendation(risk_level, score, timeline, data_incomplete=False):
     """A clear go/no-go verdict instead of just a number — this is
     deliberately conservative about what it claims: no specific road names
     or exact clock-time promises, since no free data source can verify
@@ -3975,6 +3977,13 @@ def build_travel_recommendation(risk_level, score, timeline):
         verdict, color, headline = "TRAVEL WITH CAUTION", "high", "Flooding is plausible — expect delays and standing water on low-lying routes."
     elif risk_level == "WATCH":
         verdict, color, headline = "TRAVEL WITH CAUTION", "watch", "Conditions are borderline — keep an eye on rainfall before heading out."
+    elif data_incomplete:
+        # Key location data (for example water proximity) is missing, so
+        # "safe" would claim more than FloodGuard knows. Say what it can.
+        verdict, color, headline = (
+            "NO FLOOD SIGNAL DETECTED", "low",
+            "No flood signal in the current weather data. Some location data is unavailable, so this is not a confirmation that the area is safe.",
+        )
     else:
         verdict, color, headline = "SAFE TO TRAVEL", "low", "No significant flood signal for this location right now."
 
@@ -5155,7 +5164,13 @@ def get_geo_context(city_key, lat, lon):
             or cached["clay_percent"] is None
         )
 
-        if age_hours < GEO_CONTEXT_TTL_HOURS and not critical_fields_missing:
+        # A row with missing fields is retried, but not on every request or
+        # every 15-minute sweep: when SoilGrids or Overpass is down, retrying
+        # all fields for every place each time only adds load to services that
+        # are already refusing us (and slows every search). Within the retry
+        # window the stored row is used as it is, with its gaps shown honestly.
+        recently_tried = age_hours * 60 < GEO_CONTEXT_RETRY_MINUTES
+        if age_hours < GEO_CONTEXT_TTL_HOURS and (not critical_fields_missing or recently_tried):
                         # Soil moisture changes more slowly than weather but faster than
             # static terrain. Reuse it for up to 6 hours to avoid hitting
             # Open-Meteo on every watchlist prediction.
@@ -6642,7 +6657,7 @@ def build_prediction(query, known_place=None):
             ),
         }
 
-    travel_recommendation = build_travel_recommendation(flood_model["risk"], flood_model["score"], timeline)
+    travel_recommendation = build_travel_recommendation(flood_model["risk"], flood_model["score"], timeline, data_incomplete=bool(vulnerability.get("data_incomplete")))
     rainfall_warning = build_rainfall_warning(timeline, coastal=coastal)
     print("STEP 9: Completed")
     prediction_result = {
