@@ -3131,17 +3131,6 @@ def _water_result_implausible(elevation, nearest_open_water_m, via_earth_engine=
             and elevation is not None and elevation <= 5)
 
 
-def _looks_like_open_water(elevation, nearest_water_m, building_count):
-    """Open sea, or land so empty it cannot be assessed as a place: ground at
-    most 5 m above sea level, no mapped water within the search radius, and a
-    SUCCESSFUL building lookup that found zero buildings. A failed lookup
-    (building_count None) never qualifies, so a service outage cannot create
-    this verdict. It is a rule of thumb, not a land/water map, so the wording
-    says "open water or uninhabited" rather than claiming certainty."""
-    return (elevation is not None and elevation <= 5
-            and nearest_water_m is None and building_count == 0)
-
-
 def _closest_point_on_element(lat, lon, el):
     """Closest point (lat, lon) of an Overpass element to the pin. Uses the
     returned geometry (ways, and relation members) and measures to line
@@ -5509,8 +5498,7 @@ def get_geo_context(city_key, lat, lon):
         "nearest_open_water_m": nearest_open_water_m,
         "building_count": building_count,
         "water_lookup_available": (building_count is not None or water_via_earth_engine) and not _water_result_implausible(elevation, nearest_open_water_m, water_via_earth_engine),
-        "location_type": "OPEN_WATER_OR_UNINHABITED" if _looks_like_open_water(elevation, nearest_water_m, building_count) else "LAND",
-        "water_lookup_implausible": _water_result_implausible(elevation, nearest_open_water_m, water_via_earth_engine) and (building_count is not None or water_via_earth_engine) and not _looks_like_open_water(elevation, nearest_water_m, building_count),
+        "water_lookup_implausible": _water_result_implausible(elevation, nearest_open_water_m, water_via_earth_engine) and (building_count is not None or water_via_earth_engine),
         "water_via_earth_engine": water_via_earth_engine,
         "clay_percent": clay_percent,
         "emergency_contacts": emergency_contacts,
@@ -6800,15 +6788,6 @@ def build_prediction(query, known_place=None):
         }
 
     travel_recommendation = build_travel_recommendation(flood_model["risk"], flood_model["score"], timeline, data_incomplete=bool(vulnerability.get("data_incomplete")))
-    if geo.get("location_type") == "OPEN_WATER_OR_UNINHABITED" and flood_model["risk"] in ("LOW", "UNKNOWN"):
-        # No land-based "safe" verdict for open water. Real rain/flood signals
-        # (WATCH and above) are left to speak for themselves.
-        travel_recommendation = {
-            "verdict": "NOT A LAND LOCATION",
-            "color": "watch",
-            "headline": "This point looks like open water or an uninhabited area (no buildings or mapped water found, ground at sea level), so FloodGuard's land-based flood assessment does not apply here.",
-            "better_window": None,
-        }
     rainfall_warning = build_rainfall_warning(timeline, coastal=coastal)
     print("STEP 9: Completed")
     prediction_result = {
@@ -6835,7 +6814,6 @@ def build_prediction(query, known_place=None):
         "nearest_coast_m": round(nearest_coast_m) if nearest_coast_m is not None else None,
         "water_lookup_available": geo.get("water_lookup_available", False),
         "water_lookup_implausible": geo.get("water_lookup_implausible", False),
-        "location_type": geo.get("location_type", "LAND"),
 
         "nearest_water_lat": nearest_water_point[0] if nearest_water_point else None,
         "nearest_water_lon": nearest_water_point[1] if nearest_water_point else None,
