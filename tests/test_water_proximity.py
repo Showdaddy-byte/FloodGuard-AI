@@ -12,6 +12,18 @@ def coast_way():
             "center": {"lat": LAT + 0.06, "lon": LON + 0.05}}
 
 
+
+_REAL_GEOAPIFY_KEY = flood_app.GEOAPIFY_API_KEY
+
+
+def setUpModule():
+    flood_app.GEOAPIFY_API_KEY = None  # never call the real Geoapify from these tests
+
+
+def tearDownModule():
+    flood_app.GEOAPIFY_API_KEY = _REAL_GEOAPIFY_KEY
+
+
 class WaterProximity(unittest.TestCase):
     def test_uses_geometry_not_far_centre(self):
         data = {"elements": [coast_way(), {"type": "count", "tags": {"total": "50"}}]}
@@ -71,7 +83,8 @@ class SeparatedLookups(unittest.TestCase):
         self.assertEqual(r[2], 120)
 
     def test_water_failure_returns_all_none(self):
-        with mock.patch.object(flood_app, "query_overpass", return_value=None):
+        with mock.patch.object(flood_app, "query_overpass", return_value=None), \
+             mock.patch.object(flood_app, "fetch_water_context_geoapify", return_value=None):
             self.assertEqual(flood_app.fetch_water_and_urban_context(LAT, LON), (None,) * 6)
 
     def test_no_result_cap_in_water_query(self):
@@ -86,7 +99,8 @@ class TravelVerdictWithGaps(unittest.TestCase):
     def test_low_with_missing_data_is_not_called_safe(self):
         r = flood_app.build_travel_recommendation("LOW", 20, None, data_incomplete=True)
         self.assertNotEqual(r["verdict"], "SAFE TO TRAVEL")
-        self.assertIn("not a confirmation", r["headline"])
+        self.assertEqual(r["verdict"], "NO FLOOD SIGNAL DETECTED")
+        self.assertIn("limited", r["headline"])
 
     def test_low_with_full_data_unchanged(self):
         self.assertEqual(flood_app.build_travel_recommendation("LOW", 20, None)["verdict"], "SAFE TO TRAVEL")

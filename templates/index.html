@@ -713,10 +713,12 @@
             <div id="cr-map" role="img" aria-label="Map of streets at risk"></div>
         </div>
 
+        {% if session.get('is_admin') %}
         <details class="cr-notes">
-            <summary>Data sources and limits</summary>
+            <summary>Data sources and limits (admin only)</summary>
             <div id="cr-sources"></div>
         </details>
+        {% endif %}
     </section>
 
     <section id="emergency-centre" class="route-safety-panel" data-alert="{{ 'true' if (prediction and prediction.risk in ['HIGH','SEVERE','CRITICAL']) else 'false' }}"{% if prediction %} data-lat="{{ prediction.latitude }}" data-lon="{{ prediction.longitude }}" data-label="{{ prediction.city }}"{% endif %}>
@@ -878,6 +880,7 @@
                 <div class="result-header">
                     <div>
                         <h3>{{ prediction.city }}{% if prediction.country %}, {{ prediction.country }}{% endif %}{% if prediction.coastal %}<span class="coastal-badge">🌊 Coastal — alert threshold lowered</span>{% endif %}</h3>
+                        {% if prediction.broad_area_note %}<p class="broad-area-note" style="margin:.4rem 0 0;padding:.55rem .75rem;border-radius:10px;background:rgba(14,165,233,.12);border:1px solid rgba(14,165,233,.35);font-size:.92rem;">{{ prediction.broad_area_note }}</p>{% endif %}
                         <p>{{ prediction.description }}</p>
                     </div>
                     <div class="risk-pill risk-{{ prediction.risk_color }}">{{ prediction.risk }}</div>
@@ -893,7 +896,7 @@
                         <span class="dual-score-label">Flood Vulnerability</span>
                         {% if prediction.vulnerability.data_incomplete %}
                         <strong class="dual-score-value">Incomplete</strong>
-                        <p>Key location data could not be retrieved right now — this is not a confirmation of low risk. See details below.</p>
+                        <p>Some local detail is limited right now. See below.</p>
                         {% else %}
                         <strong class="dual-score-value">{{ prediction.vulnerability.score }}/100</strong>
                         <p>How flood-prone this location inherently is: elevation, water proximity, and flood history. Does not depend on today's weather.</p>
@@ -937,7 +940,7 @@
                     <div><span>Rainfall</span><strong>{{ prediction.rainfall }} mm</strong></div>
                     <div><span>Elevation</span><strong>{% if prediction.elevation is not none %}{{ prediction.elevation }} m{% else %}Unavailable{% endif %}</strong></div>
                     <div><span>Slope</span><strong>{% if prediction.slope_percent is not none %}{{ prediction.slope_percent }}%{% else %}Unavailable{% endif %}</strong></div>
-                    <div><span>Nearest water</span><strong>{% if prediction.nearest_water_m is not none %}{{ prediction.nearest_water_m }} m{% elif prediction.water_lookup_available %}No major water within 3 km{% elif prediction.water_lookup_implausible %}Not confirmed. Map data may be incomplete here{% else %}Temporarily unavailable{% endif %}</strong></div>
+                    <div><span>Nearest water</span><strong>{% if prediction.nearest_water_m is not none %}{{ prediction.nearest_water_m }} m{% elif prediction.location_type == 'OPEN_WATER_OR_UNINHABITED' %}Not applicable here. Open water or an uninhabited area{% elif prediction.water_lookup_available %}No major water within 3 km{% elif prediction.water_lookup_implausible %}Limited map data for this spot right now{% else %}Temporarily unavailable{% endif %}</strong></div>
                 </div>
 
                 {% if prediction.priority_action %}
@@ -1280,7 +1283,6 @@
                 <a href="mailto:info@myfloodguard.online">info@myfloodguard.online</a>
             </div>
         </div>
-        <p>Weather data by <a href="https://openweathermap.org" target="_blank" rel="noopener" style="color:#9ca3af;">OpenWeather</a></p>
         <p><a href="/terms" style="color:#9ca3af;">Terms of Service</a></p>
         <p>Copyright 2026 FloodGuard AI. All Rights Reserved.</p>
     </footer>
@@ -2127,6 +2129,7 @@
                     return "<li>" + esc(a.source) + ": " + esc(a.event) + " (" + esc(a.severity) + ")" + (a.area ? " &ndash; " + esc(a.area) : "") + "</li>";
                 }).join("") + "</ul><span class=\"cr-meta\">Official alerts cover a warning area, not this individual street.</span></div>";
             }
+            var IS_ADMIN = {{ 'true' if session.get('is_admin') else 'false' }};
             function coverageHtml(list, gaps) {
                 var rows = (list || []).map(function (c) { return "<li>" + esc(c.factor) + ": <em>" + esc(c.status) + "</em> (" + esc(c.source) + ")</li>"; }).join("");
                 var g = (gaps || []).map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("");
@@ -2146,7 +2149,7 @@
                     '<div class="cr-action"><strong>What to do:</strong> ' + esc(it.recommended_action) + '</div>' +
                     '<div class="cr-foot">Assessed: ' + esc(fmtTime(it.assessed_at, it.timezone)) + ' &middot; ' + esc(ageText(it.data_age_minutes)) +
                     ' <span class="cr-fresh ' + esc(it.freshness) + '">' + esc(it.freshness) + '</span><br>Area: ' + esc(it.area_label) + ' (area score ' + esc(it.area_score) + '/100)<br>' +
-                    'Source: ' + esc((it.sources || ["OpenStreetMap; FloodGuard model"]).join("; ")) + '</div>' + coverageHtml(it.coverage, it.data_gaps);
+                    (IS_ADMIN ? 'Source: ' + esc((it.sources || ["OpenStreetMap; FloodGuard model"]).join("; ")) : '') + '</div>' + (IS_ADMIN ? coverageHtml(it.coverage, it.data_gaps) : '');
             }
 
             function clearAll() {
@@ -2161,7 +2164,7 @@
             }
             function setSources(data) {
                 var src = document.getElementById("cr-sources");
-                if (!src) return;
+                if (!src || !IS_ADMIN) return;
                 src.innerHTML = "<p><strong>Sources:</strong> " + (data.sources || []).map(esc).join("; ") + "</p><ul>" + (data.limitations || []).map(function (l) { return "<li>" + esc(l) + "</li>"; }).join("") + "</ul>";
             }
 
@@ -3024,7 +3027,7 @@
             options = options || {};
             const emoji = RISK_EMOJI[period.riskColor] || "⚪";
             const title = options.title || ("📍 " + escapeHtml(cityName));
-            let note = options.note || "Assessment for this searched location, not an exact flood boundary.";
+            let note = options.note || {{ (prediction.broad_area_note or "Assessment for this searched location, not an exact flood boundary.") | tojson }};
             if (!options.note && isCoastal) {
                 note += " 🌊 Coastal region — lower alert threshold applied.";
             }

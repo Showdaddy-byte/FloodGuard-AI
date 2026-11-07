@@ -199,7 +199,7 @@ def _name_in_text(name_norm, text_norm):
 # ---------------------------------------------------------------------------
 def build_roads_query(lat, lon, radius_m):
     return (
-        "[out:json][timeout:25][maxsize:60000000];"
+        "[out:json][timeout:40][maxsize:60000000];"
         '(way["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street)$"]'
         f'["name"](around:{int(radius_m)},{lat:.6f},{lon:.6f}););'
         "out tags geom qt;"
@@ -208,7 +208,7 @@ def build_roads_query(lat, lon, radius_m):
 
 def build_water_query(lat, lon, radius_m):
     return (
-        "[out:json][timeout:25][maxsize:60000000];"
+        "[out:json][timeout:40][maxsize:60000000];"
         '(way["waterway"~"^(river|canal|drain|stream|ditch)$"]'
         f"(around:{int(radius_m)},{lat:.6f},{lon:.6f});"
         'way["natural"="water"]'
@@ -395,7 +395,7 @@ def assess_area(area, area_score, *, run_overpass, elevation_fn, reports, offici
         meta = {
             "radius_m": radius_m, "data_gaps": gaps, "limitations": LIMITATIONS, "coverage": coverage or [],
             "sources": list(SOURCES_BASE) + [f"Terrain: {elevation_source}"],
-            "basis": "Modelled risk from the FloodGuard model. Not confirmed flooding and not a calibrated probability.",
+            "basis": "Modelled risk from the FloodGuard model. It is separate from reports of actual flooding and is not a calibrated probability.",
             "score_kind": "model_score", "calibrated_probability": False,
         }
         meta.update(extra_meta or {})
@@ -414,8 +414,8 @@ def assess_area(area, area_score, *, run_overpass, elevation_fn, reports, offici
         radius_m = radius_m // 2
         roads_json = run_overpass(build_roads_query(area["lat"], area["lon"], radius_m))
     if roads_json is None:
-        gaps.append("OpenStreetMap road data could not be retrieved right now")
-        return base("unavailable", "OpenStreetMap road data could not be retrieved right now. Try again in a few minutes.")
+        gaps.append("Street detail is limited right now")
+        return base("unavailable", "Street detail for this area is limited right now. Please try again in a few minutes.")
     streets = parse_roads(roads_json, centre)
     if len(streets) < MIN_NAMED_STREETS:
         gaps.append(f"Only {len(streets)} named street(s) are mapped in OpenStreetMap within {radius_m} m")

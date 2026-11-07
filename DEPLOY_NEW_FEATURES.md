@@ -108,3 +108,16 @@ To correct one country: edit `data/emergency_overrides.json`, e.g.
 `"GH": {"general": "112", "ambulance": "193", "source": "Ghana NADMO", "verified_on": "2026-11-02"}`. No code change; it is picked up when the file changes.
 To refresh everything: replace rows in `data/world_emergency_raw.json`, run `pip install pycountry` then `python tools/build_world_emergency.py`, commit the JSON.
 Ambiguous directory cells (for example "112 or 911 or 153") keep only the general number and list the rest as text, so a wrong role is never shown.
+
+## Background monitoring scope (lighter load)
+
+Swept every 15 minutes: curated coastal, dam-downstream and river-basin places.
+Inland urban places: hourly (`URBAN_REFRESH_MINUTES`).
+International curated places: only for 15 minutes after a visitor searches for them.
+Places visitors search: swept only for `SEARCHED_PLACE_MONITOR_MINUTES` (15) after the search, then dropped and removed from the Places panel.
+Places that alert subscribers follow (web or Telegram) stay monitored.
+The sweep makes no OpenStreetMap calls for places with saved terrain; places without it share `SWEEP_MAX_COLD_OVERPASS` (6) lookups per sweep, so a restart fills in gradually instead of in one burst.
+All of these are constants near the top of app.py.
+
+## Backup water lookup (Geoapify)
+Used only when every Overpass mirror fails. It uses the existing `GEOAPIFY_API_KEY` and is capped at `GEOAPIFY_WATER_BACKUP_DAILY_CAP` (1,000) requests a day so search and map features keep their share of the free 3,000. Nothing found is treated as unknown, never as "no water". Visitors see only a distance, with no source named.

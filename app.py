@@ -1436,6 +1436,8 @@ def _build_places_directory(entries):
     for loc in CURATED_LOCATIONS:
         if normalize_city(loc["label"]) in seen:
             continue
+        if loc["category"] == "international":
+            continue  # not monitored unless a visitor has just searched for it
         places.append({
             "name": loc["label"],
             "category": loc["category"],
@@ -3125,10 +3127,21 @@ def _water_result_implausible(elevation, nearest_open_water_m, via_earth_engine=
     ground height is at most a few metres above sea level. Land that low is
     almost always beside a coast, lagoon or river, so a "none found" answer is
     far more likely to be missing/incomplete map data than the truth. We then
-    report the water distance as not confirmed instead of calling the place
+    report the water distance as limited-data instead of calling the place
     far from water."""
     return (nearest_open_water_m is None
             and elevation is not None and elevation <= 5)
+
+
+def _looks_like_open_water(elevation, nearest_water_m, building_count):
+    """Open sea, or land so empty it cannot be assessed as a place: ground at
+    most 5 m above sea level, no mapped water within the search radius, and a
+    SUCCESSFUL building lookup that found zero buildings. A failed lookup
+    (building_count None) never qualifies, so a service outage cannot create
+    this verdict. It is a rule of thumb, not a land/water map, so the wording
+    says "open water or uninhabited" rather than claiming certainty."""
+    return (elevation is not None and elevation <= 5
+            and nearest_water_m is None and building_count == 0)
 
 
 def _closest_point_on_element(lat, lon, el):
@@ -3263,6 +3276,82 @@ def fetch_building_count(lat, lon, radius_m=600):
     return 0
 
 
+# --- Backup water lookup (Geoapify Places) ---------------------------------
+# Used only when every Overpass mirror has failed for a water lookup. The free
+# Geoapify plan is 3,000 credits/day shared with search and map features, so
+# this backup is capped well below that.
+GEOAPIFY_PLACES_URL = "https://api.geoapify.com/v2/places"
+GEOAPIFY_WATER_BACKUP_DAILY_CAP = 1000
+_geoapify_backup_usage = {"day": None, "count": 0}
+
+
+def _geoapify_backup_allowed():
+    if not GEOAPIFY_API_KEY:
+        return False
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    if _geoapify_backup_usage["day"] != today:
+        _geoapify_backup_usage.update(day=today, count=0)
+    return _geoapify_backup_usage["count"] < GEOAPIFY_WATER_BACKUP_DAILY_CAP
+
+
+def _geoapify_nearest(lat, lon, categories, radius_m):
+    """Nearest matching feature as (distance_m, (lat, lon), name) or None."""
+    _geoapify_backup_usage["count"] += 1
+    response = request_with_retry(
+        "GET",
+        GEOAPIFY_PLACES_URL,
+        service_name="geoapify-places",
+        max_retries=0,
+        params={
+            "categories": categories,
+            "filter": f"circle:{lon},{lat},{radius_m}",
+            "bias": f"proximity:{lon},{lat}",
+            "limit": 1,
+            "apiKey": GEOAPIFY_API_KEY,
+        },
+        timeout=8,
+    )
+    response.raise_for_status()
+    features = (response.json() or {}).get("features") or []
+    if not features:
+        return None
+    feature = features[0]
+    props = feature.get("properties") or {}
+    coords = (feature.get("geometry") or {}).get("coordinates") or []
+    if len(coords) >= 2:
+        point = (coords[1], coords[0])
+    elif props.get("lat") is not None and props.get("lon") is not None:
+        point = (props["lat"], props["lon"])
+    else:
+        return None
+    return haversine_meters(lat, lon, point[0], point[1]), point, props.get("name")
+
+
+def fetch_water_context_geoapify(lat, lon, radius_m=3000):
+    """Backup for fetch_water_context() with the same 5-value result, or None.
+    Geoapify returns one point per feature, so for a large lagoon or bay the
+    distance is to a point on it and can read longer than the true distance.
+    "Nothing found" is returned as None (unknown), never as "no water": this
+    source only knows what its map copy contains."""
+    if not _geoapify_backup_allowed():
+        return None
+    try:
+        water = _geoapify_nearest(lat, lon, "natural.water,natural.coastal,waterway.river_system", radius_m)
+        if water is None:
+            return None
+        coast = None
+        try:
+            coast = _geoapify_nearest(lat, lon, "natural.water.sea,natural.coastal,natural.water.bay", COASTAL_ZONE_KM * 1000)
+        except (requests.RequestException, ValueError, KeyError, TypeError):
+            coast = None
+    except (requests.RequestException, ValueError, KeyError, TypeError) as error:
+        print(f"Backup water lookup failed: {_redact(error)}")
+        return None
+    distance, point, name = water
+    label = f"{name} (water)" if name else "Unnamed water"
+    return distance, (coast[0] if coast else None), point, label, distance
+
+
 def fetch_water_and_urban_context(lat, lon, radius_m=3000, fallback_building_count=None):
     """Water and building lookups, now two independent Overpass requests.
 
@@ -3273,10 +3362,16 @@ def fetch_water_and_urban_context(lat, lon, radius_m=3000, fallback_building_cou
     building density only affects a small urbanisation bonus, and must not
     throw away a good water result."""
     water = fetch_water_context(lat, lon, radius_m)
+    used_backup = False
+    if water is None:
+        water = fetch_water_context_geoapify(lat, lon, radius_m)
+        used_backup = water is not None
     if water is None:
         return None, None, None, None, None, None
     nearest_water_m, nearest_coast_m, nearest_water_point, nearest_water_label, nearest_open_water_m = water
-    building_count = fetch_building_count(lat, lon)
+    # When the backup supplied the water, Overpass is already failing, so skip
+    # the building request (it would only add timeouts) and use the last saved value.
+    building_count = None if used_backup else fetch_building_count(lat, lon)
     if building_count is None:
         building_count = fallback_building_count if fallback_building_count is not None else 0
         print("Building-count request did not complete; water result kept, building count "
@@ -3318,7 +3413,7 @@ def classify_water_proximity(distance_m, feature_label=None):
         return {
             "score_bonus": 0,
             "label": "No major water body detected nearby",
-            "status": "No coastline, river, or lake found within 3 km in OpenStreetMap data.",
+            "status": "No coastline, river or lake found within 3 km.",
         }
     named = f" — {feature_label}" if feature_label else ""
     if distance_m <= 500:
@@ -3351,7 +3446,7 @@ def classify_urbanization(building_count):
         return {
             "score_bonus": 0,
             "label": "Building density unavailable",
-            "status": "OpenStreetMap building lookup failed.",
+            "status": "Detail limited right now.",
         }
     if building_count >= 250:
         return {
@@ -4052,7 +4147,7 @@ def build_travel_recommendation(risk_level, score, timeline, data_incomplete=Fal
         # "safe" would claim more than FloodGuard knows. Say what it can.
         verdict, color, headline = (
             "NO FLOOD SIGNAL DETECTED", "low",
-            "No flood signal in the current weather data. Some location data is unavailable, so this is not a confirmation that the area is safe.",
+            "No flood signal in the current weather data. Some local detail is limited right now.",
         )
     else:
         verdict, color, headline = "SAFE TO TRAVEL", "low", "No significant flood signal for this location right now."
@@ -4143,9 +4238,9 @@ def estimate_environment(city, weather, community=None, context=None):
         "status": "Elevation lookup failed — terrain risk not yet factored in for this location.",
     }
     slope = context.get("slope") or {"label": "Slope data unavailable", "status": "Slope lookup failed."}
-    water = context.get("water") or {"label": "Water proximity unavailable", "status": "OpenStreetMap lookup failed."}
+    water = context.get("water") or {"label": "Water proximity unavailable", "status": "Detail limited right now."}
     soil = context.get("soil") or {"label": "Soil data unavailable", "status": "SoilGrids lookup failed."}
-    urban = context.get("urban") or {"label": "Building density unavailable", "status": "OpenStreetMap lookup failed."}
+    urban = context.get("urban") or {"label": "Building density unavailable", "status": "Detail limited right now."}
     tide = context.get("tide")
     river = context.get("river_discharge")
     moisture = context.get("soil_moisture")
@@ -5498,7 +5593,8 @@ def get_geo_context(city_key, lat, lon):
         "nearest_open_water_m": nearest_open_water_m,
         "building_count": building_count,
         "water_lookup_available": (building_count is not None or water_via_earth_engine) and not _water_result_implausible(elevation, nearest_open_water_m, water_via_earth_engine),
-        "water_lookup_implausible": _water_result_implausible(elevation, nearest_open_water_m, water_via_earth_engine) and (building_count is not None or water_via_earth_engine),
+        "location_type": "OPEN_WATER_OR_UNINHABITED" if _looks_like_open_water(elevation, nearest_water_m, building_count) else "LAND",
+        "water_lookup_implausible": _water_result_implausible(elevation, nearest_open_water_m, water_via_earth_engine) and (building_count is not None or water_via_earth_engine) and not _looks_like_open_water(elevation, nearest_water_m, building_count),
         "water_via_earth_engine": water_via_earth_engine,
         "clay_percent": clay_percent,
         "emergency_contacts": emergency_contacts,
@@ -5921,7 +6017,7 @@ VULNERABILITY_LEVELS = {
     "UNKNOWN": {
         "color": "watch",
         "headline": "Could not fully assess this location right now",
-        "guidance": "Key location data (elevation, terrain, or water proximity) could not be retrieved due to a temporary service issue. This is NOT a confirmation of low risk — it means the assessment is incomplete. Please try again in a few minutes.",
+        "guidance": "Some local detail (elevation, terrain or water distance) is limited right now, so this view is partial. Please check again shortly.",
         "warn_renters": False,
     },
     "LOW": {
@@ -6406,7 +6502,7 @@ def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engi
     if coastal:
         factors.append("Coastal region (within 10 km of an ocean/sea coastline)")
     if water_occurrence_pct is not None and water_occurrence_pct >= 10:
-        factors.append(f"Earth Engine JRC data shows this area has been water-covered ~{water_occurrence_pct:.0f}% of the time historically")
+        factors.append(f"Satellite history shows this area has been water-covered about {water_occurrence_pct:.0f}% of the time")
     if soil.get("score_bonus", 0) > 0:
         factors.append(f"Soil: {soil['label']}")
     if water_escape and water_escape.get("level") in ("poor", "constrained"):
@@ -6418,22 +6514,20 @@ def compute_flood_vulnerability(terrain, slope, water, soil, coastal, earth_engi
         if drainage_floor:
             factors = ["More than 1 km from open water, but flat, built-up ground beside a drainage canal — "
                        "street-level flooding from overflowing or blocked drains is the main risk here, not standing water"] + [
-                f for f in factors if not f.startswith("Earth Engine JRC")
+                f for f in factors if not f.startswith("Satellite history")
             ]
         else:
             factors = ["More than 1 km from mapped open water — scored as low long-term flood vulnerability"] + [
-                f for f in factors if not f.startswith(("Water proximity", "Earth Engine JRC"))
+                f for f in factors if not f.startswith(("Water proximity", "Satellite history"))
             ]
     if water_via_earth_engine and not data_incomplete:
         factors.append(
-            "Water distance is a satellite estimate (the map service was unavailable); drainage canals "
-            "and streams are not visible in it, so local drainage flooding may be understated"
+            "Water distance is approximate here; small drainage channels may not show"
         )
     if data_incomplete:
         missing = ", ".join(data_gaps) if data_gaps else "elevation, terrain, and/or water proximity"
         factors = [
-            f"Could not retrieve: {missing} (a data source may be temporarily rate-limited or "
-            "unavailable) — this is not a confirmation of low risk, the assessment is simply incomplete."
+            f"Local detail is limited right now: {missing}."
         ] + factors
     elif not factors:
         factors.append("No significant long-term flood indicators found for this location")
@@ -6788,6 +6882,15 @@ def build_prediction(query, known_place=None):
         }
 
     travel_recommendation = build_travel_recommendation(flood_model["risk"], flood_model["score"], timeline, data_incomplete=bool(vulnerability.get("data_incomplete")))
+    if geo.get("location_type") == "OPEN_WATER_OR_UNINHABITED" and flood_model["risk"] in ("LOW", "UNKNOWN"):
+        # No land-based "safe" verdict for open water. Real rain/flood signals
+        # (WATCH and above) are left to speak for themselves.
+        travel_recommendation = {
+            "verdict": "NOT A LAND LOCATION",
+            "color": "watch",
+            "headline": "This point looks like open water or an uninhabited area (no buildings or mapped water found, ground at sea level), so FloodGuard's land-based flood assessment does not apply here.",
+            "better_window": None,
+        }
     rainfall_warning = build_rainfall_warning(timeline, coastal=coastal)
     print("STEP 9: Completed")
     prediction_result = {
@@ -6814,6 +6917,7 @@ def build_prediction(query, known_place=None):
         "nearest_coast_m": round(nearest_coast_m) if nearest_coast_m is not None else None,
         "water_lookup_available": geo.get("water_lookup_available", False),
         "water_lookup_implausible": geo.get("water_lookup_implausible", False),
+        "location_type": geo.get("location_type", "LAND"),
 
         "nearest_water_lat": nearest_water_point[0] if nearest_water_point else None,
         "nearest_water_lon": nearest_water_point[1] if nearest_water_point else None,
@@ -8215,6 +8319,19 @@ def _run_street_job(area):
             _street_jobs[key] = {"state": "error", "error": str(_redact(error))[:200], "finished": time.time()}
 
 
+def _for_viewer(body):
+    """Provider names, per-factor coverage and technical data gaps are for the
+    admin only. Visitors get the assessment itself; the admin (logged in via
+    /admin/login) sees everything."""
+    if session.get("is_admin"):
+        return body
+    hidden = ("sources", "coverage", "limitations")
+    out = {k: v for k, v in body.items() if k not in hidden}
+    if isinstance(out.get("items"), list):
+        out["items"] = [{k: v for k, v in i.items() if k not in ("sources", "coverage", "data_gaps")} for i in out["items"]]
+    return out
+
+
 def _street_item_public(item):
     return {k: v for k, v in item.items() if k not in ("sources",)}
 
@@ -8233,20 +8350,20 @@ def _street_payload(items, *, mode, query=None, extra=None):
         "limitations": street_risk.LIMITATIONS,
         "default_threshold": FLOOD_ALERT_THRESHOLD,
         "score_kind": "model_score", "calibrated_probability": False,
-        "basis": "Modelled risk on FloodGuard's 0-100 scale. Not confirmed flooding and not a statistically calibrated probability.",
+        "basis": "Modelled risk on FloodGuard's 0-100 scale. It is separate from reports of actual flooding and is not a calibrated probability.",
     }
     if first:
         body["place"] = {"label": first["area_label"], "lat": first["lat"], "lon": first["lon"]}
     body.update(extra or {})
-    return body
+    return _for_viewer(body)
 
 
 def _unavailable_payload(area, payload, query):
-    return {"ok": True, "mode": "search", "query": query, "status": payload["status"], "count": 0, "items": [],
+    return _for_viewer({"ok": True, "mode": "search", "query": query, "status": payload["status"], "count": 0, "items": [],
             "message": payload["reason"], "place": _place_summary(area), "area_score": payload.get("area_score"),
             "threshold": payload.get("threshold"), "official": payload.get("official"),
             "coverage": payload.get("coverage"), "limitations": street_risk.LIMITATIONS,
-            "default_threshold": FLOOD_ALERT_THRESHOLD, "score_kind": "model_score", "calibrated_probability": False}
+            "default_threshold": FLOOD_ALERT_THRESHOLD, "score_kind": "model_score", "calibrated_probability": False})
 
 
 def _start_job(area, query):
@@ -8413,8 +8530,8 @@ def api_street_risk():
         if job["state"] == "running":
             return jsonify({"ok": True, "status": "pending", "job": job_key, "message": "Still assessing..."}), 202
         if job["state"] == "error":
-            return jsonify({"ok": True, "status": "error", "items": [], "count": 0, "message": job["error"],
-                            "place": _place_summary(area) if area else None, "limitations": street_risk.LIMITATIONS})
+            return jsonify(_for_viewer({"ok": True, "status": "error", "items": [], "count": 0, "message": job["error"],
+                            "place": _place_summary(area) if area else None, "limitations": street_risk.LIMITATIONS}))
         if job["state"] == "unavailable":
             return jsonify(_unavailable_payload(area, job["payload"], q))
         items, assessment = street_risk.area_items(DB_PATH, job_key)
