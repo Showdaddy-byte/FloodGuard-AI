@@ -29,6 +29,7 @@ import official_sources
 import street_risk
 import emergency_centre
 import telegram_alerts as tg
+import persistence
 try:
     import ee
 except ImportError:
@@ -8836,6 +8837,45 @@ def start_auto_refresh():
     _auto_refresh_started = True
     threading.Thread(target=_auto_refresh_loop, daemon=True, name="watchlist-auto-refresh").start()
     return True
+
+
+# Restore saved subscribers into an empty database (Render wipes the disk on
+# every deploy) BEFORE the background sweep starts. Needs TURSO_DATABASE_URL and
+# TURSO_AUTH_TOKEN; without them nothing changes.
+if "unittest" not in sys.modules and "pytest" not in sys.modules:
+    persistence.start(DB_PATH)
+
+
+# Requests that add, change or remove saved subscriber/report data.
+_PERSISTED_WRITE_PREFIXES = ("/api/contribute", "/api/alert-subscribe", "/api/telegram/webhook",
+                             "/api/admin/telegram/", "/admin/dams", "/unsubscribe/")
+
+
+def _writes_saved_data():
+    return request.path.startswith(_PERSISTED_WRITE_PREFIXES) and (
+        request.method == "POST" or request.path.startswith("/unsubscribe/"))
+
+
+@app.before_request
+def _wait_for_saved_data():
+    # Until saved subscribers are loaded back, accepting a new subscription or
+    # an unsubscribe could clash with the saved copy. Telegram retries a 503 on
+    # its own, and a visitor can simply try again in a minute.
+    if _writes_saved_data() and not persistence.ready():
+        return jsonify({"ok": False, "error": "FloodGuard is starting up. Please try again in a minute."}), 503
+
+
+@app.after_request
+def _sync_saved_data_after_writes(response):
+    if _writes_saved_data():
+        persistence.sync_now()
+    return response
+
+
+@app.route("/api/admin/persistence")
+@admin_json_required
+def api_admin_persistence():
+    return jsonify({"ok": True, **persistence.status()})
 
 
 start_auto_refresh()

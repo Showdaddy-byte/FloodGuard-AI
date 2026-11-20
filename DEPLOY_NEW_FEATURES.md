@@ -121,3 +121,17 @@ All of these are constants near the top of app.py.
 
 ## Backup water lookup (Geoapify)
 Used only when every Overpass mirror fails. It uses the existing `GEOAPIFY_API_KEY` and is capped at `GEOAPIFY_WATER_BACKUP_DAILY_CAP` (1,000) requests a day so search and map features keep their share of the free 3,000. Nothing found is treated as unknown, never as "no water". Visitors see only a distance, with no source named.
+
+## Keep subscribers across deploys (Turso)
+
+Render wipes the disk on every restart or deploy. `persistence.py` copies the tables that cannot be re-created
+(email subscribers and their places, dam subscriptions, dam status, Telegram subscribers and places, and visitor-submitted community reports) into your
+Turso database, and refills an empty local database from it at start-up.
+
+Set in Render (Environment): `TURSO_DATABASE_URL` (looks like `libsql://your-db-yourname.turso.io`) and
+`TURSO_AUTH_TOKEN`. Without both, nothing changes. Never put the token in GitHub or in a screenshot.
+
+Check it: log in at `/admin/login`, then open `/api/admin/persistence`. After a deploy it should show
+`restored: true` and `restored_rows` counts, and `saved_rows` counts that match your subscribers.
+Changes made by a subscribe, unsubscribe, Telegram message, report or admin dam update are sent to Turso before that request finishes. A background check also runs every minute.
+Safety: until the restore has finished, requests that write subscriber data get a 503 (Telegram retries by itself), so nothing can clash with the saved copy. Restore is all-or-nothing and never overwrites a table that already has rows. A sync will not delete more than half of a table's saved rows at once. Saved rows this server does not hold are left in Turso, and counted in `saved_rows_not_on_this_server`.
