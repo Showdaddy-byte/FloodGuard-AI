@@ -42,6 +42,7 @@ TABLES = (
     "telegram_subscribers",
     "telegram_locations",
     "contributions",
+    "digest_sends",
 )
 SYNC_INTERVAL_SECONDS = 60
 CHUNK = 40

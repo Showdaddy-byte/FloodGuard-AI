@@ -295,6 +295,16 @@
 <style id="fg-motion-css">
         /* ================= FloodGuard motion layer: living sky, icon dock, slide-up panels ================= */
         #fg-sky{position:fixed;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none;display:block}
+        .fg-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 14px;padding:4px;border-radius:14px;background:rgba(255,255,255,.06)}
+        .fg-tab{flex:1 1 auto;min-width:0;padding:10px 14px;border:0;border-radius:10px;background:transparent;color:inherit;font:inherit;font-weight:600;font-size:.92rem;cursor:pointer;opacity:.75}
+        .fg-tab.fg-on{background:rgba(56,189,248,.2);opacity:1;box-shadow:inset 0 0 0 1px rgba(125,211,252,.45)}
+        .fg-tabhost>.fg-tabpanel{display:none}
+        .fg-tabhost>.fg-tabpanel.fg-on{display:block}
+        .fg-hub>.fg-tabpanel{margin:0!important;padding:0!important;background:none!important;border:0!important;box-shadow:none!important;max-width:none!important}
+        .ec-dash{margin:14px 0;border:1px solid rgba(239,68,68,.45);border-radius:14px;background:rgba(127,29,29,.14)}
+        .ec-dash>summary{cursor:pointer;padding:12px 16px;font-weight:700;list-style:none}
+        .ec-dash>summary::-webkit-details-marker{display:none}
+        .ec-dash>#emergency-centre{margin:0!important;border:0!important;box-shadow:none!important;background:none!important;padding:4px 14px 14px!important;max-width:none!important}
         body.fg-has-dock{padding-bottom:118px}
         .fg-sheet{position:fixed!important;left:50%;bottom:96px;width:min(1020px,calc(100% - 16px))!important;max-width:none!important;max-height:calc(100vh - 120px);max-height:calc(100dvh - 120px);overflow:auto;margin:0!important;z-index:9000;border-radius:24px!important;border:1px solid rgba(125,211,252,.35)!important;background:linear-gradient(180deg,#0e2036,#08121f)!important;color:#e8f2fa;box-shadow:0 -10px 60px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.04) inset;transform:translate(-50%,40px) scale(.97);opacity:0;visibility:hidden;transition:transform .35s ease,opacity .25s ease,visibility 0s linear .35s;overscroll-behavior:contain}
         .fg-sheet.fg-open{transform:translate(-50%,0) scale(1);opacity:1;visibility:visible;transition:transform .45s cubic-bezier(.2,.9,.25,1.05),opacity .3s ease,visibility 0s}
@@ -421,7 +431,9 @@
         </div>
     </section>
 
-    <section id="global-now" class="global-now-section" aria-labelledby="global-now-title">
+    <section id="explore-hub" class="fg-hub fg-tabhost" aria-label="Explore">
+        <div class="fg-tabs" role="tablist"><button type="button" role="tab" class="fg-tab fg-on" data-tab="global-now" aria-selected="true">World map</button><button type="button" role="tab" class="fg-tab" data-tab="active-alerts" aria-selected="false">Live alerts</button><button type="button" role="tab" class="fg-tab" data-tab="monitored-places" aria-selected="false">Places</button></div>
+    <section id="global-now" class="global-now-section fg-tabpanel fg-on" aria-labelledby="global-now-title">
         <div class="global-now-heading">
             <div>
                 <p class="global-kicker">The Living Flood Map</p>
@@ -502,53 +514,7 @@
             </div>
         </details>
     </section>
-
-    <section id="live-traffic" class="global-now-section" aria-labelledby="live-traffic-title">
-        <div class="traffic-panel-heading">
-            <div>
-                <p class="global-kicker">Live Traffic</p>
-                <h2 id="live-traffic-title">🗺️ World Map &amp; Route Check</h2>
-                <p>Search any city, address, or neighbourhood anywhere in the world, or plan a route and see FloodGuard's own flood-risk coloring along the way before you leave.</p>
-            </div>
-        </div>
-
-        {% if geoapify_api_key %}
-        <div class="traffic-toolbar">
-            <div>
-                <strong>Map status</strong>
-                <span id="traffic-map-status">Loading map…</span>
-            </div>
-        </div>
-
-        <form id="traffic-search-form" class="traffic-search-form" role="search">
-            <input id="traffic-search-input" type="search" placeholder="Search a city, address, or neighbourhood" autocomplete="off">
-            <button type="submit">Go</button>
-        </form>
-
-        <div class="map-time-buttons" role="group" aria-label="Traffic map mode">
-            <button type="button" class="map-time-btn active" id="traffic-mode-explore" aria-pressed="true">Explore area</button>
-            <button type="button" class="map-time-btn" id="traffic-mode-route" aria-pressed="false">Plan a route</button>
-        </div>
-
-        <form id="traffic-route-form" class="route-form" style="display:none;">
-            <input type="text" id="traffic-route-origin" placeholder="From, e.g. Shomolu" required>
-            <input type="text" id="traffic-route-destination" placeholder="To, e.g. Victoria Island" required>
-            <button type="submit" id="traffic-route-submit">Check Route</button>
-            <button type="button" id="traffic-route-clear" class="traffic-refresh-button" style="background:#6b7280; display:none;">Clear route</button>
-        </form>
-        <div id="traffic-route-feedback" class="route-feedback"></div>
-        <div id="traffic-route-results"></div>
-
-        <div id="live-traffic-map" role="region" aria-label="Searchable world map"></div>
-        <p class="global-map-attribution">Map: Geoapify / OpenStreetMap. The route line (once you check a route) shows FloodGuard's own flood risk along the way — see the map legend for exact colors.</p>
-        {% else %}
-        <div class="traffic-not-configured">
-            Map is not configured yet — add <code>GEOAPIFY_API_KEY</code> to your environment to enable it.
-        </div>
-        {% endif %}
-    </section>
-
-    <section id="active-alerts" class="watchlist-panel">
+    <section id="active-alerts" class="watchlist-panel fg-tabpanel">
         <div class="watchlist-header">
             <h2>{% if watchlist.active_alerts %}<span class="live-dot" aria-hidden="true"></span>{% endif %}📍 Monitored Locations</h2>
             <span id="watchlist-updated" class="watchlist-updated" data-last-updated="{{ watchlist.last_updated or '' }}">{% if watchlist.last_updated %}Last checked {{ watchlist.last_updated }} UTC{% endif %}</span>
@@ -592,9 +558,7 @@
             {% endif %}
         </div>
     </section>
-
-
-    <section id="monitored-places" class="watchlist-panel">
+    <section id="monitored-places" class="watchlist-panel fg-tabpanel">
         <style>
             .places-toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:12px 0; }
             .places-toolbar input { flex:1 1 220px; min-width:0; padding:10px 12px; border-radius:8px; border:1px solid rgba(125,211,252,.35); background:#0f1f3a; color:#fff; }
@@ -620,8 +584,11 @@
         <div class="places-toolbar" id="places-filters" role="group" aria-label="Filter monitored places"></div>
         <div id="places-grid" class="places-grid" aria-live="polite"></div>
     </section>
+    </section>
 
-    <section id="route-safety" class="route-safety-panel">
+    <section id="travel-hub" class="fg-hub fg-tabhost" aria-label="Travel safety">
+        <div class="fg-tabs" role="tablist"><button type="button" role="tab" class="fg-tab fg-on" data-tab="route-safety" aria-selected="true">Route check</button><button type="button" role="tab" class="fg-tab" data-tab="live-traffic" aria-selected="false">Map &amp; traffic</button><button type="button" role="tab" class="fg-tab" data-tab="critical-roads" aria-selected="false">Streets at risk</button><button type="button" role="tab" class="fg-tab" data-tab="property-check" aria-selected="false">Renting / buying</button></div>
+    <section id="route-safety" class="route-safety-panel fg-tabpanel fg-on">
         <div class="route-safety-header">
             <h2>🚗 Can I Travel There Safely?</h2>
             <p>A real driving route (OSRM), checked point by point against live flood risk — terrain, water proximity, and current rainfall at points along the way. It does not include tides, road closures, ice or snow, so always check local conditions and tide tables before travelling.</p>
@@ -636,26 +603,51 @@
         <div id="route-results"></div>
         <div id="route-map" style="display:none;"></div>
     </section>
-
-    <section id="property-check" class="route-safety-panel">
-        <div class="route-safety-header">
-            <h2>Thinking of Renting or Buying Here?</h2>
-            <p>A long-term flood vulnerability check for a specific address or neighborhood — based on elevation, distance to water, historical satellite water presence, and past community flood reports. This does not depend on today's weather, so it's useful to check any time of year, not just during a storm.</p>
+    <section id="live-traffic" class="global-now-section fg-tabpanel" aria-labelledby="live-traffic-title">
+        <div class="traffic-panel-heading">
+            <div>
+                <p class="global-kicker">Live Traffic</p>
+                <h2 id="live-traffic-title">🗺️ World Map &amp; Route Check</h2>
+                <p>Search any city, address, or neighbourhood anywhere in the world, or plan a route and see FloodGuard's own flood-risk coloring along the way before you leave.</p>
+            </div>
         </div>
 
-        <form id="property-form" class="route-form">
-            <input type="text" id="property-location" placeholder="Address or neighborhood, e.g. Lekki Phase 1, Lagos" required>
-            <button type="submit" id="property-submit">Check Location</button>
+        {% if geoapify_api_key %}
+        <div class="traffic-toolbar">
+            <div>
+                <strong>Map status</strong>
+                <span id="traffic-map-status">Loading map…</span>
+            </div>
+        </div>
+
+        <form id="traffic-search-form" class="traffic-search-form" role="search">
+            <input id="traffic-search-input" type="search" placeholder="Search a city, address, or neighbourhood" autocomplete="off">
+            <button type="submit">Go</button>
         </form>
-        <div class="use-location-row">
-            <button type="button" id="property-use-location" class="map-pin-btn">📍 Use my location</button>
-            <span class="map-search-feedback">Standing on the land or building? No street address needed &mdash; we'll check the exact spot you're at.</span>
-        </div>
-        <div id="property-feedback" class="route-feedback"></div>
-        <div id="property-results"></div>
-    </section>
 
-    <section id="critical-roads" class="route-safety-panel">
+        <div class="map-time-buttons" role="group" aria-label="Traffic map mode">
+            <button type="button" class="map-time-btn active" id="traffic-mode-explore" aria-pressed="true">Explore area</button>
+            <button type="button" class="map-time-btn" id="traffic-mode-route" aria-pressed="false">Plan a route</button>
+        </div>
+
+        <form id="traffic-route-form" class="route-form" style="display:none;">
+            <input type="text" id="traffic-route-origin" placeholder="From, e.g. Shomolu" required>
+            <input type="text" id="traffic-route-destination" placeholder="To, e.g. Victoria Island" required>
+            <button type="submit" id="traffic-route-submit">Check Route</button>
+            <button type="button" id="traffic-route-clear" class="traffic-refresh-button" style="background:#6b7280; display:none;">Clear route</button>
+        </form>
+        <div id="traffic-route-feedback" class="route-feedback"></div>
+        <div id="traffic-route-results"></div>
+
+        <div id="live-traffic-map" role="region" aria-label="Searchable world map"></div>
+        <p class="global-map-attribution">Map: Geoapify / OpenStreetMap. The route line (once you check a route) shows FloodGuard's own flood risk along the way — see the map legend for exact colors.</p>
+        {% else %}
+        <div class="traffic-not-configured">
+            Map is not configured yet — add <code>GEOAPIFY_API_KEY</code> to your environment to enable it.
+        </div>
+        {% endif %}
+    </section>
+    <section id="critical-roads" class="route-safety-panel fg-tabpanel">
         <style>
             .cr-banner{border:1px solid rgba(245,158,11,.55);background:rgba(245,158,11,.10);border-radius:10px;padding:10px 12px;margin:0 0 14px;font-size:.92rem;line-height:1.45}
             .cr-form{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px}
@@ -720,68 +712,41 @@
         </details>
         {% endif %}
     </section>
-
-    <section id="emergency-centre" class="route-safety-panel" data-alert="{{ 'true' if (prediction and prediction.risk in ['HIGH','SEVERE','CRITICAL']) else 'false' }}"{% if prediction %} data-lat="{{ prediction.latitude }}" data-lon="{{ prediction.longitude }}" data-label="{{ prediction.city }}"{% endif %}>
-        <style>
-            .ec-fab{position:fixed;left:14px;bottom:14px;z-index:9999;display:inline-flex;align-items:center;gap:8px;background:#b91c1c;color:#fff;font-weight:700;font-size:.95rem;padding:11px 16px;border-radius:999px;text-decoration:none;box-shadow:0 4px 16px rgba(0,0,0,.4);border:2px solid #fff}
-            .ec-fab:hover{background:#991b1b}
-            .ec-fab.ec-alert{animation:ec-pulse 1.6s infinite}
-            @keyframes ec-pulse{0%{box-shadow:0 0 0 0 rgba(220,38,38,.75)}70%{box-shadow:0 0 0 16px rgba(220,38,38,0)}100%{box-shadow:0 0 0 0 rgba(220,38,38,0)}}
-            @media (prefers-reduced-motion:reduce){.ec-fab.ec-alert{animation:none}}
-            #emergency-centre.ec-alert-panel{border:2px solid #dc2626}
-            .ec-lead{font-size:1.05rem;font-weight:700;margin:0 0 6px}
-            .ec-urgent{border:1px solid #dc2626;background:rgba(220,38,38,.12);border-radius:10px;padding:10px 12px;margin:0 0 14px;font-size:.95rem;line-height:1.45}
-            .ec-form{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px}
-            .ec-form input[type=text]{flex:1 1 260px;min-width:0;background:#0f1a2e;border:1px solid rgba(148,163,184,.3);color:#f8fafc;font:inherit;font-size:15px;padding:12px 14px;box-sizing:border-box}
-            .ec-form button{width:auto;flex:0 0 auto;padding:12px 18px}
-            .ec-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:10px 0 14px}
-            .ec-tile{border:1px solid rgba(127,127,127,.4);background:rgba(127,127,127,.08);border-radius:12px;padding:10px 12px;text-align:left;cursor:pointer;color:inherit;font:inherit;width:auto}
-            .ec-tile strong{display:block;font-size:.95rem}
-            .ec-tile span{font-size:.78rem;opacity:.8}
-            .ec-tile.on{outline:2px solid #38bdf8}
-            .ec-status{min-height:1.4em;margin:6px 0 10px;font-size:.92rem}
-            .ec-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
-            @media (max-width:860px){.ec-layout{grid-template-columns:minmax(0,1fr)}}
-            #ec-map{height:420px;border-radius:12px;border:1px solid rgba(127,127,127,.35);position:sticky;top:12px;z-index:0}
-            @media (max-width:860px){ #ec-map{position:relative;height:300px;order:-1}}
-            .ec-group h3{margin:14px 0 6px;font-size:1.02rem}
-            .ec-card{border:1px solid rgba(127,127,127,.35);background:rgba(127,127,127,.07);border-radius:12px;padding:11px 13px;margin:0 0 8px}
-            .ec-name{font-weight:700;margin:0}
-            .ec-meta{font-size:.82rem;opacity:.82;margin:2px 0 0;line-height:1.4}
-            .ec-badge{display:inline-block;font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px;border:1px solid currentColor;margin:4px 4px 0 0}
-            .ec-ok{color:#16a34a}.ec-pend{color:#d97706}
-            .ec-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
-            .ec-btn{display:inline-block;padding:8px 14px;border-radius:8px;font-weight:700;font-size:.9rem;text-decoration:none;background:#0ea5e9;color:#fff}
-            .ec-btn.call{background:#15803d}.ec-btn.dir{background:#1d4ed8}.ec-btn.alt{background:#475569}
-            .ec-num{font-size:1.3rem;font-weight:800}
-            .ec-notes{font-size:.8rem;opacity:.88;margin-top:12px;line-height:1.5}
-            .ec-notes summary{cursor:pointer;font-weight:600}
-        </style>
+    <section id="property-check" class="route-safety-panel fg-tabpanel">
         <div class="route-safety-header">
-            <h2>🚨 Emergency &amp; Rescue Assistance</h2>
-            <p>Need emergency assistance? Find the emergency numbers for your location and the nearest hospitals, fire stations, ambulance stations, police and rescue points, with one-touch calling and directions. Works anywhere in the world.</p>
+            <h2>Thinking of Renting or Buying Here?</h2>
+            <p>A long-term flood vulnerability check for a specific address or neighborhood — based on elevation, distance to water, historical satellite water presence, and past community flood reports. This does not depend on today's weather, so it's useful to check any time of year, not just during a storm.</p>
         </div>
-        <div class="ec-urgent" role="note"><strong>If life is in danger, call your local emergency number now.</strong> Do not wait for this page to load. Do not walk or drive through floodwater.</div>
-        <form id="ec-form" class="ec-form">
-            <input type="text" id="ec-q" placeholder="Place, e.g. Gbagada, Lagos  |  Houston  |  Jakarta" maxlength="120" autocomplete="off">
-            <button type="submit" class="map-pin-btn" id="ec-go">Find help</button>
-            <button type="button" class="map-pin-btn" id="ec-geo">&#128205; Use my location</button>
+
+        <form id="property-form" class="route-form">
+            <input type="text" id="property-location" placeholder="Address or neighborhood, e.g. Lekki Phase 1, Lagos" required>
+            <button type="submit" id="property-submit">Check Location</button>
         </form>
-        <div id="ec-status" class="ec-status" aria-live="polite"></div>
-        <div id="ec-tiles" class="ec-tiles" hidden></div>
-        <div class="ec-layout" id="ec-layout" hidden>
-            <div id="ec-results"></div>
-            <div id="ec-map" role="img" aria-label="Map of emergency facilities"></div>
+        <div class="use-location-row">
+            <button type="button" id="property-use-location" class="map-pin-btn">📍 Use my location</button>
+            <span class="map-search-feedback">Standing on the land or building? No street address needed &mdash; we'll check the exact spot you're at.</span>
         </div>
-        <details class="ec-notes" id="ec-notes" hidden><summary>Read before relying on this page</summary><ul id="ec-caveats"></ul></details>
+        <div id="property-feedback" class="route-feedback"></div>
+        <div id="property-results"></div>
     </section>
+    </section>
+
+
+
+
+
+
+
 
     <section id="get-alerts" class="route-safety-panel">
         <div class="route-safety-header">
             <h2>Get Alerted Before It Floods</h2>
-            <p>Save your home, office, or any location you care about. We'll email you the moment it reaches HIGH flood risk or above — you don't have to keep checking back.</p>
+            <p>Save your home, office, or any location you care about and choose how to be alerted: email or Telegram. You don't have to keep checking back.</p>
         </div>
 
+        <div class="fg-tabhost">
+        <div class="fg-tabs" role="tablist"><button type="button" role="tab" class="fg-tab fg-on" data-tab="alert-tab-email" aria-selected="true">Email</button><button type="button" role="tab" class="fg-tab" data-tab="telegram-panel" aria-selected="false">Telegram</button></div>
+        <div id="alert-tab-email" class="fg-tabpanel fg-on">
         <form id="alert-form" class="route-form alert-form">
             <input type="email" id="alert-email" placeholder="Email address" required>
             <input type="tel" id="alert-phone" placeholder="Phone number (optional)">
@@ -793,7 +758,8 @@
         <p class="search-hint">Phone/WhatsApp numbers are saved for when SMS and WhatsApp alerts launch — only email alerts are active right now. You can unsubscribe from any alert email at any time.</p>
         <div id="alert-feedback" class="route-feedback"></div>
 
-        <div id="telegram-panel" style="margin-top:22px;border-top:1px solid rgba(127,127,127,.35);padding-top:16px;">
+        </div>
+        <div id="telegram-panel" class="fg-tabpanel">
             <style>
                 .tg-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin:8px 0}
                 .tg-row select,.tg-row input{box-sizing:border-box;width:100%;min-width:0;background:#0f1a2e;border:1px solid rgba(148,163,184,.3);border-radius:8px;color:#f8fafc;font:inherit;font-size:15px;padding:12px 14px}
@@ -823,6 +789,7 @@
             </ol>
             <p class="search-hint">Alerts show predicted flood risk from FloodGuard's model. For urgent help, contact your local emergency number.</p>
         </div>
+        </div>
     </section>
 
     <section id="dashboard" class="dashboard">
@@ -839,6 +806,64 @@
                 <span id="use-my-location-feedback" class="map-search-feedback" aria-live="polite"></span>
             </div>
             <p class="search-hint">Search a specific neighborhood for the most accurate result — flood risk can vary block to block within the same city, so "Lagos" alone is far less precise than "Lekki, Lagos" or "Maryland, Lagos".</p>
+
+            <details id="ec-details" class="ec-dash" open>
+                <summary>🚨 Emergency numbers &amp; rescue near this location</summary>
+    <section id="emergency-centre" class="route-safety-panel" data-alert="{{ 'true' if (prediction and prediction.risk in ['HIGH','SEVERE','CRITICAL']) else 'false' }}"{% if prediction %} data-lat="{{ prediction.latitude }}" data-lon="{{ prediction.longitude }}" data-label="{{ prediction.city }}"{% endif %}>
+            <style>
+                .ec-fab{position:fixed;left:14px;bottom:14px;z-index:9999;display:inline-flex;align-items:center;gap:8px;background:#b91c1c;color:#fff;font-weight:700;font-size:.95rem;padding:11px 16px;border-radius:999px;text-decoration:none;box-shadow:0 4px 16px rgba(0,0,0,.4);border:2px solid #fff}
+                .ec-fab:hover{background:#991b1b}
+                .ec-fab.ec-alert{animation:ec-pulse 1.6s infinite}
+                @keyframes ec-pulse{0%{box-shadow:0 0 0 0 rgba(220,38,38,.75)}70%{box-shadow:0 0 0 16px rgba(220,38,38,0)}100%{box-shadow:0 0 0 0 rgba(220,38,38,0)}}
+                @media (prefers-reduced-motion:reduce){.ec-fab.ec-alert{animation:none}}
+                #emergency-centre.ec-alert-panel{border:2px solid #dc2626}
+                .ec-lead{font-size:1.05rem;font-weight:700;margin:0 0 6px}
+                .ec-urgent{border:1px solid #dc2626;background:rgba(220,38,38,.12);border-radius:10px;padding:10px 12px;margin:0 0 14px;font-size:.95rem;line-height:1.45}
+                .ec-form{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px}
+                .ec-form input[type=text]{flex:1 1 260px;min-width:0;background:#0f1a2e;border:1px solid rgba(148,163,184,.3);color:#f8fafc;font:inherit;font-size:15px;padding:12px 14px;box-sizing:border-box}
+                .ec-form button{width:auto;flex:0 0 auto;padding:12px 18px}
+                .ec-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:10px 0 14px}
+                .ec-tile{border:1px solid rgba(127,127,127,.4);background:rgba(127,127,127,.08);border-radius:12px;padding:10px 12px;text-align:left;cursor:pointer;color:inherit;font:inherit;width:auto}
+                .ec-tile strong{display:block;font-size:.95rem}
+                .ec-tile span{font-size:.78rem;opacity:.8}
+                .ec-tile.on{outline:2px solid #38bdf8}
+                .ec-status{min-height:1.4em;margin:6px 0 10px;font-size:.92rem}
+                .ec-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+                @media (max-width:860px){.ec-layout{grid-template-columns:minmax(0,1fr)}}
+                #ec-map{height:420px;border-radius:12px;border:1px solid rgba(127,127,127,.35);position:sticky;top:12px;z-index:0}
+                @media (max-width:860px){ #ec-map{position:relative;height:300px;order:-1}}
+                .ec-group h3{margin:14px 0 6px;font-size:1.02rem}
+                .ec-card{border:1px solid rgba(127,127,127,.35);background:rgba(127,127,127,.07);border-radius:12px;padding:11px 13px;margin:0 0 8px}
+                .ec-name{font-weight:700;margin:0}
+                .ec-meta{font-size:.82rem;opacity:.82;margin:2px 0 0;line-height:1.4}
+                .ec-badge{display:inline-block;font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px;border:1px solid currentColor;margin:4px 4px 0 0}
+                .ec-ok{color:#16a34a}.ec-pend{color:#d97706}
+                .ec-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+                .ec-btn{display:inline-block;padding:8px 14px;border-radius:8px;font-weight:700;font-size:.9rem;text-decoration:none;background:#0ea5e9;color:#fff}
+                .ec-btn.call{background:#15803d}.ec-btn.dir{background:#1d4ed8}.ec-btn.alt{background:#475569}
+                .ec-num{font-size:1.3rem;font-weight:800}
+                .ec-notes{font-size:.8rem;opacity:.88;margin-top:12px;line-height:1.5}
+                .ec-notes summary{cursor:pointer;font-weight:600}
+            </style>
+            <div class="route-safety-header">
+                <h2>🚨 Emergency &amp; Rescue Assistance</h2>
+                <p>Need emergency assistance? Find the emergency numbers for your location and the nearest hospitals, fire stations, ambulance stations, police and rescue points, with one-touch calling and directions. Works anywhere in the world.</p>
+            </div>
+            <div class="ec-urgent" role="note"><strong>If life is in danger, call your local emergency number now.</strong> Do not wait for this page to load. Do not walk or drive through floodwater.</div>
+            <form id="ec-form" class="ec-form">
+                <input type="text" id="ec-q" placeholder="Place, e.g. Gbagada, Lagos  |  Houston  |  Jakarta" maxlength="120" autocomplete="off">
+                <button type="submit" class="map-pin-btn" id="ec-go">Find help</button>
+                <button type="button" class="map-pin-btn" id="ec-geo">&#128205; Use my location</button>
+            </form>
+            <div id="ec-status" class="ec-status" aria-live="polite"></div>
+            <div id="ec-tiles" class="ec-tiles" hidden></div>
+            <div class="ec-layout" id="ec-layout" hidden>
+                <div id="ec-results"></div>
+                <div id="ec-map" role="img" aria-label="Map of emergency facilities"></div>
+            </div>
+            <details class="ec-notes" id="ec-notes" hidden><summary>Read before relying on this page</summary><ul id="ec-caveats"></ul></details>
+        </section>
+            </details>
 
             {% if error %}
             <div class="error-message">{{ error }}</div>
@@ -1007,16 +1032,6 @@
                                 </ul>
                             </div>
                         </details>
-                        <details class="map-read-card">
-                            <summary>Why this location is scored this way</summary>
-                            <div class="map-read-content">
-                                <ul class="map-factor-list">
-                                    {% for factor in prediction.factors[:3] %}
-                                    <li>{{ factor }}</li>
-                                    {% endfor %}
-                                </ul>
-                            </div>
-                        </details>
                     </div>
                     {% if prediction.community.flooding_reports > 0 %}
                     <p class="map-community-note"><strong>{{ prediction.community.flooding_reports }} community flooding report(s)</strong> help inform this location's score. Exact report pins are not shown to protect reporters and avoid false precision.</p>
@@ -1046,19 +1061,21 @@
                         </div>
                     </div>
                     <p>{{ prediction.water_escape.status }}</p>
-                    <p class="terrain-behaviour-caveat">Based on terrain shape only (slope + surrounding elevation) — this does not account for engineered drainage capacity, culverts, or blocked stormwater infrastructure.</p>
+                    {% if session.get('is_admin') %}<p class="terrain-behaviour-caveat">Based on terrain shape only (slope + surrounding elevation) — this does not account for engineered drainage capacity, culverts, or blocked stormwater infrastructure.</p>{% endif %}
                 </div>
                 {% endif %}
 
                 <div class="insight-grid">
+                    {% if session.get('is_admin') %}
                     <section>
-                        <h3>FloodGuard AI says {{ prediction.risk }} because:</h3>
+                        <h3>How this result was reached (admin only)</h3>
                         <ul class="checklist">
                             {% for factor in prediction.factors %}
                             <li><span class="check-mark">✔</span> {{ factor }}</li>
                             {% endfor %}
                         </ul>
                     </section>
+                    {% endif %}
                     <section>
                         <h3>Environment Intelligence</h3>
                         <p>{{ prediction.environment.summary }}</p>
@@ -1854,7 +1871,7 @@
         feedbackEl.className = "route-feedback";
 
         const color = riskColorClassRoute(data.level);
-        const factorsHtml = data.factors.map((f) => "<li>" + f + "</li>").join("");
+        const factorsHtml = (data.factors || []).map((f) => "<li>" + f + "</li>").join("");
         const warningHtml = data.rent_purchase_warning
             ? '<div class="rent-warning-banner risk-border-' + color + '">' + data.rent_purchase_warning + "</div>"
             : "";
@@ -1879,7 +1896,7 @@
             propertyMapHtml(data) +
             terrainBehaviourHtml +
             warningHtml +
-            '<div class="route-risky-list"><strong>What this is based on:</strong><ul>' + factorsHtml + "</ul></div>" +
+            (factorsHtml ? '<div class="route-risky-list"><strong>How this was reached (admin only):</strong><ul>' + factorsHtml + "</ul></div>" : "") +
             '<p class="property-disclaimer">' + data.disclaimer + "</p>";
 
         initPropertyMap(data);
@@ -2145,7 +2162,7 @@
                     '<span class="cr-badge cr-sev-' + esc(it.severity) + '">' + esc(it.severity_label) + '</span></div>' +
                     '<div class="cr-score">' + esc(it.risk_score) + '/100 <span class="cr-meta" style="font-weight:400">' + (it.above_threshold ? "at or above" : "below") + " the alert level of " + esc(it.threshold) + '</span></div>' +
                     '<div class="cr-meta"><strong>' + esc(String(it.status_label).indexOf(basis) === 0 ? "" : basis + ": ") + "</strong>" + esc(it.status_label) + '</div>' + reports + officialHtml(it.official_alerts) +
-                    '<ul>' + factors + '</ul>' +
+                    (IS_ADMIN ? '<ul>' + factors + '</ul>' : '') +
                     '<div class="cr-action"><strong>What to do:</strong> ' + esc(it.recommended_action) + '</div>' +
                     '<div class="cr-foot">Assessed: ' + esc(fmtTime(it.assessed_at, it.timezone)) + ' &middot; ' + esc(ageText(it.data_age_minutes)) +
                     ' <span class="cr-fresh ' + esc(it.freshness) + '">' + esc(it.freshness) + '</span><br>Area: ' + esc(it.area_label) + ' (area score ' + esc(it.area_score) + '/100)<br>' +
@@ -3823,21 +3840,39 @@ window.FG = {
     function svg(name, size) { return '<svg viewBox="0 0 24 24" width="' + (size || 22) + '" height="' + (size || 22) + '" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONS[name] + "</svg>"; }
     var DOCK = [
         ["home-top", "Dashboard", "gauge", "#38bdf8"],
-        ["critical-roads", "Streets", "road", "#f59e0b"],
         ["emergency-centre", "Emergency", "siren", "#ef4444"],
-        ["get-alerts", "Get alerts", "bell", "#a78bfa"],
-        ["monitored-places", "Places", "pin", "#22c55e"],
-        ["active-alerts", "Live alerts", "alert", "#fb923c"],
-        ["global-now", "World map", "globe", "#3b82f6"],
-        ["route-safety", "Routes", "route", "#14b8a6"],
-        ["property-check", "Property", "home", "#ec4899"],
-        ["live-traffic", "Traffic", "light", "#84cc16"]
+        ["travel-hub", "Travel", "route", "#14b8a6"],
+        ["get-alerts", "Alerts", "bell", "#a78bfa"],
+        ["explore-hub", "Explore", "globe", "#3b82f6"]
     ];
+    var INLINE = { "home-top": 1, "emergency-centre": 1 };
+    var TAB_HOME = { "route-safety": "travel-hub", "live-traffic": "travel-hub", "critical-roads": "travel-hub", "property-check": "travel-hub",
+                     "monitored-places": "explore-hub", "active-alerts": "explore-hub", "global-now": "explore-hub" };
+    function selectTab(id) {
+        var panel = document.getElementById(id); if (!panel) return;
+        var host = panel.parentNode;
+        Array.prototype.forEach.call(host.children, function (c) { if (c.classList.contains("fg-tabpanel")) c.classList.toggle("fg-on", c === panel); });
+        Array.prototype.forEach.call(host.querySelectorAll(":scope > .fg-tabs .fg-tab"), function (b) {
+            var on = b.getAttribute("data-tab") === id; b.classList.toggle("fg-on", on); b.setAttribute("aria-selected", on ? "true" : "false");
+        });
+        setTimeout(function () { window.dispatchEvent(new Event("resize")); }, 60);
+    }
+    document.addEventListener("click", function (e) {
+        var b = e.target.closest && e.target.closest(".fg-tab"); if (b) selectTab(b.getAttribute("data-tab"));
+    });
+    function showEmergency() {
+        closeSheet();
+        var d = document.getElementById("ec-details"); if (!d) return;
+        d.open = true; setTimeout(function () { window.dispatchEvent(new Event("resize")); }, 60);
+        nativeScroll.call(d, { behavior: reduce ? "auto" : "smooth", block: "start" });
+    }
+    function sheetFor(id) { if (TAB_HOME[id]) { selectTab(id); return TAB_HOME[id]; } if (id === "alert-tab-email" || id === "telegram-panel") { selectTab(id); return "get-alerts"; } return id; }
+    var nativeScroll = Element.prototype.scrollIntoView;
     var dock = $("#fg-dock"), backdrop = $("#fg-backdrop"), openId = null, lastBtn = null;
     var sheets = {};
     DOCK.forEach(function (it) {
         var el = document.getElementById(it[0]);
-        if (it[0] !== "home-top" && el) {
+        if (!INLINE[it[0]] && el) {
             el.classList.add("fg-sheet"); el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true"); el.setAttribute("aria-label", it[1]);
             var head = document.createElement("div"); head.className = "fg-sheet-head"; head.style.setProperty("--c", it[3]);
             head.innerHTML = '<span class="fg-hic" style="--c:' + it[3] + '">' + svg(it[2], 20) + "</span><strong>" + esc(it[1]) + '</strong><button type="button" class="fg-close" aria-label="Close ' + esc(it[1]) + '">' + svg("close", 18) + "</button>";
@@ -3848,18 +3883,20 @@ window.FG = {
     });
     function buildDock() {
         if (!dock) return;
-        dock.innerHTML = DOCK.filter(function (it) { return it[0] === "home-top" || sheets[it[0]]; }).map(function (it) {
+        dock.innerHTML = DOCK.filter(function (it) { return INLINE[it[0]] || sheets[it[0]]; }).map(function (it) {
             return '<button type="button" class="fg-dk' + (it[0] === "emergency-centre" ? " fg-sos" : "") + '" data-open="' + it[0] + '" style="--c:' + it[3] + '" aria-expanded="false" aria-label="' + esc(it[1]) + '"><span class="fg-ico">' + svg(it[2], 22) + "</span><span>" + esc(it[1]) + "</span></button>";
         }).join("");
         dock.addEventListener("click", function (e) {
             var b = e.target.closest(".fg-dk"); if (!b) return;
             var id = b.getAttribute("data-open");
+            if (id === "emergency-centre") { showEmergency(); return; }
             if (id === "home-top") { closeSheet(); var dsh = document.getElementById("dashboard"); if (dsh) dsh.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" }); return; }
             if (openId === id) closeSheet(); else openSheet(id, b);
         });
     }
     function setPressed() { Array.prototype.forEach.call(document.querySelectorAll(".fg-dk"), function (b) { b.setAttribute("aria-expanded", b.getAttribute("data-open") === openId ? "true" : "false"); }); }
     function openSheet(id, btn) {
+        id = sheetFor(id);
         var el = sheets[id]; if (!el) return;
         if (openId && openId !== id) sheets[openId].classList.remove("fg-open");
         openId = id; lastBtn = btn || document.querySelector('.fg-dk[data-open="' + id + '"]');
@@ -3881,14 +3918,15 @@ window.FG = {
     document.addEventListener("click", function (e) {
         var a = e.target.closest && e.target.closest('a[href^="#"]'); if (!a || a.closest("#fg-dock")) return;
         var id = (a.getAttribute("href") || "").slice(1);
-        if (sheets[id]) { e.preventDefault(); openSheet(id); }
+        if (id === "emergency-centre") { e.preventDefault(); showEmergency(); return; }
+        var hid = sheetFor(id);
+        if (sheets[hid]) { e.preventDefault(); openSheet(hid); }
     });
-    window.addEventListener("hashchange", function () { var id = location.hash.slice(1); if (sheets[id] && openId !== id) openSheet(id); });
+    window.addEventListener("hashchange", function () { var id = location.hash.slice(1); if (id === "emergency-centre") { showEmergency(); return; } id = sheetFor(id); if (sheets[id] && openId !== id) openSheet(id); });
     /* code elsewhere that scrolls to a panel opens it */
-    var nativeScroll = Element.prototype.scrollIntoView;
-    Element.prototype.scrollIntoView = function () { if (this.classList && this.classList.contains("fg-sheet") && sheets[this.id]) { openSheet(this.id); return; } return nativeScroll.apply(this, arguments); };
+    Element.prototype.scrollIntoView = function () { if (this.id === "emergency-centre") { showEmergency(); return; } if (this.id && (TAB_HOME[this.id] || this.id === "telegram-panel" || this.id === "alert-tab-email")) { openSheet(sheetFor(this.id)); return; } if (this.classList && this.classList.contains("fg-sheet") && sheets[this.id]) { openSheet(this.id); return; } return nativeScroll.apply(this, arguments); };
     buildDock(); document.body.classList.add("fg-has-dock");
-    if (location.hash && sheets[location.hash.slice(1)]) setTimeout(function () { openSheet(location.hash.slice(1)); }, 300);
+    if (location.hash) setTimeout(function () { var h = location.hash.slice(1); if (h === "emergency-centre") showEmergency(); else if (sheets[sheetFor(h)]) openSheet(h); }, 300);
 })();
 
 </script>

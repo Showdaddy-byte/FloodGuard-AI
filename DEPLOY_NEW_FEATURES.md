@@ -135,3 +135,9 @@ Check it: log in at `/admin/login`, then open `/api/admin/persistence`. After a 
 `restored: true` and `restored_rows` counts, and `saved_rows` counts that match your subscribers.
 Changes made by a subscribe, unsubscribe, Telegram message, report or admin dam update are sent to Turso before that request finishes. A background check also runs every minute.
 Safety: until the restore has finished, requests that write subscriber data get a 503 (Telegram retries by itself), so nothing can clash with the saved copy. Restore is all-or-nothing and never overwrites a table that already has rows. A sync will not delete more than half of a table's saved rows at once. Saved rows this server does not hold are left in Turso, and counted in `saved_rows_not_on_this_server`.
+
+## Daily email digests and Telegram after a deploy
+- The app now sends the morning (05:00 UTC) and evening (17:00 UTC) digests by itself, with a 4-hour catch-up window. The external cron on /api/send-digest still works and cannot cause double sends.
+- Subscribers and the "already sent today" marker are saved in Turso, so a deploy no longer wipes them. This only works once `persistence.py`, the new `app.py` and the env vars `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` are on Render.
+- Check after deploy: log in as admin and open /api/admin/persistence. It should show `restored: true`. If it does not, subscribers will still be wiped on the next commit.
+- Optional: `DISABLE_DIGEST_SCHEDULER=1` turns the built-in scheduler off.

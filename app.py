@@ -2272,7 +2272,7 @@ def send_daily_digests(digest_type):
     if not rows:
         print(f"DIGEST: {digest_type} run found ZERO subscriber locations — nothing to send. "
               "(No one has completed /api/alert-subscribe with a saved location yet.)")
-        return
+        return None
 
     subscribers = {}
     for row in rows:
@@ -2327,42 +2327,108 @@ def send_daily_digests(digest_type):
 
     print(f"DIGEST: {digest_type} run complete — {sent_count} sent, {skipped_count} skipped, "
           f"{len(prediction_cache)} unique location(s) computed")
+    return sent_count
+
+
+DIGEST_CATCHUP_HOURS = int(os.getenv("DIGEST_CATCHUP_HOURS", "4"))
+
+
+def digest_already_sent(digest_key):
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        return conn.execute("SELECT 1 FROM digest_sends WHERE digest_key = ?", (digest_key,)).fetchone() is not None
+    finally:
+        conn.close()
+
+
+def mark_digest_sent(digest_key):
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute("INSERT OR REPLACE INTO digest_sends (digest_key, sent_at) VALUES (?, ?)",
+                     (digest_key, datetime.utcnow().isoformat()))
+        conn.execute("DELETE FROM digest_sends WHERE sent_at < ?",
+                     ((datetime.utcnow() - timedelta(days=14)).isoformat(),))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def run_digest_once(digest_type, force=False):
+    """The one place a digest is sent. Skips if already sent today (marker kept
+    in digest_sends, which is saved externally), and only records the day as
+    done when there was someone to send to, so a run on an empty database does
+    not use up the day. Returns a short status string."""
+    digest_key = f"{digest_type}:{datetime.utcnow().strftime('%Y-%m-%d')}"
+    if not force and digest_already_sent(digest_key):
+        return "already_sent"
+    lock_name = f"digest_run:{digest_type}"
+    if not try_acquire_lock(lock_name, max_age_minutes=30):
+        return "running"
+    try:
+        sent = send_daily_digests(digest_type)
+        if sent is None:
+            return "no_subscribers"
+        if sent > 0 or force:
+            mark_digest_sent(digest_key)
+            try:
+                persistence.sync_now()
+            except Exception as error:  # noqa: BLE001
+                print(f"DIGEST: could not save send marker externally: {error}")
+        return f"sent:{sent}"
+    finally:
+        release_lock(lock_name)
+
+
+def due_digest_type(now=None):
+    """Which digest should be sent now: from its send hour until
+    DIGEST_CATCHUP_HOURS later, so a restart or sleep at the exact hour does
+    not lose the day's email."""
+    now = now or datetime.utcnow()
+    due = None
+    for digest_type, hour in (("morning", DIGEST_MORNING_UTC_HOUR), ("evening", DIGEST_EVENING_UTC_HOUR)):
+        if hour <= now.hour < hour + DIGEST_CATCHUP_HOURS:
+            due = digest_type
+    return due
 
 
 def maybe_send_daily_digests():
-    """Opportunistically sends the morning/evening digest if the current UTC
-    hour matches a configured send time and it hasn't already gone out
-    today. Best-effort trigger tied to normal page traffic — for guaranteed
-    delivery even with zero visitors at the target hour, pair this with an
-    external scheduler hitting /api/send-digest, same pattern already
-    documented for /api/refresh-watchlist."""
-    now = datetime.utcnow()
-    current_hour = now.hour
-    today_str = now.strftime("%Y-%m-%d")
-
-    digest_type = None
-    if current_hour == DIGEST_MORNING_UTC_HOUR:
-        digest_type = "morning"
-    elif current_hour == DIGEST_EVENING_UTC_HOUR:
-        digest_type = "evening"
-
+    """Traffic-triggered fallback; the background scheduler and the external
+    cron call run_digest_once too, and the marker prevents double sends."""
+    digest_type = due_digest_type()
     if not digest_type:
         return
+    if digest_already_sent(f"{digest_type}:{datetime.utcnow().strftime('%Y-%m-%d')}"):
+        return
+    threading.Thread(target=run_digest_once, args=(digest_type,), daemon=True).start()
 
-    digest_key = f"{digest_type}:{today_str}"
-    if not try_acquire_lock(f"digest_send:{digest_key}", max_age_minutes=90):
-        return  # already sent (or currently sending) this digest today
 
-    def _run():
+def _digest_loop():
+    time.sleep(90)
+    while True:
         try:
-            send_daily_digests(digest_type)
-        finally:
-            pass  # deliberately do NOT release this lock — it's a once-per-day dedup marker, not a mutex to reclaim
+            if persistence.ready():
+                digest_type = due_digest_type()
+                if digest_type:
+                    status = run_digest_once(digest_type)
+                    if status.startswith("sent"):
+                        print(f"DIGEST: scheduler {digest_type} -> {status}")
+        except Exception as error:  # noqa: BLE001
+            print(f"DIGEST: scheduler error: {error}")
+        time.sleep(300)
 
-    threading.Thread(target=_run, daemon=True).start()
+
+_digest_loop_started = False
 
 
-
+def start_digest_scheduler():
+    global _digest_loop_started
+    if _digest_loop_started or os.getenv("DISABLE_DIGEST_SCHEDULER", "").strip() == "1":
+        return False
+    if "unittest" in sys.modules or "pytest" in sys.modules:
+        return False
+    _digest_loop_started = True
+    threading.Thread(target=_digest_loop, daemon=True, name="digest-scheduler").start()
+    return True
 
 
 def generate_unsubscribe_token():
@@ -3963,23 +4029,26 @@ def classify_terrain_behaviour(elevation, slope_percent, nearest_water_m, coasta
     if historically_wet and not currently_water:
         key = "wetland_seasonal"
         built_now = land_cover == "built area" or (dw_built_prob is not None and dw_built_prob >= 0.4)
+        label_override = None
         if built_now:
+            label_override = "Reclaimed / sand-filled land"
             detail = (
-                f"Older satellite records (1984-2021) show water here roughly "
-                f"{water_occurrence_pct:.0f}% of the time, but current imagery "
-                "shows built-up land, not water — consistent with sand-filled "
-                "or reclaimed ground. It is not open water now. Reclaimed land "
-                "can still sit low and drain poorly, so check local drainage."
+                f"Satellite records (1984-2021) show water here about "
+                f"{water_occurrence_pct:.0f}% of the time, but current imagery shows "
+                "built-up land. This indicates the ground was formerly water or "
+                "wetland and has since been reclaimed or sand-filled. Reclaimed "
+                "land sits low and drains poorly, so it is prone to flooding "
+                "during torrential rainfall."
             )
         else:
             detail = (
-                f"Older satellite records (1984-2021) show water here roughly "
+                f"Satellite records (1984-2021) show water here about "
                 f"{water_occurrence_pct:.0f}% of the time, but current imagery "
-                "does not classify it as open water. It may be seasonally wet "
-                "or reclaimed land; check local drainage conditions."
+                "does not classify it as open water. The ground may be seasonally "
+                "wet or reclaimed, and can flood during heavy rainfall."
             )
         meta = TERRAIN_BEHAVIOUR_TYPES[key]
-        return {"key": key, "code": meta["code"], "label": meta["label"], "icon": meta["icon"], "detail": detail, "is_likely_water_pixel": False}
+        return {"key": key, "code": meta["code"], "label": label_override or meta["label"], "icon": meta["icon"], "detail": detail, "is_likely_water_pixel": False}
 
     # --- Coastal / floodplain / basin classifications ---
     if coastal and elevation <= 10:
@@ -7366,20 +7435,14 @@ def api_send_digest():
     if digest_type not in ("morning", "evening"):
         return jsonify({"ok": False, "error": "Query param 'type' must be 'morning' or 'evening'."}), 400
 
-    today_str = datetime.utcnow().strftime("%Y-%m-%d")
-    digest_key = f"{digest_type}:{today_str}"
-
-    # Same once-per-day marker the traffic-triggered path uses, so a
-    # repeated call (or both paths firing) can't email subscribers twice.
-    # ?force=1 (with a valid token) bypasses it for a deliberate re-send.
     force = (request.args.get("force") or "").strip() == "1"
-    if not force and not try_acquire_lock(f"digest_send:{digest_key}", max_age_minutes=90):
+    print(f"DIGEST: /api/send-digest hit for '{digest_type}' (force={force})")
+    status = run_digest_once(digest_type, force=force)
+    if status == "already_sent":
         return jsonify({"ok": True, "note": f"The {digest_type} digest was already sent today; nothing re-sent."})
-
-    print(f"DIGEST: /api/send-digest hit for '{digest_type}' (key={digest_key}, force={force})")
-    send_daily_digests(digest_type)
-
-    return jsonify({"ok": True, "note": f"{digest_type} digest run finished."})
+    if status == "no_subscribers":
+        return jsonify({"ok": True, "note": "No subscribers with saved locations were found, so nothing was sent."})
+    return jsonify({"ok": True, "note": f"{digest_type} digest run finished ({status})."})
 
 
 @app.route("/api/route-safety", methods=["POST"])
@@ -8329,7 +8392,7 @@ def _for_viewer(body):
     hidden = ("sources", "coverage", "limitations")
     out = {k: v for k, v in body.items() if k not in hidden}
     if isinstance(out.get("items"), list):
-        out["items"] = [{k: v for k, v in i.items() if k not in ("sources", "coverage", "data_gaps")} for i in out["items"]]
+        out["items"] = [{k: v for k, v in i.items() if k not in ("sources", "coverage", "data_gaps", "factors")} for i in out["items"]]
     return out
 
 
@@ -8791,12 +8854,40 @@ def api_admin_telegram_webhook():
         return jsonify({"ok": False, "error": str(error)}), 502
 
 
+@app.route("/robots.txt")
+def robots_txt():
+    # Keep search engines on the real pages. The /api/ URLs return data for the
+    # site's own scripts (and answer 400/405 to a bare visit by design), so
+    # crawling them only fills Search Console with "blocked by 4xx" reports.
+    body = (
+        "User-agent: *\n"
+        "Allow: /\n"
+        "Disallow: /api/\n"
+        "Disallow: /admin/\n"
+        "Disallow: /unsubscribe/\n"
+        "\n"
+        "Sitemap: https://myfloodguard.online/sitemap.xml\n"
+    )
+    return Response(body, mimetype="text/plain")
+
+
+@app.after_request
+def _keep_api_out_of_search(response):
+    # Backup for crawlers that ignore robots.txt. Status codes are untouched.
+    if request.path.startswith(("/api/", "/admin/", "/unsubscribe/")):
+        response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    return response
+
+
 @app.route("/sitemap.xml")
 def sitemap():
     xml = """<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
         <loc>https://myfloodguard.online/</loc>
+    </url>
+    <url>
+        <loc>https://myfloodguard.online/terms</loc>
     </url>
 </urlset>
 """
@@ -8846,6 +8937,9 @@ if "unittest" not in sys.modules and "pytest" not in sys.modules:
     persistence.start(DB_PATH)
 
 
+start_digest_scheduler()
+
+
 # Requests that add, change or remove saved subscriber/report data.
 _PERSISTED_WRITE_PREFIXES = ("/api/contribute", "/api/alert-subscribe", "/api/telegram/webhook",
                              "/api/admin/telegram/", "/admin/dams", "/unsubscribe/")
@@ -8863,6 +8957,17 @@ def _wait_for_saved_data():
     # its own, and a visitor can simply try again in a minute.
     if _writes_saved_data() and not persistence.ready():
         return jsonify({"ok": False, "error": "FloodGuard is starting up. Please try again in a minute."}), 503
+
+
+@app.after_request
+def _hide_reasoning_from_visitors(response):
+    """How a result was reached (the factor list) is for the admin only."""
+    if request.path == "/api/property-check" and not session.get("is_admin") and response.is_json:
+        body = response.get_json(silent=True)
+        if isinstance(body, dict) and "factors" in body:
+            body.pop("factors", None)
+            response.set_data(json.dumps(body))
+    return response
 
 
 @app.after_request
